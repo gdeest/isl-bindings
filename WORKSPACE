@@ -1,6 +1,7 @@
-workspace(name = "YOUR_PROJECT_NAME_HERE")
+workspace(name = "isl_bindings")
 
-rules_haskell_rev = "02d60f544129161e63ea5b284b55f0486063f4bc"
+rules_haskell_rev = "fc73da2cc133f3be81c97cd8c1199ac0e607754f"
+
 http_archive(
     name = "io_tweag_rules_haskell",
     strip_prefix = "rules_haskell-{}".format(rules_haskell_rev),

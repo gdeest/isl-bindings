@@ -372,10 +372,8 @@ toInDecl (HSFunction (ISLFunction annots t name params) hsName) = do
 
   toHsRet <- mbToHsRet
 
-  paramsInfo <-
-      sequence $ map (lookupType . (\(ISLParam _ t _) -> t)) params
 
-  let createUnwrap (pi, ISLParam annots t name) = do
+  let createUnwrap pi = do
         toC <- hsToC pi
         if ISL_TAKE `elem` annots
           then
@@ -384,7 +382,19 @@ toInDecl (HSFunction (ISLFunction annots t name params) hsName) = do
               True -> Just $ toC ++ " >=> islCopy"
           else return toC
 
-  unwrappers <- sequence $ map createUnwrap (zip paramsInfo params)
+  let filteredParams =
+        filter (\(ISLParam _ t _) -> not (t == ISL_CTX_PTR)) params
+
+  -- paramsInfo <-
+  --     sequence $ map (lookupType . (\(ISLParam _ t _) -> t)) params
+  paramsInfo <-
+      sequence $ map (lookupType . (\(ISLParam _ t _) -> t)) filteredParams
+  fullParamsInfo <-
+      sequence $ map (lookupType . (\(ISLParam _ t _) -> t)) params
+
+
+  unwrappers <- sequence $ map createUnwrap paramsInfo
+
   -- wrappers <- sequence $ map cToHs paramsInfo
   wrapper <- mbToHsRet
   -- wraps <- forM params wrapParam
@@ -393,10 +403,14 @@ toInDecl (HSFunction (ISLFunction annots t name params) hsName) = do
   let importType
         = concat
         . intersperse " -> "
-        $ (map cType paramsInfo) ++ ["IO " ++ cRetType]
+        $ (map cType fullParamsInfo) ++ ["IO " ++ cRetType]
 
-      paramNames = map (\(ISLParam _ _ id) -> id) params
-      paramNames' = map (++ "'") paramNames
+      paramNames =
+        map (\(ISLParam _ _ id) -> id) params
+      paramNames' =
+        map (\(ISLParam _ _ id) -> (id, id++"'")) filteredParams
+        -- map (\x -> (x, x++"'")) . filter (/= "ctx") $ paramNames
+
       cFunName = "c_" ++ hsName
       importCall = unlines $
         [ concat
@@ -411,10 +425,14 @@ toInDecl (HSFunction (ISLFunction annots t name params) hsName) = do
         )
       exportCall = unlines $
         [ concat [hsName, " :: (Given Ctx) => ", hsTypeStr]
-        , concat [hsName, " = \\", concat $ intersperse " " paramNames', " -> "]
+        , case paramNames' of
+            [] -> concat [hsName, " =  "]
+            _ -> concat [hsName, " = \\", concat $ intersperse " " (map snd paramNames'), " -> "]
         , concat ["    unsafePerformIO $ (", wrapper, ") =<< do"]
-        , unlines $ flip map (zip3 paramNames paramNames' unwrappers) $
-            \(p, p', unwrap) -> "      " ++ p ++ " <- (" ++ unwrap ++ ") " ++ p'
+        , unlines $ flip map (zip paramNames' unwrappers) $
+            \((p, p'), unwrap) -> "      " ++ p ++ " <- (" ++ unwrap ++ ") " ++ p'
+        , "      let ctx' = given :: Ctx"
+        , "          ctx = unsafeForeignPtrToPtr $ unCtx ctx'"
         , concat ["      ", cFunName, " "
                  , concat $ intersperse " " paramNames
                  ]
@@ -658,6 +676,7 @@ memoryFunctions =
     , (ISL_VAL_PTR, ("val_copy", "val_free"))
     , (ISL_SPACE_PTR, ("space_copy", "space_free"))
     , (ISL_CONSTRAINT_PTR, ("constraint_copy", "constraint_free"))
+    , (ISL_PRINTER_PTR, ("return", "isl_printer_free"))
     , (ISL_LOCAL_SPACE_PTR, ("local_space_copy", "local_space_free"))
     , (ISL_ID_PTR, ("id_copy", "id_free"))
     , (CHAR_PTR, ("", "(fun _ -> ())"))

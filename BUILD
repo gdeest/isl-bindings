@@ -4,6 +4,7 @@ load(
   "@io_tweag_rules_haskell//haskell:haskell.bzl",
   "haskell_binary",
   "haskell_cc_import",
+  "haskell_doc",
   "haskell_library",
   "haskell_toolchain",
 )
@@ -49,11 +50,8 @@ genrule(
     "src/Isl/Val/AutoGen.hs",
   ],
   cmd = """
-  # echo "module Isl.Internal.AutoGen.Dummy where" > Dummy.hs  &&
-  # cp Dummy.hs $(@D) # && tree -f 
   $(location :generate-bindings) &&
-  cp -r ./src $(@D) # && tree -f
-  # tree -f && cat ./src/Isl/AutoGen/IslBasicMap.hs
+  cp -r ./src $(@D)
 """,
 )
 
@@ -75,6 +73,11 @@ haskell_library(
     "base",
     "reflection",
   ]
+)
+
+haskell_doc(
+  name = "isl-bindings-doc",
+  deps = [":isl-bindings"],
 )
 
 haskell_binary(

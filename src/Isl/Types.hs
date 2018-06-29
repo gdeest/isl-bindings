@@ -1,6 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE ScopedTypeVariables #-}
 
 module Isl.Types where
 
@@ -24,7 +23,9 @@ newtype UnionMap = UnionMap (Ctx, ForeignPtr UnionMap)
 newtype Constraint = Constraint (Ctx, ForeignPtr Constraint)
 newtype Space = Space (Ctx, ForeignPtr Space)
 newtype LocalSpace = LocalSpace (Ctx, ForeignPtr LocalSpace)
+newtype Printer = Printer (Ctx, ForeignPtr Printer)
 
+type RawPrinter = Ptr Printer
 type RawCtx = Ptr Ctx
 type RawAff = Ptr Aff
 type RawVal = Ptr Val
@@ -61,6 +62,15 @@ ctx_alloc = do
   c_options_set_on_error ptr isl_on_error_continue
   Ctx <$> newForeignPtr c_ctx_free ptr
 
+-- foreign import ccall "isl/printer.h isl_printer_to_str"
+--     c_isl_printer_to_str :: IO RawPrinter
+
+-- foreign import ccall "isl/printer.h isl_printer_free"
+--     c_isl_printer_free :: RawPrinter -> IO ()
+
+-- foreign import call "isl/map.h isl_printer_print_basic_map"
+--     c_isl_printer_print_basic_map ::
+
 class IslRef a where
   islCopy :: Ptr a -> IO (Ptr a)
   islFree :: FunPtr ((Ptr a) -> IO ())
@@ -74,7 +84,7 @@ wrap' ptr =
         return $ Just $ fptr
 
 wrap
-  :: forall a. (Given Ctx, IslRef a)
+  :: (Given Ctx, IslRef a)
   => ((Ctx, ForeignPtr a) -> a) -> Ptr a -> IO a
 wrap f ptr = do
   Just frgn <- wrap' ptr
