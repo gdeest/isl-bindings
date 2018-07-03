@@ -19,7 +19,7 @@ haskell_binary(
   name = "generate-bindings",
   srcs = ["codegen/GenerateBindings.hs"],
   main_file = "codegen/GenerateBindings.hs",
-  deps = [],
+  compiler_flags = ["-threaded", "-with-rtsopts=-N", "-O1"],
   prebuilt_dependencies = [
     "base",
     "casing",
@@ -78,6 +78,7 @@ haskell_library(
 haskell_doc(
   name = "isl-bindings-doc",
   deps = [":isl-bindings"],
+  index_transitive_deps = True,
 )
 
 haskell_binary(
@@ -87,6 +88,7 @@ haskell_binary(
   main_file = "test/Simple.hs",
   srcs = [ "test/Simple.hs" ],
   src_strip_prefix = "test",
+  compiler_flags = ["-threaded", "-with-rtsopts=-N", "-O1"],
   prebuilt_dependencies = [
     "base",
     "reflection",

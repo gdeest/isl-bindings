@@ -440,47 +440,6 @@ toInDecl (HSFunction (ISLFunction annots t name params) hsName) = do
         ]
 
   return (importCall ++ "\n" ++ exportCall)
---     case params of
---       [] -> return ["void"]
---   wrappedParams <- fmap concat (sequence $ map wrapParam params)
---   retWrap <- gcWrap
---   let paramPart = concat (intersperse " @-> " mlParamTypes)
---   let cFun =
---         "let " ++
---         name ++
---         " = foreign \"" ++
---         name ++ "\" (" ++ paramPart ++ " @-> returning " ++ mlRetType ++ ")\n"
---   return $
---     cFun ++
---     header ++
---     wrappedParams ++
---     cFunCall ++ "    check_for_errors ctx;\n" ++ retWrap ++ "    ret\n"
---   where
---     header = "let " ++ mlName ++ " " ++ mlParamList ++ " = \n"
---     funName =
---       if isPrefixOf "isl_" name
---         then drop 4 name
---         else name
---     wrapParam (ISLParam annots t name) =
---       if elem ISL_TAKE annots
---         then do
---           (copyFun, _) <- lookupMemFunctions t
---           return $
---             "    let " ++ name ++ " = " ++ copyFun ++ " " ++ name ++ " in\n"
---         else return ""
---     cFunCall = "    let ret = " ++ name ++ " " ++ paramList ++ " in\n"
---     gcWrap =
---       if elem ISL_GIVE annots
---         then do
---           (_, freeFun) <- lookupMemFunctions t
---           return $ "    Gc.finalise " ++ freeFun ++ " ret;\n"
---         else return ""
---     paramList = concat (intersperse " " paramNames)
---     mlParamList =
---       case params of
---         (ISLParam _ ISL_CTX_PTR "ctx"):_ -> paramList
---         _ -> "ctx " ++ paramList
---     paramNames = map (\(ISLParam _ _ id) -> id) params
 
 toDecl :: HSFunction -> Maybe String
 toDecl f = Just "Outside Decl"

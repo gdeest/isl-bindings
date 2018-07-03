@@ -1,6 +1,7 @@
 workspace(name = "isl_bindings")
 
-rules_haskell_rev = "fc73da2cc133f3be81c97cd8c1199ac0e607754f"
+
+rules_haskell_rev = "93d9adb825a261234d716cf50d56e26b361da814"
 
 http_archive(
     name = "io_tweag_rules_haskell",
