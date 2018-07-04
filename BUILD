@@ -11,7 +11,7 @@ load(
 
 haskell_toolchain(
   name = "toolchain",
-  version = "8.4.1",
+  version = "8.4.3",
   tools = "@toolchain//:bin",
 )
 

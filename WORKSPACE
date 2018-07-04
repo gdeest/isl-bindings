@@ -1,7 +1,6 @@
 workspace(name = "isl_bindings")
 
-
-rules_haskell_rev = "93d9adb825a261234d716cf50d56e26b361da814"
+rules_haskell_rev = "8be0908a3707ebdaa3312fbc7e2afb387a8c416b"
 
 http_archive(
     name = "io_tweag_rules_haskell",
@@ -14,8 +13,8 @@ haskell_repositories()
 
 http_archive(
   name = "io_tweag_rules_nixpkgs",
-  strip_prefix = "rules_nixpkgs-0.2",
-  urls = ["https://github.com/tweag/rules_nixpkgs/archive/v0.2.tar.gz"],
+  strip_prefix = "rules_nixpkgs-0.2.3",
+  urls = ["https://github.com/tweag/rules_nixpkgs/archive/v0.2.3.tar.gz"],
 )
 
 load("@io_tweag_rules_nixpkgs//nixpkgs:nixpkgs.bzl",
@@ -23,8 +22,15 @@ load("@io_tweag_rules_nixpkgs//nixpkgs:nixpkgs.bzl",
   "nixpkgs_package"
 )
 
+nixpkgs_git_repository(
+  name = "nixpkgs",
+  revision = "8d5f06cbeedcfb4a88c111754baf2d7e315e74de",
+  remote = "https://github.com/mboes/nixpkgs",
+)
+
 nixpkgs_package(
   name = "toolchain",
+  repository = "@nixpkgs",
   nix_file_content = """
 let config = {};
     pkgs = import <nixpkgs> { config = config; }; in
@@ -34,7 +40,7 @@ let config = {};
       name = "isl-bindings-toolchain";
       extraOutputsToInstall = [ "lib" "dev" ];
       paths = with pkgs; [
-        (haskell.packages.ghc841.ghcWithPackages (p: with p;
+        (haskell.packages.ghc843.ghcWithPackages (p: with p;
           [ base
             casing
             containers
