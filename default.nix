@@ -1,3 +1,6 @@
 with (import ./nix {});
 
-haskellPackages.isl-bindings
+{
+  isl-bindings = haskellPackages.isl-bindings;
+  isl-test = haskellPackages.isl-test;
+}

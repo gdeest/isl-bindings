@@ -5,6 +5,8 @@ let
 
   cabal-project-skeleton = pkgs.lib.cleanSource ../bindings;
 
+  isl-test-src = pkgs.lib.cleanSource ../isl-test;
+
   isl-codegen-src = pkgs.lib.cleanSource ../codegen;
 
   isl-codegen = pkgs.haskellPackages.callCabal2nix "isl-codegen" isl-codegen-src {};
@@ -55,6 +57,17 @@ import nixpkgs {
       { haskellPackages = super.haskellPackages.override {
           overrides = hself: hsuper: {
             isl-bindings = hsuper.callCabal2nix "isl-bindings" isl-bindings-src {};
+          };
+        };
+      }
+    )
+
+    (self: super:
+      { haskellPackages = super.haskellPackages.override {
+          overrides = hself: hsuper: {
+            isl-test = hsuper.callCabal2nix "isl-test" isl-test-src {
+	      isl-bindings = super.haskellPackages.isl-bindings;
+	    };
           };
         };
       }
