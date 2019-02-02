@@ -1,6 +1,8 @@
 module Main where
 
 import System.Directory
+import System.Environment (getArgs)
+import System.FilePath.Posix
 
 import Control.Monad.IO.Class
 import Debug.Trace
@@ -166,7 +168,9 @@ data Module =
   Module String
          (S.Set ISLFunction)
 
-type ParseMonad = StateT (M.Map String (S.Set HSFunction)) IO
+type FunctionMap = M.Map String (S.Set HSFunction)
+
+type ParseMonad = StateT FunctionMap IO
 
 -- type ParseMonad = WriterT [Module] IO
 defines :: [String]
@@ -180,9 +184,9 @@ defines =
   , "-D__isl_subclass(super)=__attribute__((isl_subclass(\" #super \"))) __attribute__((isl_export))"
   ]
 
-readHeaders :: IO [String]
-readHeaders =
-  return
+mkHeaderNames :: String -> [String]
+mkHeaderNames basePath =
+  map ((basePath ++ "/include/isl/") ++)
     [ "space.h"
     , "map.h"
     , "union_map.h"
@@ -199,9 +203,9 @@ readHeaders =
 withParsedFile :: MonadIO m => (String -> GlobalDecls -> m a) -> String -> m a
 withParsedFile f fileName = do
   let gcc = newGCC "gcc"
-      args = defines ++ ["-I" ++ prefix]
+      args = defines -- ++ ["-I./include"]
   res <-
-    liftIO $ parseCFile gcc (Just "/tmp") args (prefix ++ "/isl/" ++ fileName)
+    liftIO $ parseCFile gcc (Just "/tmp") args (fileName)
   case res of
     Left err -> error $ "Error parsing " ++ fileName ++ " : " ++ (show err)
     Right translUnit -> do
@@ -444,11 +448,11 @@ toInDecl (HSFunction (ISLFunction annots t name params) hsName) = do
 toDecl :: HSFunction -> Maybe String
 toDecl f = Just "Outside Decl"
 
-writeModule :: String -> [HSFunction] -> IO ()
-writeModule name functions = do
+writeModule :: String -> String -> [HSFunction] -> IO ()
+writeModule outPath name functions = do
   let (x:xs) = name
   let name' = (toLower x) : xs
-  let dirName = "src/Isl/" ++ name
+  let dirName = outPath ++ "/src/Isl/" ++ name
   createDirectoryIfMissing True dirName
   withFile (dirName ++ "/AutoGen.hs") WriteMode $ \coreh -> do
     mapM_ (hPutStrLn coreh) $
@@ -730,7 +734,7 @@ sanitizeFunName name =
         , ("2exp", "pow2")
         ]
 
-prefix = "./external/toolchain/include/"
+prefix = ""
 
 islDir = prefix ++ "isl/"
 
@@ -765,7 +769,7 @@ addFunction :: ISLFunction -> ParseMonad ()
 addFunction f
   | mustKeepFun f =
     let f'@(ISLFunction annots t name params) = sanitizeFun f
-     in case dispatch name of
+     in case dispatch (traceShowId name) of
           Nothing -> return $ trace ("Could not dispatch: " ++ name) ()
           Just (mlModuleName, mlFunctionName) ->
             addToModule (HSFunction f' mlFunctionName) mlModuleName
@@ -773,13 +777,11 @@ addFunction _ = return ()
 
 collectHeaderFunctions :: String -> ParseMonad ()
 collectHeaderFunctions header = do
-  baseDir' <- liftIO $ canonicalizePath islDir
-  let baseDir = baseDir' ++ "/"
-  let currentHeader = baseDir ++ header
   liftIO $ putStrLn header
-  withParsedFile (addFunctions baseDir) header
+  withParsedFile addFunctions header
   where
-    addFunctions baseDir header decls = do
+    headerFileName = takeFileName header
+    addFunctions header decls = do
       islFuns <- mkIslFuns
       liftIO $ print $ length islFuns
       mapM_ addFunction islFuns
@@ -792,21 +794,36 @@ collectHeaderFunctions header = do
               Just file -> do
                 realPath <- liftIO $ canonicalizePath file
                 return $
-                  if ("isl/" ++ header) `isSuffixOf` realPath
+                  if ("/isl/" ++ headerFileName) `isSuffixOf` realPath
                   then toISLFun x
                   else Nothing)
 
-processModule :: (String, S.Set HSFunction) -> IO ()
-processModule (name, funs) = do
+processModule :: String -> (String, S.Set HSFunction) -> IO ()
+processModule outPath (name, funs) = do
   putStrLn name
-  writeModule name $ S.toList funs
+  writeModule outPath name $ S.toList funs
+
+readHeaders :: String -> IO FunctionMap
+readHeaders basePath = execStateT collectFunctions M.empty
+  where collectFunctions = traverse collectHeaderFunctions headerNames
+        headerNames = mkHeaderNames basePath
+
+writeHaskellModules :: String -> FunctionMap -> IO ()
+writeHaskellModules outPath funMap = do
+  forM_ (M.toList funMap) (processModule outPath)
+
+pipeline :: String -> String -> IO ()
+pipeline basePath outPath =
+  readHeaders basePath >>=
+  writeHaskellModules outPath
 
 main :: IO ()
 main = do
-  -- Read header files into memory (should be streamed)
-  headers <- readHeaders
-  -- Collects header functions into a map:
-  -- String -> (S.Set HSFunction)
-  modulesMap <- execStateT (mapM_ collectHeaderFunctions headers) M.empty
-  -- Processes the map, writing the module files.
-  mapM_ processModule (M.toList modulesMap)
+  basePath:outPath:_ <- getArgs
+  pipeline basePath outPath
+  -- let headers = readHeaders basePath
+  -- -- Collects header functions into a map:
+  -- -- String -> (S.Set HSFunction)
+  -- modulesMap <- execStateT (traverse collectHeaderFunctions headers) M.empty
+  -- -- Processes the map, writing the module files.
+  -- mapM_ processModule (M.toList modulesMap)
