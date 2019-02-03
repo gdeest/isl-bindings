@@ -430,8 +430,8 @@ toInDecl (HSFunction (ISLFunction annots t name params) hsName) = do
       exportCall = unlines $
         [ concat [hsName, " :: (Given Ctx) => ", hsTypeStr]
         , case paramNames' of
-            [] -> concat [hsName, " =  "]
-            _ -> concat [hsName, " = \\", concat $ intersperse " " (map snd paramNames'), " -> "]
+            [] -> concat [hsName, " =  trace \"", hsName, "\" $ "]
+            _ -> concat [hsName, " = \\", concat $ intersperse " " (map snd paramNames'), " -> ", "trace \"", hsName, "\" $ "]
         , concat ["    unsafePerformIO $ (", wrapper, ") =<< do"]
         , unlines $ flip map (zip paramNames' unwrappers) $
             \((p, p'), unwrap) -> "      " ++ p ++ " <- (" ++ unwrap ++ ") " ++ p'
@@ -458,12 +458,14 @@ writeModule outPath name functions = do
     mapM_ (hPutStrLn coreh) $
       [ "{-# LANGUAGE FlexibleContexts #-}"
       , "{-# LANGUAGE ForeignFunctionInterface #-}"
+      , "{-# LANGUAGE Strict #-}"
       , ""
       , "module Isl." ++ name ++ ".AutoGen where"
       , ""
       , "import Control.Monad"
       , "import Data.Reflection"
       , "import Isl.Types"
+      , "import Debug.Trace"
       , ""
       , "import Foreign.C as C"
       , "import Foreign.C.String as C"
@@ -516,6 +518,7 @@ toISLType t =
         "void" -> Just VOID
         "void *" -> Just VOID_PTR
         "int" -> Just INT
+        "unsigned" -> Just UINT
         "unsigned int" -> Just UINT
         "double" -> Just DOUBLE
         "isl_multi_val *" -> Just ISL_MULTI_VAL_PTR

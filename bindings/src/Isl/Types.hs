@@ -1,8 +1,10 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE Strict #-}
 
 module Isl.Types where
 
+import Control.Monad.Reader
 import Data.Coerce
 import Data.Reflection
 import Foreign.C.Types
@@ -44,7 +46,7 @@ type RawLocalSpace = Ptr LocalSpace
 foreign import ccall "isl/ctx.h isl_ctx_alloc"
     c_ctx_alloc :: IO (Ptr Ctx)
 
-foreign import ccall "isl/ctx.h &isl_ctx_free"
+foreign import ccall "&do_nothing"
     c_ctx_free :: FunPtr (Ptr Ctx -> IO ())
 
 foreign import ccall unsafe "isl/options.h isl_options_set_on_error"
@@ -62,11 +64,14 @@ ctx_alloc = do
   c_options_set_on_error ptr isl_on_error_continue
   Ctx <$> newForeignPtr c_ctx_free ptr
 
--- foreign import ccall "isl/printer.h isl_printer_to_str"
---     c_isl_printer_to_str :: IO RawPrinter
+foreign import ccall "isl/printer.h isl_printer_to_str"
+    c_isl_printer_to_str :: IO RawPrinter
 
--- foreign import ccall "isl/printer.h isl_printer_free"
---     c_isl_printer_free :: RawPrinter -> IO ()
+foreign import ccall "isl/printer.h isl_printer_free"
+    c_isl_printer_free :: RawPrinter -> IO ()
+
+
+
 
 -- foreign import call "isl/map.h isl_printer_print_basic_map"
 --     c_isl_printer_print_basic_map ::
@@ -93,7 +98,10 @@ wrap f ptr = do
 foreign import ccall unsafe "isl/basic_set.h isl_basic_set_copy"
     c_basic_set_copy :: Ptr BasicSet -> IO (Ptr BasicSet)
 
-foreign import ccall unsafe "isl/basic_set.h &isl_basic_set_free"
+-- foreign import ccall unsafe "isl/basic_set.h &isl_basic_set_free"
+foreign import ccall unsafe "isl/basic_set.h isl_basic_set_free"
+    basic_set_free :: RawBasicSet -> IO ()
+foreign import ccall unsafe "&do_nothing"
     c_basic_set_free :: FunPtr (Ptr BasicSet -> IO ())
 
 instance IslRef BasicSet where
@@ -104,7 +112,8 @@ instance IslRef BasicSet where
 foreign import ccall unsafe "isl/set.h isl_set_copy"
     c_set_copy :: Ptr Set -> IO (Ptr Set)
 
-foreign import ccall unsafe "isl/set.h &isl_set_free"
+-- foreign import ccall unsafe "isl/set.h &isl_set_free"
+foreign import ccall unsafe "&do_nothing"
     c_set_free :: FunPtr (Ptr Set -> IO ())
 
 instance IslRef Set where
@@ -115,7 +124,8 @@ instance IslRef Set where
 foreign import ccall unsafe "isl/union_set.h isl_union_set_copy"
     c_union_set_copy :: Ptr UnionSet -> IO (Ptr UnionSet)
 
-foreign import ccall unsafe "isl/union_set.h &isl_union_set_free"
+-- foreign import ccall unsafe "isl/union_set.h &isl_union_set_free"
+foreign import ccall unsafe "&do_nothing"
     c_union_set_free :: FunPtr (Ptr UnionSet -> IO ())
 
 instance IslRef UnionSet where
@@ -126,7 +136,8 @@ instance IslRef UnionSet where
 foreign import ccall unsafe "isl/basic_map.h isl_basic_map_copy"
     c_basic_map_copy :: Ptr BasicMap -> IO (Ptr BasicMap)
 
-foreign import ccall unsafe "isl/basic_map.h &isl_basic_map_free"
+-- foreign import ccall unsafe "isl/basic_map.h &isl_basic_map_free"
+foreign import ccall unsafe "&do_nothing"
     c_basic_map_free :: FunPtr (Ptr BasicMap -> IO ())
 
 instance IslRef BasicMap where
@@ -159,7 +170,8 @@ instance IslRef UnionMap where
 foreign import ccall unsafe "isl/space.h isl_space_copy"
     c_space_copy :: Ptr Space -> IO (Ptr Space)
 
-foreign import ccall unsafe "isl/space.h &isl_space_free"
+-- foreign import ccall unsafe "isl/space.h &isl_space_free"
+foreign import ccall unsafe "&do_nothing"
     c_space_free :: FunPtr (Ptr Space -> IO ())
 
 instance IslRef Space where
@@ -169,7 +181,8 @@ instance IslRef Space where
 foreign import ccall unsafe "isl/local_space.h isl_local_space_copy"
     c_local_space_copy :: Ptr LocalSpace -> IO (Ptr LocalSpace)
 
-foreign import ccall unsafe "isl/local_space.h &isl_local_space_free"
+-- foreign import ccall unsafe "isl/local_space.h &isl_local_space_free"
+foreign import ccall unsafe "&do_nothing"
     c_local_space_free :: FunPtr (Ptr LocalSpace -> IO ())
 
 instance IslRef LocalSpace where
@@ -213,7 +226,8 @@ instance IslRef Val where
 foreign import ccall unsafe "isl/constraint.h isl_constraint_copy"
     c_constraint_copy :: Ptr Constraint -> IO (Ptr Constraint)
 
-foreign import ccall unsafe "isl/constraint.h &isl_constraint_free"
+-- foreign import ccall unsafe "isl/constraint.h &isl_constraint_free"
+foreign import ccall unsafe "&do_nothing"
     c_constraint_free :: FunPtr (Ptr Constraint -> IO ())
 
 instance IslRef Constraint where

@@ -17,6 +17,7 @@ category:            Math
 extra-source-files:  CHANGELOG.md
 
 library
+  c-sources:           c-bits/do_nothing.c
   exposed-modules:     Isl.Types,
                        Isl.Aff.AutoGen,
                        Isl.BasicMap.AutoGen,
@@ -26,6 +27,7 @@ library
                        Isl.LocalSpace.AutoGen,
                        Isl.Map.AutoGen,
                        Isl.Set.AutoGen,
+                       Isl.Space.AutoGen,
                        Isl.UnionMap.AutoGen,
                        Isl.UnionSet.AutoGen,
                        Isl.Val.AutoGen
