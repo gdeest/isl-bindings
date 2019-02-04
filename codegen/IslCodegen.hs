@@ -251,10 +251,10 @@ hsTypes =
         (Just "return . fromIntegral")
         False)
     , (ISL_DIM_TYPE, TI
-        "C.CInt"
-        "Int"
-        (Just "return . fromIntegral")
-        (Just "return . fromIntegral")
+        "DimType"
+        "DimType"
+        (Just "return")
+        (Just "return")
         False)
     , (UINT, TI
         "C.CUInt"
@@ -263,82 +263,82 @@ hsTypes =
         (Just "return . fromIntegral")
         False)
     , (ISL_CTX_PTR, TI
-        "RawCtx"
         "Ctx"
-        Nothing
-        (Just "return . unsafeForeignPtrToPtr . unCtx")
+        "Ctx"
+        (Just "return")
+        (Just "return")
         False)
     , (ISL_SET_PTR, TI
-        "RawSet"
         "Set"
-        (Just "Isl.Types.wrap Set")
-        (Just "return . unsafeForeignPtrToPtr . snd . unsafeCoerce")
+        "Set"
+        (Just "return")
+        (Just "return")
         True)
     , (ISL_BASIC_SET_PTR, TI
-        "RawBasicSet"
         "BasicSet"
-        (Just "Isl.Types.wrap BasicSet")
-        (Just "return . unsafeForeignPtrToPtr . snd . unsafeCoerce")
+        "BasicSet"
+        (Just "return")
+        (Just "return")
         True)
     , (ISL_UNION_SET_PTR, TI
-        "RawUnionSet"
         "UnionSet"
-        (Just "Isl.Types.wrap UnionSet")
-        (Just "return . unsafeForeignPtrToPtr . snd . unsafeCoerce")
+        "UnionSet"
+        (Just "return")
+        (Just "return")
         True)
     , (ISL_MAP_PTR, TI
-        "RawMap"
         "Map"
-        (Just "Isl.Types.wrap Map")
-        (Just "return . unsafeForeignPtrToPtr . snd . unsafeCoerce")
+        "Map"
+        (Just "return")
+        (Just "return")
         True)
     , (ISL_BASIC_MAP_PTR, TI
-        "RawBasicMap"
         "BasicMap"
-        (Just "Isl.Types.wrap BasicMap")
-        (Just "return . unsafeForeignPtrToPtr . snd . unsafeCoerce")
+        "BasicMap"
+        (Just "return")
+        (Just "return")
         True)
     , (ISL_UNION_MAP_PTR, TI
-        "RawUnionMap"
         "UnionMap"
-        (Just "Isl.Types.wrap UnionMap")
-        (Just "return . unsafeForeignPtrToPtr . snd . unsafeCoerce")
+        "UnionMap"
+        (Just "return")
+        (Just "return")
         True)
     , (ISL_AFF_PTR, TI
-        "RawAff"
         "Aff"
-        (Just "Isl.Types.wrap Aff")
-        (Just "return . unsafeForeignPtrToPtr . snd . unsafeCoerce")
+        "Aff"
+        (Just "return")
+        (Just "return")
         True)
     , (ISL_VAL_PTR, TI
-        "RawVal"
         "Val"
-        (Just "Isl.Types.wrap Val")
-        (Just "return . unsafeForeignPtrToPtr . snd . unsafeCoerce")
+        "Val"
+        (Just "return")
+        (Just "return")
         True)
     , (ISL_CONSTRAINT_PTR, TI
-        "RawConstraint"
         "Constraint"
-        (Just "Isl.Types.wrap Constraint")
-        (Just "return . unsafeForeignPtrToPtr . snd . unsafeCoerce")
+        "Constraint"
+        (Just "return")
+        (Just "return")
         True)
     , (ISL_SPACE_PTR, TI
-        "RawSpace"
         "Space"
-        (Just "Isl.Types.wrap Space")
-        (Just "return . unsafeForeignPtrToPtr . snd . unsafeCoerce")
+        "Space"
+        (Just "return")
+        (Just "return")
         True)
     , (ISL_LOCAL_SPACE_PTR, TI
-        "RawLocalSpace"
         "LocalSpace"
-        (Just "Isl.Types.wrap LocalSpace")
-        (Just "return . unsafeForeignPtrToPtr . snd . unsafeCoerce")
+        "LocalSpace"
+        (Just "return")
+        (Just "return")
         True)
     , (ISL_ID_PTR, TI
-        "RawId"
         "Id"
-        (Just "Isl.Types.wrap Id")
-        (Just "return . unsafeForeignPtrToPtr . snd . unsafeCoerce")
+        "Id"
+        (Just "return")
+        (Just "return")
         True)
     , (CHAR_PTR, TI
          "C.CString"
@@ -377,14 +377,14 @@ toInDecl (HSFunction (ISLFunction annots t name params) hsName) = do
   toHsRet <- mbToHsRet
 
 
-  let createUnwrap pi = do
-        toC <- hsToC pi
-        if ISL_TAKE `elem` annots
-          then
-            case copyable pi of
-              False -> Nothing
-              True -> Just $ toC ++ " >=> islCopy"
-          else return toC
+  let createUnwrap = hsToC
+        -- toC <- hsToC pi
+        -- if ISL_TAKE `elem` annots
+        --   then
+        --     case copyable pi of
+        --       False -> Nothing
+        --       True -> Just $ toC ++ " >=> islCopy"
+        --   else return toC
 
   let filteredParams =
         filter (\(ISLParam _ t _) -> not (t == ISL_CTX_PTR)) params
@@ -435,8 +435,7 @@ toInDecl (HSFunction (ISLFunction annots t name params) hsName) = do
         , concat ["    unsafePerformIO $ (", wrapper, ") =<< do"]
         , unlines $ flip map (zip paramNames' unwrappers) $
             \((p, p'), unwrap) -> "      " ++ p ++ " <- (" ++ unwrap ++ ") " ++ p'
-        , "      let ctx' = given :: Ctx"
-        , "          ctx = unsafeForeignPtrToPtr $ unCtx ctx'"
+        , "      let ctx = given :: Ctx"
         , concat ["      ", cFunName, " "
                  , concat $ intersperse " " paramNames
                  ]
@@ -628,28 +627,6 @@ toISLType t =
         "isl_access_restrict" -> Just ISL_ACCESS_RESTRICT
         _ -> Nothing
 
-memoryFunctions :: M.Map ISLType (String, String)
-memoryFunctions =
-  M.fromList
-    [ (ISL_SET_PTR, ("set_copy", "set_free"))
-    , (ISL_MAP_PTR, ("map_copy", "map_free"))
-    , (ISL_BASIC_SET_PTR, ("basic_set_copy", "basic_set_free"))
-    , (ISL_BASIC_MAP_PTR, ("basic_map_copy", "basic_map_free"))
-    , (ISL_UNION_SET_PTR, ("union_set_copy", "union_set_free"))
-    , (ISL_UNION_MAP_PTR, ("union_map_copy", "union_map_free"))
-    , (ISL_SPACE_PTR, ("space_copy", "space_free"))
-    , (ISL_AFF_PTR, ("aff_copy", "aff_free"))
-    , (ISL_VAL_PTR, ("val_copy", "val_free"))
-    , (ISL_SPACE_PTR, ("space_copy", "space_free"))
-    , (ISL_CONSTRAINT_PTR, ("constraint_copy", "constraint_free"))
-    , (ISL_PRINTER_PTR, ("return", "isl_printer_free"))
-    , (ISL_LOCAL_SPACE_PTR, ("local_space_copy", "local_space_free"))
-    , (ISL_ID_PTR, ("id_copy", "id_free"))
-    , (CHAR_PTR, ("", "(fun _ -> ())"))
-    ]
-
-lookupMemFunctions t = M.lookup t memoryFunctions
-
 toISLParam :: ParamDecl -> Maybe ISLParam
 -- toISLParam p | trace ("Param: " ++ (render $ pretty p)) False = undefined
 toISLParam p = do
@@ -694,18 +671,23 @@ sanitizeFun (ISLFunction annotations t name params) =
       M.fromList
         [ ("mod", "modulo")
         , ("type", "typ")
-        , ("val", "value")
+        --, ("val", "value")
         , ("in", "in_")
-        , ("constraint", "constrnt")
+        -- , ("constraint", "constrnt")
         ]
 
 mustKeepFun :: ISLFunction -> Bool
 mustKeepFun (ISLFunction annots _ name _) =
   "equality" `isInfixOf` name ||
   not
-    ((elem ISL_NULL annots) ||
-     (isSuffixOf "_free" name) ||
-     (isSuffixOf "_copy" name) || (isSuffixOf "_get_ctx" name))
+    (elem ISL_NULL annots)
+    -- ((elem ISL_NULL annots) ||
+    --  (isSuffixOf "_free" name) ||
+    --  (isSuffixOf "_copy" name) || (isSuffixOf "_get_ctx" name))
+
+    -- ((elem ISL_NULL annots) ||
+    --  (isSuffixOf "_free" name) ||
+    --  (isSuffixOf "_copy" name) || (isSuffixOf "_get_ctx" name))
 
 moduleMap =
   [ ("isl_aff_", "Aff")

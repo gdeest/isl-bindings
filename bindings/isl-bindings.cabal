@@ -40,7 +40,7 @@ library
   extra-libraries:     isl
   default-language:    Haskell2010
 
-executable test-simple
-    -- type:       exitcode-stdio-1.0
-    main-is:    test/Simple.hs
-    build-depends: base, isl-bindings, reflection
+-- executable test-simple
+--     -- type:       exitcode-stdio-1.0
+--     main-is:    test/Simple.hs
+--     build-depends: base, isl-bindings, reflection
