@@ -25,6 +25,6 @@ jobs:
         displayName: Installing Nix
       - bash: |
           . /home/vsts/.nix-profile/etc/profile.d/nix.sh
-          nix-build -A isl-test
+          nix-build ./nix -A haskellPackages.isl-test
           ./result/bin/isl-test
         displayName: isl test

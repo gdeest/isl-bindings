@@ -1,15 +1,15 @@
 with {
   fetch = import ./fetch.nix;
-  overlays = import ./overlay.nix;
+  isl-overlays = import ./overlays.nix;
 };
 
 { nixpkgs ? fetch.nixpkgs }:
 
 import nixpkgs {
   config = { };
-  overlays = [
-    overlays.isl-bindings-overlay
-    overlays.isl-test-overlay
+  overlays = with isl-overlays; [
+    isl-bindings-overlay
+    isl-test-overlay
   ];
 }
 
