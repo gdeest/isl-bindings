@@ -23,3 +23,8 @@ jobs:
           sudo chown "$(id -u):$(id -g)" /nix
           curl -sfL https://nixos.org/nix/install | bash
         displayName: Installing Nix
+      - bash: |
+          . /home/vsts/.nix-profile/etc/profile.d/nix.sh
+          nix-build -A isl-test
+          ./result/bin/isl-test
+        displayName: isl test
