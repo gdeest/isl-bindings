@@ -5,11 +5,12 @@ This project contains low-level (mostly complete, auto-generated) and high-level
 [isl](http://isl.gforge.inria.fr/user.html) library.
 
 The end goal is to make it easy to manipulate polyhedral sets and relations in
-Haskell. Envisioned applications include static analysis, static / dynamic
-optimizations, hardware generation and the like. The high-level interface
-currently allows defining basic sets like this:
+Haskell. Envisioned applications include static analysis, automatic
+parallelization, cache optimization, tuning of implementations, hardware
+generation and the like. The high-level interface currently allows defining
+basic sets like this:
 
-```
+```haskell
 someSet :: forall s. HasCtx s => BasicSet s 2
 someSet = BS.mkBasicSet $
   \(x :- y :- Nil) ->
@@ -17,7 +18,7 @@ someSet = BS.mkBasicSet $
     idx y >=: idx x &&: idx y <=: cst 100
 ```
 
-which is an order of magnitude shorter than the corresponding C code. Also, we
+which is an order of magnitude shorter than the corresponding C code! Also, we
 try very hard to make the API as safe as possible. For example:
 
 - The `BasicSet` type is indexed by a type variable `s` corresponding to the
@@ -33,7 +34,7 @@ That being said, please try it out, break it and file bugs !
 # How to use it ?
 
 This software is built and packaged with the [Nix](https://nixos.org) package
-manager. The recommended way to use this library is to consume it as a nix
+manager. The recommended way to use this library is to consume it as a Nix
 overlay. For example, put this in `<some-directory>/default.nix`:
 
 ```nix
@@ -79,4 +80,4 @@ with Cabal, ghc and isl-bindings available ! We can clearly verify it with:
 $ ghci -package isl-bindings-hl
 ```
 
-If `ghci` loads successfully, you are good to go.
+If `ghci` loads successfully, you are good to go !
