@@ -1,1 +1,1 @@
-(import ./nix/overlay.nix).isl-bindings-overlay
+(import ./nix/overlays.nix).isl-bindings-overlay
