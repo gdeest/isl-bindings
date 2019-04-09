@@ -74,7 +74,7 @@ mkShell {
 ```
 
 Typing `nix-shell` within that directory will drop you in a shell environment
-with Cabal, ghc and isl-bindings available ! We can clearly verify it with:
+with Cabal, ghc and isl-bindings available ! We can check that everything is fine with:
 
 ```
 $ ghci -package isl-bindings-hl
