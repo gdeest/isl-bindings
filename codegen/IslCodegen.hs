@@ -563,6 +563,7 @@ toISLType t =
         "isl_ast_print_options *" -> Just ISL_AST_PRINT_OPTIONS_PTR
         "enum isl_ast_node_type" -> Just ISL_AST_NODE_TYPE
         "enum isl_ast_expr_type" -> Just ISL_AST_EXPR_TYPE
+        "isl_bool" -> Just INT
         "isl_ast_expr *" -> Just ISL_AST_EXPR_PTR
         "isl_vec *" -> Just ISL_VEC_PTR
         "struct isl_hash_table_entry *" -> Just ISL_HASH_TABLE_ENTRY_PTR
