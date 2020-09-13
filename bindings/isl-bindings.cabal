@@ -33,7 +33,7 @@ library
 
   -- other-modules:
   other-extensions:    FlexibleContexts, MultiParamTypeClasses
-  build-depends:       base ^>=4.12.0.0,
+  build-depends:       base >=4.12.0.0,
                        reflection 
   hs-source-dirs:      src
   extra-libraries:     isl
