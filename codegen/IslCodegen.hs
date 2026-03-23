@@ -467,7 +467,7 @@ toMonadicGiveDecl (ISLFunction annots t name params) hsName = do
       wrapperParamTypes = map wrapperParamTypeMonadic (zip filteredParams filteredParamsInfo)
 
       hsTypeStr = concat . intersperse " -> " $
-        wrapperParamTypes ++ ["Isl " ++ hsRetOwnedType]
+        wrapperParamTypes ++ ["IslT m " ++ hsRetOwnedType]
 
       wrapperParams = map paramName filteredParams
 
@@ -493,16 +493,26 @@ toMonadicGiveDecl (ISLFunction annots t name params) hsName = do
         | otherwise =
           "unsafeIslFromIO $ \\_ -> " ++ cFunName ++ " " ++ unwords cCallArgs
 
-      -- Wrap in unsafeCoerce if we have linear params to bypass multiplicity check
+      -- For linear params, use unsafeCoerce with a where-clause helper
+      -- to preserve the `m` type variable (ScopedTypeVariables).
+      -- The helper has the non-linear type; unsafeCoerce only changes multiplicities.
+      nonLinearTypeStr = concat . intersperse " -> " $
+        map (stripLinear . wrapperParamTypeMonadic) (zip filteredParams filteredParamsInfo)
+        ++ ["IslT m " ++ hsRetOwnedType]
+
       exportCall
         | hasLinearParam = unlines
-          [ hsName ++ " :: " ++ hsTypeStr
-          , hsName ++ " = unsafeCoerce $ \\" ++ unwords wrapperParams ++ " ->"
+          [ hsName ++ " :: forall m. MonadIO m => " ++ hsTypeStr
+          , hsName ++ " = unsafeCoerce go where"
+          , "  go :: " ++ nonLinearTypeStr
+          , case wrapperParams of
+              [] -> "  go ="
+              _  -> "  go " ++ unwords wrapperParams ++ " ="
           , "    " ++ innerBody
           , ""
           ]
         | otherwise = unlines
-          [ hsName ++ " :: " ++ hsTypeStr
+          [ hsName ++ " :: MonadIO m => " ++ hsTypeStr
           , case wrapperParams of
               [] -> hsName ++ " ="
               _  -> hsName ++ " " ++ unwords wrapperParams ++ " ="
@@ -577,6 +587,12 @@ isLinearParam :: (ISLParam, TypeInfo) -> Bool
 isLinearParam (ISLParam annots _ _, ti) =
   ISL_TAKE `elem` annots && isJust (hsRefType ti)
 
+-- | Strip %1 from a type string (e.g., "BasicSet %1" → "BasicSet")
+stripLinear :: String -> String
+stripLinear s = case reverse s of
+  '1' : '%' : ' ' : rest -> reverse rest
+  _ -> s
+
 isCtxParam :: ISLParam -> Bool
 isCtxParam (ISLParam _ ISL_CTX_PTR _) = True
 isCtxParam _ = False
@@ -603,12 +619,14 @@ writeModule outPath name functions = do
       , "{-# LANGUAGE ForeignFunctionInterface #-}"
       , "{-# LANGUAGE LinearTypes #-}"
       , "{-# LANGUAGE MultiParamTypeClasses #-}"
+      , "{-# LANGUAGE ScopedTypeVariables #-}"
       , "{-# LANGUAGE Strict #-}"
       , ""
       , "module Isl." ++ name ++ ".AutoGen where"
       , ""
       , "import Isl.Types"
       , "import Isl.Monad"
+      , "import Control.Monad.IO.Class (MonadIO)"
       , ""
       , "import Foreign.C as C"
       , "import Foreign.C.String as C"

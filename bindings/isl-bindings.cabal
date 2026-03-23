@@ -36,7 +36,8 @@ library
   -- other-modules:
   other-extensions:    FlexibleContexts, MultiParamTypeClasses
   build-depends:       base >=4.12.0.0 && <5,
-                       deepseq
+                       deepseq,
+                       transformers
   hs-source-dirs:      src
   extra-libraries:     isl
   default-language:    Haskell2010

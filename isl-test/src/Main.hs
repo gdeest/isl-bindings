@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE QualifiedDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -7,6 +8,7 @@
 module Main where
 
 import Prelude hiding (min, max)
+import Control.Monad.IO.Class (MonadIO)
 
 import Isl.HighLevel.Context
 import Isl.HighLevel.Constraints
@@ -17,14 +19,14 @@ import qualified Isl.Linear as Isl
 
 -- Modulo is implemented with an existential variable, by projecting out
 -- the last dimension of the set.
-evenXs :: Isl (BasicSet 2)
+evenXs :: MonadIO m => IslT m (BasicSet 2)
 evenXs = Isl.do
   bs3 <- BS.mkBasicSet @3 $
     \(x :- _ :- k :- Nil) -> toConjunction $
       idx x ==: 2 *: idx k
   BS.eliminateLast bs3
 
-someSet :: Isl (BasicSet 2)
+someSet :: MonadIO m => IslT m (BasicSet 2)
 someSet = BS.mkBasicSet @2 $
   \(x :- y :- Nil) ->
     idx x >=: cst 0 &&: idx x <=: cst 100 &&:

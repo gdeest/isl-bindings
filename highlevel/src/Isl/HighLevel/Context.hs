@@ -1,5 +1,7 @@
 module Isl.HighLevel.Context
-  ( runIsl
+  ( runIslT
+  , runIsl
+  , IslT
   , Isl
   , Ur(..)
   , Borrow(..)
@@ -9,6 +11,6 @@ module Isl.HighLevel.Context
   , borrowPure
   ) where
 
-import Isl.Monad (runIsl, Isl, Ur(..), freeM)
+import Isl.Monad (runIslT, runIsl, IslT, Isl, Ur(..), freeM)
 import Isl.Types (Borrow(..), Consumable(..), Dupable(..))
 import Isl.Linear (borrowPure)

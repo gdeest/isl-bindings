@@ -2,7 +2,7 @@
 {-# LANGUAGE LinearTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
--- | Linear do-notation for the 'Isl' monad via @QualifiedDo@.
+-- | Linear do-notation for the 'IslT' monad via @QualifiedDo@.
 --
 -- Usage:
 --
@@ -26,35 +26,36 @@ module Isl.Linear
   , borrowPure
   ) where
 
-import Prelude (($), String)
+import Prelude (($), String, Monad)
 import qualified Prelude
-import Isl.Monad (Isl(..), Ur(..))
+import qualified Control.Monad.Fail as Fail
+import Isl.Monad (IslT(..), Ur(..))
 import Isl.Types (Borrow(..))
 import Unsafe.Coerce (unsafeCoerce)
 
 -- | Linear bind. With @QualifiedDo@, @x <- action@ gives @x@ multiplicity One.
-(>>=) :: Isl a %1 -> (a %1 -> Isl b) %1 -> Isl b
-(>>=) = unsafeCoerce bindIsl
+(>>=) :: forall m a b. Monad m => IslT m a %1 -> (a %1 -> IslT m b) %1 -> IslT m b
+(>>=) = unsafeCoerce go
   where
-    bindIsl :: Isl a -> (a -> Isl b) -> Isl b
-    bindIsl (Isl m) k = Isl $ \ctx -> do
+    go :: IslT m a -> (a -> IslT m b) -> IslT m b
+    go (IslT m) k = IslT $ \ctx -> do
       a <- m ctx
-      unIsl (k a) ctx
+      unIslT (k a) ctx
 
 -- | Linear sequence.
-(>>) :: Isl () %1 -> Isl b %1 -> Isl b
+(>>) :: forall m b. Monad m => IslT m () %1 -> IslT m b %1 -> IslT m b
 m >> k = m >>= \() -> k
 
 -- | Linear pure.
-pure :: a %1 -> Isl a
-pure = unsafeCoerce pureIsl
+pure :: forall m a. Monad m => a %1 -> IslT m a
+pure = unsafeCoerce go
   where
-    pureIsl :: a -> Isl a
-    pureIsl a = Isl $ \_ -> Prelude.return a
+    go :: a -> IslT m a
+    go a = IslT $ \_ -> Prelude.return a
 
 -- | Fail (for failable pattern matches in QualifiedDo).
-fail :: String -> Isl a
-fail s = Isl $ \_ -> Prelude.fail s
+fail :: Fail.MonadFail m => String -> IslT m a
+fail s = IslT $ \_ -> Fail.fail s
 
 -- | Borrow an owned value, apply a pure query, and return the result
 -- wrapped in 'Ur' (unrestricted) alongside the still-owned value.
@@ -67,10 +68,10 @@ fail s = Isl $ \_ -> Prelude.fail s
 -- -- name :: String (Many, safe to share)
 -- -- x'   :: OwnedType (One, must be consumed)
 -- @
-borrowPure :: forall owned ref a. Borrow owned ref => owned %1 -> (ref -> a) -> Isl (Ur a, owned)
+borrowPure :: forall m owned ref a. (Monad m, Borrow owned ref) => owned %1 -> (ref -> a) -> IslT m (Ur a, owned)
 borrowPure = unsafeCoerce go
   where
-    go :: owned -> (ref -> a) -> Isl (Ur a, owned)
+    go :: owned -> (ref -> a) -> IslT m (Ur a, owned)
     go owned f =
       let !(result, owned') = borrow owned f
-      in Isl $ \_ -> Prelude.return (Ur result, owned')
+      in IslT $ \_ -> Prelude.return (Ur result, owned')

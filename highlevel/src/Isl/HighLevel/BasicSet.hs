@@ -14,6 +14,7 @@
 module Isl.HighLevel.BasicSet where
 
 import Control.Monad
+import Control.Monad.IO.Class (MonadIO)
 import Data.Proxy
 import GHC.TypeLits
 import Unsafe.Coerce (unsafeCoerce)
@@ -24,7 +25,7 @@ import Isl.HighLevel.Indices
 
 import qualified Isl.Types as Isl
 import Isl.Types (Borrow(..), Dupable(..), Consumable(..))
-import Isl.Monad (Isl(..), Ur(..), unsafeIslFromIO, freeM)
+import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, freeM)
 import Isl.Linear (borrowPure)
 
 import qualified Isl.BasicSet.AutoGen as BS
@@ -57,15 +58,15 @@ instance Borrow (BasicSet n) (BasicSetRef n) where
 -- Construction
 
 mkBasicSet
-  :: forall (n :: Nat). KnownNat n
+  :: forall (n :: Nat) m. (MonadIO m, KnownNat n)
   => (forall ix. IxList n ix -> Conjunction ix)
-  -> Isl (BasicSet n)
+  -> IslT m (BasicSet n)
 mkBasicSet mkConstraints = toBasicSet . mkConstraints $
   (coerceIxList $ mkIxList 0 $ natVal (Proxy @n))
 
 toBasicSet
-  :: forall (n :: Nat). KnownNat n
-  => Conjunction Integer -> Isl (BasicSet n)
+  :: forall m (n :: Nat). (MonadIO m, KnownNat n)
+  => Conjunction Integer -> IslT m (BasicSet n)
 toBasicSet (Conjunction constraints) = do
   space <- Space.setAlloc 0 (fromIntegral $ natVal $ Proxy @n)
   univ <- BS.universe space
@@ -94,18 +95,23 @@ toBasicSet (Conjunction constraints) = do
 
 -- Operations (consuming)
 
-intersect :: BasicSet n %1 -> BasicSet n %1 -> Isl (BasicSet n)
-intersect = unsafeCoerce $ \(BasicSet bs1) (BasicSet bs2) ->
-  BasicSet <$> BS.intersect bs1 bs2
+intersect :: forall m n. MonadIO m => BasicSet n %1 -> BasicSet n %1 -> IslT m (BasicSet n)
+intersect = unsafeCoerce go
+  where
+    go :: BasicSet n -> BasicSet n -> IslT m (BasicSet n)
+    go (BasicSet bs1) (BasicSet bs2) = BasicSet <$> BS.intersect bs1 bs2
 
 eliminateLast
-  :: forall n. (KnownNat n, 1 <= n)
-  => BasicSet n %1 -> Isl (BasicSet (n-1))
-eliminateLast = unsafeCoerce $ \(BasicSet bs :: BasicSet n) ->
-  let d = fromIntegral $ (natVal $ Proxy @n) - 1
-  in BasicSet <$> BS.projectOut bs Isl.islDimSet d 1
+  :: forall m n. (MonadIO m, KnownNat n, 1 <= n)
+  => BasicSet n %1 -> IslT m (BasicSet (n-1))
+eliminateLast = unsafeCoerce go
+  where
+    go :: BasicSet n -> IslT m (BasicSet (n-1))
+    go (BasicSet bs) =
+      let d = fromIntegral $ (natVal $ Proxy @n) - 1
+      in BasicSet <$> BS.projectOut bs Isl.islDimSet d 1
 
-fromString :: String -> Isl (BasicSet n)
+fromString :: MonadIO m => String -> IslT m (BasicSet n)
 fromString str = BasicSet <$> BS.readFromStr str
 
 -- Queries (borrowing)
@@ -115,14 +121,20 @@ bsetToString (BasicSetRef bsRef) = BS.toStr bsRef
 
 -- | Borrow a BasicSet, apply a pure query to its Ref, return the result
 -- as unrestricted (Ur) alongside the still-owned BasicSet.
-borrowBS :: BasicSet n %1 -> (BasicSetRef n -> a) -> Isl (Ur a, BasicSet n)
-borrowBS = unsafeCoerce $ \(BasicSet bs) f ->
-  let !(result, bs') = borrow bs (\ref -> f (BasicSetRef ref))
-  in Isl $ \_ -> return (Ur result, BasicSet bs')
+borrowBS :: forall m n a. Monad m => BasicSet n %1 -> (BasicSetRef n -> a) -> IslT m (Ur a, BasicSet n)
+borrowBS = unsafeCoerce go
+  where
+    go :: BasicSet n -> (BasicSetRef n -> a) -> IslT m (Ur a, BasicSet n)
+    go (BasicSet bs) f =
+      let !(result, bs') = borrow bs (\ref -> f (BasicSetRef ref))
+      in IslT $ \_ -> return (Ur result, BasicSet bs')
 
 -- Resource management
 
--- | Free a BasicSet within the Isl monad. Sequenced by monadic bind,
+-- | Free a BasicSet within the IslT monad. Sequenced by monadic bind,
 -- unlike 'consume' which uses unsafePerformIO and can be deferred.
-freeBS :: BasicSet n %1 -> Isl ()
-freeBS = unsafeCoerce $ \(BasicSet bs) -> freeM bs
+freeBS :: forall m n. MonadIO m => BasicSet n %1 -> IslT m ()
+freeBS = unsafeCoerce go
+  where
+    go :: BasicSet n -> IslT m ()
+    go (BasicSet bs) = freeM bs

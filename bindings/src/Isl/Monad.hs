@@ -2,16 +2,20 @@
 {-# LANGUAGE GADTs #-}
 
 module Isl.Monad
-  ( Isl(..)
+  ( IslT(..)
+  , Isl
   , Ur(..)
+  , runIslT
   , runIsl
   , getCtx
   , unsafeIslFromIO
   , freeM
   ) where
 
-import Control.DeepSeq (NFData, ($!!))
-import Control.Exception (bracket, evaluate)
+import Control.DeepSeq (NFData, rnf)
+import Control.Exception (evaluate)
+import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.Trans.Class (MonadTrans(..))
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -22,43 +26,62 @@ import Isl.Types
 data Ur a where
   Ur :: a -> Ur a
 
--- | The ISL monad. Sequences ISL operations and carries the context.
--- Linearity is enforced on the /values/ (ISL objects), not on the bind —
--- we reuse standard 'Monad' for do-notation convenience.
-newtype Isl a = Isl { unIsl :: Ctx -> IO a }
+-- | The ISL monad transformer. Carries an ISL context through a monadic
+-- computation. Use 'IslT' to compose ISL operations with other effects
+-- (state, error handling, etc.) in a transformer stack.
+newtype IslT m a = IslT { unIslT :: Ctx -> m a }
 
-instance Functor Isl where
-  fmap f (Isl g) = Isl $ \ctx -> fmap f (g ctx)
+-- | Concrete ISL monad — 'IslT' specialized to 'IO'.
+type Isl = IslT IO
 
-instance Applicative Isl where
-  pure a = Isl $ \_ -> pure a
-  Isl f <*> Isl a = Isl $ \ctx -> f ctx <*> a ctx
+instance Functor m => Functor (IslT m) where
+  fmap f (IslT g) = IslT $ \ctx -> fmap f (g ctx)
 
-instance Monad Isl where
-  Isl m >>= k = Isl $ \ctx -> do
+instance Monad m => Applicative (IslT m) where
+  pure a = IslT $ \_ -> pure a
+  IslT f <*> IslT a = IslT $ \ctx -> do
+    f' <- f ctx
+    a' <- a ctx
+    return (f' a')
+
+instance Monad m => Monad (IslT m) where
+  IslT m >>= k = IslT $ \ctx -> do
     a <- m ctx
-    unIsl (k a) ctx
+    unIslT (k a) ctx
 
--- | Run an ISL computation. The 'NFData' constraint ensures the return
--- value is fully evaluated before the ISL context is freed — preventing
--- any lazy thunks from referencing ISL memory after context cleanup.
+instance MonadTrans IslT where
+  lift m = IslT $ \_ -> m
+
+instance MonadIO m => MonadIO (IslT m) where
+  liftIO = lift . liftIO
+
+-- | Run an ISL computation in a transformer stack. Allocates an ISL context,
+-- runs the computation, forces the result (via 'NFData'), then frees the
+-- context. The 'Ur' return type ensures no linear ISL objects escape.
+runIslT :: (MonadIO m, NFData a) => IslT m (Ur a) -> m a
+runIslT (IslT f) = do
+  ctxPtr <- liftIO c_ctx_alloc
+  Ur a <- f (Ctx ctxPtr)
+  liftIO $ evaluate (rnf a)
+  liftIO $ c_ctx_free ctxPtr
+  return a
+
+-- | Run an ISL computation in pure context. Convenience wrapper around
+-- 'runIslT' specialized to 'IO'.
 runIsl :: NFData a => Isl (Ur a) -> a
-runIsl (Isl f) = unsafePerformIO $
-  bracket c_ctx_alloc c_ctx_free $ \ctxPtr -> do
-    Ur a <- f (Ctx ctxPtr)
-    return $!! a
+runIsl m = unsafePerformIO $ runIslT m
 
 -- | Retrieve the ISL context. Used by generated code.
-getCtx :: Isl Ctx
-getCtx = Isl $ \ctx -> return ctx
+getCtx :: Monad m => IslT m Ctx
+getCtx = IslT $ \ctx -> return ctx
 
--- | Lift a raw IO action (that needs the context) into 'Isl'.
+-- | Lift a raw IO action (that needs the context) into 'IslT'.
 -- Used by generated code for FFI calls.
-unsafeIslFromIO :: (Ctx -> IO a) -> Isl a
-unsafeIslFromIO = Isl
+unsafeIslFromIO :: MonadIO m => (Ctx -> IO a) -> IslT m a
+unsafeIslFromIO f = IslT $ \ctx -> liftIO (f ctx)
 
--- | Free an ISL object within the Isl monad. Unlike 'consume' (which uses
+-- | Free an ISL object within the IslT monad. Unlike 'consume' (which uses
 -- unsafePerformIO and can be deferred by lazy evaluation), 'freeM' is
 -- sequenced by the monad — the free happens in-order before subsequent actions.
-freeM :: Consumable a => a -> Isl ()
-freeM x = Isl $ \_ -> evaluate (consume x)
+freeM :: (MonadIO m, Consumable a) => a -> IslT m ()
+freeM x = IslT $ \_ -> liftIO $ evaluate (consume x)
