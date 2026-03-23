@@ -20,7 +20,7 @@ executable isl-codegen
   main-is:             IslCodegen.hs
   -- other-modules:
   other-extensions:    FlexibleContexts, ForeignFunctionInterface
-  build-depends:       base >=4.12.0.0,
+  build-depends:       base >=4.12.0.0 && <5,
                        directory >=1.3.3.0,
                        pretty >=1.1.3.6,
                        mtl >=2.2.2,

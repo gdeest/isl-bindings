@@ -1,18 +1,17 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE LinearTypes #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE Strict #-}
 
 module Isl.Types where
 
-import Data.Coerce
-import Data.Reflection
 import Foreign.C.Types
-import Foreign.ForeignPtr
 import Foreign.Ptr
 import Foreign.Storable
-import Unsafe.Coerce
 
+-- Owned types (linear — consumed by isl_take functions)
 newtype Ctx = Ctx { unCtx :: Ptr Ctx }
   deriving (Storable)
 newtype Aff = Aff { unAff :: Ptr Aff }
@@ -40,12 +39,51 @@ newtype Space = Space { unSpace :: Ptr Space }
 newtype LocalSpace = LocalSpace { unLocalSpace :: Ptr LocalSpace }
   deriving (Storable)
 
+-- Borrowed reference types (unrestricted — used by isl_keep functions)
+newtype AffRef = AffRef (Ptr Aff)
+  deriving (Storable)
+newtype ValRef = ValRef (Ptr Val)
+  deriving (Storable)
+newtype IdRef = IdRef (Ptr Id)
+  deriving (Storable)
+newtype SetRef = SetRef (Ptr Set)
+  deriving (Storable)
+newtype BasicSetRef = BasicSetRef (Ptr BasicSet)
+  deriving (Storable)
+newtype UnionSetRef = UnionSetRef (Ptr UnionSet)
+  deriving (Storable)
+newtype MapRef = MapRef (Ptr Map)
+  deriving (Storable)
+newtype BasicMapRef = BasicMapRef (Ptr BasicMap)
+  deriving (Storable)
+newtype UnionMapRef = UnionMapRef (Ptr UnionMap)
+  deriving (Storable)
+newtype ConstraintRef = ConstraintRef (Ptr Constraint)
+  deriving (Storable)
+newtype SpaceRef = SpaceRef (Ptr Space)
+  deriving (Storable)
+newtype LocalSpaceRef = LocalSpaceRef (Ptr LocalSpace)
+  deriving (Storable)
+
+-- Typeclasses for linear resource management
+
+class Borrow owned ref | owned -> ref where
+  borrow :: owned %1 -> (ref -> a) -> (a, owned)
+
+class Consumable a where
+  consume :: a %1 -> ()
+
+class Consumable a => Dupable a where
+  dup :: a %1 -> (a, a)
+
+-- Context allocation
 foreign import ccall "isl/ctx.h isl_ctx_alloc"
     c_ctx_alloc :: IO (Ptr Ctx)
 
 foreign import ccall "isl/ctx.h isl_ctx_free"
     c_ctx_free :: Ptr Ctx -> IO ()
 
+-- DimType enum
 #include <isl/space_type.h>
 
 newtype DimType = DimType CInt deriving (Eq, Storable)

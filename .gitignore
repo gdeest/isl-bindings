@@ -1,0 +1,9 @@
+dist-newstyle/
+.claude/
+.idea/
+.vscode/
+*.hi
+*.o
+*.dyn_hi
+*.dyn_o
+result

@@ -18,6 +18,8 @@ extra-source-files:  CHANGELOG.md
 
 library
   exposed-modules:     Isl.Types,
+                       Isl.Monad,
+                       Isl.Linear,
                        Isl.Aff.AutoGen,
                        Isl.BasicMap.AutoGen,
                        Isl.BasicSet.AutoGen,
@@ -33,8 +35,8 @@ library
 
   -- other-modules:
   other-extensions:    FlexibleContexts, MultiParamTypeClasses
-  build-depends:       base >=4.12.0.0,
-                       reflection 
+  build-depends:       base >=4.12.0.0 && <5,
+                       deepseq
   hs-source-dirs:      src
   extra-libraries:     isl
   default-language:    Haskell2010

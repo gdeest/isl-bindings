@@ -7,10 +7,11 @@
 
 module Isl.HighLevel.Indices where
 
+import Data.Kind (Type)
 import GHC.TypeLits
 import Unsafe.Coerce
 
-data IxList :: Nat -> * -> * where
+data IxList :: Nat -> Type -> Type where
   Nil :: IxList 0 a
   (:-) :: a -> IxList n a -> IxList (n+1) a
 

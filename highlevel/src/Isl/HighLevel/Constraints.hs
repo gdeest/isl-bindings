@@ -3,6 +3,8 @@
 
 module Isl.HighLevel.Constraints where
 
+import Data.Kind (Type)
+
 -- | Affine expressions, with variables of type 'ix'.
 data Expr ix
   = Ix ix
@@ -69,7 +71,7 @@ deriving instance Show ix => Show (Expr ix)
 deriving instance Show ix => Show (Constraint ix)
 deriving instance Show ix => Show (Conjunction ix)
 
-class ToConjunction (c :: * -> *) where
+class ToConjunction (c :: Type -> Type) where
   toConjunction :: c ix -> Conjunction ix
 
 instance ToConjunction Conjunction where

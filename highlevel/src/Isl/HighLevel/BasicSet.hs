@@ -1,7 +1,11 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LinearTypes #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -11,82 +15,114 @@ module Isl.HighLevel.BasicSet where
 
 import Control.Monad
 import Data.Proxy
-import Data.Reflection
-import Foreign.C.String
 import GHC.TypeLits
-import System.IO.Unsafe
+import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.HighLevel.Constraints
 import Isl.HighLevel.Context
 import Isl.HighLevel.Indices
 
 import qualified Isl.Types as Isl
+import Isl.Types (Borrow(..), Dupable(..), Consumable(..))
+import Isl.Monad (Isl(..), Ur(..), unsafeIslFromIO, freeM)
+import Isl.Linear (borrowPure)
+
 import qualified Isl.BasicSet.AutoGen as BS
 import qualified Isl.Constraint.AutoGen as Constraint
 import qualified Isl.LocalSpace.AutoGen as LS
 import qualified Isl.Space.AutoGen as Space
 
-newtype BasicSet s (nDims :: Nat) = BasicSet Isl.BasicSet
+-- | Owned, dimension-indexed BasicSet. Linear — must be consumed exactly once.
+newtype BasicSet (nDims :: Nat) = BasicSet Isl.BasicSet
+
+-- | Borrowed reference to a BasicSet. Unrestricted — safe for queries.
+newtype BasicSetRef (nDims :: Nat) = BasicSetRef Isl.BasicSetRef
+
+-- Linearity primitives. Uses unsafeCoerce because pattern-matching on the
+-- newtype would violate the linearity checker, but the operations are safe:
+-- consume calls isl_free, dup calls isl_copy, borrow shares the pointer.
+
+instance Consumable (BasicSet n) where
+  consume = unsafeCoerce $ \(BasicSet bs) -> consume bs
+
+instance Dupable (BasicSet n) where
+  dup = unsafeCoerce $ \(BasicSet bs) ->
+    let (a, b) = dup bs in (BasicSet a, BasicSet b)
+
+instance Borrow (BasicSet n) (BasicSetRef n) where
+  borrow = unsafeCoerce $ \(BasicSet bs) f ->
+    let (result, bs') = borrow bs (\ref -> f (BasicSetRef ref))
+    in (result, BasicSet bs')
+
+-- Construction
 
 mkBasicSet
-  :: forall s (n :: Nat). (HasCtx s, KnownNat n)
+  :: forall (n :: Nat). KnownNat n
   => (forall ix. IxList n ix -> Conjunction ix)
-  -> BasicSet s n
+  -> Isl (BasicSet n)
 mkBasicSet mkConstraints = toBasicSet . mkConstraints $
   (coerceIxList $ mkIxList 0 $ natVal (Proxy @n))
 
 toBasicSet
-  :: forall s (n :: Nat). (HasCtx s, KnownNat n)
-  => Conjunction Integer -> BasicSet s n
-
-toBasicSet (Conjunction constraints) = BasicSet $ unsafePerformIO $ do
-  space <- Space.c_setAlloc ctx 0 (fromIntegral $ natVal $ Proxy @n)
-  univ <- BS.c_universe space
-  foldM addConstraint univ constraints
+  :: forall (n :: Nat). KnownNat n
+  => Conjunction Integer -> Isl (BasicSet n)
+toBasicSet (Conjunction constraints) = do
+  space <- Space.setAlloc 0 (fromIntegral $ natVal $ Proxy @n)
+  univ <- BS.universe space
+  result <- foldM addConstraint univ constraints
+  return (BasicSet result)
   where
-    ctx = reflect (Proxy @s)
     addConstraint bs constraint = do
-      sp <- BS.c_getSpace bs
-      ls <- LS.c_fromSpace sp
-      (emptyConstraint, e) <-
+      let (spAction, bs') = Isl.borrow bs BS.getSpace
+      sp <- spAction
+      ls <- LS.fromSpace sp
+      (emptyC, e) <-
         case constraint of
           InequalityConstraint e -> do
-            co <- Constraint.c_inequalityAlloc ls
+            co <- Constraint.inequalityAlloc ls
             return (co, e)
           EqualityConstraint e -> do
-            co <- Constraint.c_equalityAlloc ls
+            co <- Constraint.equalityAlloc ls
             return (co, e)
       let (coeffs, constant) = expandExpr e
-          setCoeff constr (coeff, ix)  = do
-            Constraint.c_setCoefficientSi
+          setCoeff constr (coeff, ix) =
+            Constraint.setCoefficientSi
               constr Isl.islDimSet (fromIntegral ix) (fromIntegral coeff)
+      linearPart <- foldM setCoeff emptyC coeffs
+      finalC <- Constraint.setConstantSi linearPart (fromIntegral constant)
+      BS.addConstraint bs' finalC
 
-      linearPart <- foldM setCoeff emptyConstraint coeffs
-      finalConstraint <-
-        Constraint.c_setConstantSi linearPart (fromIntegral constant)
+-- Operations (consuming)
 
-      BS.c_addConstraint bs finalConstraint
-
-intersect :: forall s n. BasicSet s n -> BasicSet s n -> BasicSet s n
-intersect (BasicSet bs1) (BasicSet bs2) = BasicSet $ unsafePerformIO $ do
-  bs1' <- BS.c_copy bs1
-  bs2' <- BS.c_copy bs2
-  BS.c_intersect bs1' bs2'
-
-bsetToString :: forall s n. BasicSet s n -> String
-bsetToString (BasicSet bs) = unsafePerformIO $
-  peekCString =<< BS.c_toStr bs
-
-fromString :: forall s n. HasCtx s => String -> BasicSet s n
-fromString str =
-  let ctx = reflect $ Proxy @s in
-    unsafePerformIO $ withCString str $ \cstr -> do
-    BasicSet <$> BS.c_readFromStr ctx cstr
+intersect :: BasicSet n %1 -> BasicSet n %1 -> Isl (BasicSet n)
+intersect = unsafeCoerce $ \(BasicSet bs1) (BasicSet bs2) ->
+  BasicSet <$> BS.intersect bs1 bs2
 
 eliminateLast
-  :: forall s n. (KnownNat n, 1 <= n)
-  => BasicSet s n -> BasicSet s (n-1)
-eliminateLast (BasicSet bs) = BasicSet $ unsafePerformIO $ do
-  let d = (natVal $ Proxy @n) - 1
-  bs' <- BS.c_copy bs
-  BS.c_projectOut bs' Isl.islDimSet (fromIntegral $ d) 1
+  :: forall n. (KnownNat n, 1 <= n)
+  => BasicSet n %1 -> Isl (BasicSet (n-1))
+eliminateLast = unsafeCoerce $ \(BasicSet bs :: BasicSet n) ->
+  let d = fromIntegral $ (natVal $ Proxy @n) - 1
+  in BasicSet <$> BS.projectOut bs Isl.islDimSet d 1
+
+fromString :: String -> Isl (BasicSet n)
+fromString str = BasicSet <$> BS.readFromStr str
+
+-- Queries (borrowing)
+
+bsetToString :: BasicSetRef n -> String
+bsetToString (BasicSetRef bsRef) = BS.toStr bsRef
+
+-- | Borrow a BasicSet, apply a pure query to its Ref, return the result
+-- as unrestricted (Ur) alongside the still-owned BasicSet.
+borrowBS :: BasicSet n %1 -> (BasicSetRef n -> a) -> Isl (Ur a, BasicSet n)
+borrowBS = unsafeCoerce $ \(BasicSet bs) f ->
+  let !(result, bs') = borrow bs (\ref -> f (BasicSetRef ref))
+  in Isl $ \_ -> return (Ur result, BasicSet bs')
+
+-- Resource management
+
+-- | Free a BasicSet within the Isl monad. Sequenced by monadic bind,
+-- unlike 'consume' which uses unsafePerformIO and can be deferred.
+freeBS :: BasicSet n %1 -> Isl ()
+freeBS = unsafeCoerce $ \(BasicSet bs) -> freeM bs

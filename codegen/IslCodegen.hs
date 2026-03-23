@@ -33,7 +33,7 @@ import System.IO.Unsafe
 import qualified Text.Casing as Casing
 
 import Control.Monad.State
-
+import Control.Monad (forM_)
 import Control.Monad.Writer
 import qualified Data.Map as M
 import qualified Data.Set as S
@@ -182,6 +182,7 @@ defines =
   , "-D__isl_null=__attribute__((isl_null))"
   , "-D__isl_constructor=__attribute__((isl_constructor)) __attribute__((isl_export))"
   , "-D__isl_subclass(super)=__attribute__((isl_subclass(\" #super \"))) __attribute__((isl_export))"
+  , "-std=c11"  -- Avoid C23 nullptr that language-c can't parse
   ]
 
 mkHeaderNames :: String -> [String]
@@ -229,128 +230,117 @@ moduleNameFromHeader header = camelize (reverse $ drop 2 $ reverse header)
 
 data TypeInfo = TI
   { cType :: String -- ^ C type
-  , hsType :: String -- ^ HSType type
+  , hsType :: String -- ^ HS owned type
+  , hsRefType :: Maybe String -- ^ HS borrowed ref type (Nothing for primitives)
   , cToHs :: Maybe String -- ^ C to HS conversion
   , hsToC :: Maybe String -- ^ HS to C conversion
   , copyable :: Bool
   }
 
+-- | How to generate the Haskell wrapper for a function.
+data GenStrategy
+  = PureQuery          -- ^ All ISL ptr params are isl_keep, return is plain type
+  | MonadicGive        -- ^ Return is __isl_give (allocates), may have isl_take params
+  | SkipSpecial        -- ^ _free, _copy, _get_ctx — handled as instances or skipped
+  deriving (Eq, Show)
+
+-- | Classify an ISLFunction into a generation strategy.
+classifyFun :: ISLFunction -> GenStrategy
+classifyFun (ISLFunction annots retType name params)
+  | "_free" `isSuffixOf` name = SkipSpecial
+  | "_copy" `isSuffixOf` name = SkipSpecial
+  | "_get_ctx" `isSuffixOf` name = SkipSpecial
+  | isIslPtrType retType = MonadicGive  -- returns ISL pointer → allocating effect
+  | otherwise = PureQuery               -- returns plain type (int, bool, string, void)
+
+-- | Whether a type is an ISL pointer type (not a primitive).
+isIslPtrType :: ISLType -> Bool
+isIslPtrType t = t `elem`
+  [ ISL_SET_PTR, ISL_BASIC_SET_PTR, ISL_UNION_SET_PTR
+  , ISL_MAP_PTR, ISL_BASIC_MAP_PTR, ISL_UNION_MAP_PTR
+  , ISL_SPACE_PTR, ISL_LOCAL_SPACE_PTR
+  , ISL_AFF_PTR, ISL_VAL_PTR, ISL_ID_PTR
+  , ISL_CONSTRAINT_PTR
+  ]
+
 hsTypes :: M.Map ISLType TypeInfo
 hsTypes =
   M.fromList
     [ (VOID, TI
-        "()"
-        "()"
-        (Just "return")
-        Nothing
+        "()" "()" Nothing
+        (Just "return") Nothing
         False)
     , (INT, TI
-        "C.CInt"
-        "Int"
-        (Just "return . fromIntegral")
-        (Just "return . fromIntegral")
+        "C.CInt" "Int" Nothing
+        (Just "return . fromIntegral") (Just "return . fromIntegral")
         False)
     , (ISL_DIM_TYPE, TI
-        "DimType"
-        "DimType"
-        (Just "return")
-        (Just "return")
+        "DimType" "DimType" Nothing
+        (Just "return") (Just "return")
         False)
     , (UINT, TI
-        "C.CUInt"
-        "Int"
-        (Just "return . fromIntegral")
-        (Just "return . fromIntegral")
+        "C.CUInt" "Int" Nothing
+        (Just "return . fromIntegral") (Just "return . fromIntegral")
         False)
     , (ISL_CTX_PTR, TI
-        "Ctx"
-        "Ctx"
-        (Just "return")
-        (Just "return")
+        "Ctx" "Ctx" Nothing
+        (Just "return") (Just "return")
         False)
     , (ISL_SET_PTR, TI
-        "Set"
-        "Set"
-        (Just "return")
-        (Just "return")
+        "Set" "Set" (Just "SetRef")
+        (Just "return") (Just "return")
         True)
     , (ISL_BASIC_SET_PTR, TI
-        "BasicSet"
-        "BasicSet"
-        (Just "return")
-        (Just "return")
+        "BasicSet" "BasicSet" (Just "BasicSetRef")
+        (Just "return") (Just "return")
         True)
     , (ISL_UNION_SET_PTR, TI
-        "UnionSet"
-        "UnionSet"
-        (Just "return")
-        (Just "return")
+        "UnionSet" "UnionSet" (Just "UnionSetRef")
+        (Just "return") (Just "return")
         True)
     , (ISL_MAP_PTR, TI
-        "Map"
-        "Map"
-        (Just "return")
-        (Just "return")
+        "Map" "Map" (Just "MapRef")
+        (Just "return") (Just "return")
         True)
     , (ISL_BASIC_MAP_PTR, TI
-        "BasicMap"
-        "BasicMap"
-        (Just "return")
-        (Just "return")
+        "BasicMap" "BasicMap" (Just "BasicMapRef")
+        (Just "return") (Just "return")
         True)
     , (ISL_UNION_MAP_PTR, TI
-        "UnionMap"
-        "UnionMap"
-        (Just "return")
-        (Just "return")
+        "UnionMap" "UnionMap" (Just "UnionMapRef")
+        (Just "return") (Just "return")
         True)
     , (ISL_AFF_PTR, TI
-        "Aff"
-        "Aff"
-        (Just "return")
-        (Just "return")
+        "Aff" "Aff" (Just "AffRef")
+        (Just "return") (Just "return")
         True)
     , (ISL_VAL_PTR, TI
-        "Val"
-        "Val"
-        (Just "return")
-        (Just "return")
+        "Val" "Val" (Just "ValRef")
+        (Just "return") (Just "return")
         True)
     , (ISL_CONSTRAINT_PTR, TI
-        "Constraint"
-        "Constraint"
-        (Just "return")
-        (Just "return")
+        "Constraint" "Constraint" (Just "ConstraintRef")
+        (Just "return") (Just "return")
         True)
     , (ISL_SPACE_PTR, TI
-        "Space"
-        "Space"
-        (Just "return")
-        (Just "return")
+        "Space" "Space" (Just "SpaceRef")
+        (Just "return") (Just "return")
         True)
     , (ISL_LOCAL_SPACE_PTR, TI
-        "LocalSpace"
-        "LocalSpace"
-        (Just "return")
-        (Just "return")
+        "LocalSpace" "LocalSpace" (Just "LocalSpaceRef")
+        (Just "return") (Just "return")
         True)
     , (ISL_ID_PTR, TI
-        "Id"
-        "Id"
-        (Just "return")
-        (Just "return")
+        "Id" "Id" (Just "IdRef")
+        (Just "return") (Just "return")
         True)
     , (CHAR_PTR, TI
-         "C.CString"
-         "String"
-         (Just "C.peekCString")
-         (Just "C.newCString")
-         False)
+        "C.CString" "String" Nothing
+        (Just "C.peekCString") (Just "C.newCString")
+        False)
     , (BOOL, TI
-        "C.CBool"
-        "Bool"
-        (Just "return . M.toBool")
-        (Just "return . M.fromBool")
+        "C.CBool" "Bool" Nothing
+        (Just "return . M.toBool") (Just "return . M.fromBool")
         False)
     ]
 
@@ -370,82 +360,235 @@ lookupType t = M.lookup t hsTypes
 -- wrapRet _ = Nothing
 
 toInDecl :: HSFunction -> Maybe String
-toInDecl (HSFunction (ISLFunction annots t name params) hsName) = do
-  TI cRetType hsRetType mbToHsRet _  canCopy <- lookupType t
+toInDecl (HSFunction islFun@(ISLFunction annots t name params) hsName) = do
+  let strategy = classifyFun islFun
+  case strategy of
+    SkipSpecial -> Nothing  -- handled separately as instances
+    PureQuery   -> toPureQueryDecl islFun hsName
+    MonadicGive -> toMonadicGiveDecl islFun hsName
 
+-- | Generate a pure query function (isl_keep params, plain return type).
+-- Uses unsafePerformIO — these are observationally pure.
+-- ISL pointer params become Ref types (unrestricted).
+toPureQueryDecl :: ISLFunction -> String -> Maybe String
+toPureQueryDecl (ISLFunction annots t name params) hsName = do
+  TI cRetType _ _ mbToHsRet _ _ <- lookupType t
 
-  toHsRet <- mbToHsRet
+  let filteredParams = filter (not . isCtxParam) params
+      needsCtx = any isCtxParam params
 
+  filteredParamsInfo <- sequence $ map (lookupType . paramType) filteredParams
 
-  let createUnwrap = hsToC
-        -- toC <- hsToC pi
-        -- if ISL_TAKE `elem` annots
-        --   then
-        --     case copyable pi of
-        --       False -> Nothing
-        --       True -> Just $ toC ++ " >=> islCopy"
-        --   else return toC
+  let cFunName = "c_" ++ hsName
 
-  let filteredParams =
-        filter (\(ISLParam _ t _) -> not (t == ISL_CTX_PTR)) params
+      -- Foreign import: isl_keep ISL ptr → Ref type; primitives → C type; ctx → Ctx
+      importParamTypes = (if needsCtx then ["Ctx"] else []) ++
+        map (ffiParamType PureQuery) (zip filteredParams filteredParamsInfo)
+      importType = concat . intersperse " -> " $
+        importParamTypes ++ ["IO " ++ cRetType]
 
-  -- paramsInfo <-
-  --     sequence $ map (lookupType . (\(ISLParam _ t _) -> t)) params
-  paramsInfo <-
-      sequence $ map (lookupType . (\(ISLParam _ t _) -> t)) filteredParams
-  fullParamsInfo <-
-      sequence $ map (lookupType . (\(ISLParam _ t _) -> t)) params
+      importCall = "foreign import ccall \"" ++ name ++ "\" " ++ cFunName
+                ++ " :: " ++ importType ++ "\n"
 
+      -- Haskell wrapper signature: Ref types for ISL ptrs, HS types for primitives
+      wrapperParamTypes = map wrapperParamTypePure (zip filteredParams filteredParamsInfo)
 
-  unwrappers <- sequence $ map createUnwrap paramsInfo
+      hsRetStr = case t of
+        INT  -> "Int"; UINT -> "Int"; BOOL -> "Bool"
+        CHAR_PTR -> "String"; VOID -> "()"; ISL_DIM_TYPE -> "DimType"
+        _ -> "Int"
 
-  -- wrappers <- sequence $ map cToHs paramsInfo
-  wrapper <- mbToHsRet
-  -- wraps <- forM params wrapParam
-  -- wrapRet <- wrapReturn t
+      hsTypeStr = concat . intersperse " -> " $
+        wrapperParamTypes ++ [hsRetStr]
 
-  let importType
-        = concat
-        . intersperse " -> "
-        $ (map cType fullParamsInfo) ++ ["IO " ++ cRetType]
+      -- Wrapper body
+      wrapperParams = map paramName filteredParams
 
-      paramNames =
-        map (\(ISLParam _ _ id) -> id) params
-      paramNames' =
-        map (\(ISLParam _ _ id) -> (id, id++"'")) filteredParams
-        -- map (\x -> (x, x++"'")) . filter (/= "ctx") $ paramNames
+      -- Check if any param needs String→CString conversion
+      stringParamsPure = [(pn, pn ++ "_c") | ISLParam _ CHAR_PTR pn <- filteredParams]
+      hasStringParamPure = not (null stringParamsPure)
 
-      cFunName = "c_" ++ hsName
-      importCall = unlines $
-        [ concat
-          ["foreign import ccall \"", name, "\" ", cFunName
-          , " :: "
-          , importType
-          ]
-          , ""
-        ]
-      hsTypeStr = concat $ intersperse " -> " (
-          map hsType paramsInfo ++ [hsRetType]
-        )
-      exportCall = unlines $
-        [ concat [hsName, " :: (Given Ctx) => ", hsTypeStr]
-        , case paramNames' of
-            [] -> concat [hsName, " =  trace \"", hsName, "\" $ "]
-            _ -> concat [hsName, " = \\", concat $ intersperse " " (map snd paramNames'), " -> ", "trace \"", hsName, "\" $ "]
-        , concat ["    unsafePerformIO $ (", wrapper, ") =<< do"]
-        , unlines $ flip map (zip paramNames' unwrappers) $
-            \((p, p'), unwrap) -> "      " ++ p ++ " <- (" ++ unwrap ++ ") " ++ p'
-        , "      let ctx = given :: Ctx"
-        , concat ["      ", cFunName, " "
-                 , concat $ intersperse " " paramNames
-                 ]
+      cCallArgs = map (cCallArgPure needsCtx stringParamsPure) (zip filteredParams filteredParamsInfo)
+
+      retConv = case t of
+        INT  -> "fromIntegral <$> "; UINT -> "fromIntegral <$> "
+        BOOL -> "M.toBool <$> "; CHAR_PTR -> ""; VOID -> ""; _ -> ""
+
+      body
+        | hasStringParamPure = case t of
+          CHAR_PTR ->
+            "    unsafePerformIO $ do\n" ++
+            concatMap (\(p, pc) -> "      " ++ pc ++ " <- C.newCString " ++ p ++ "\n") stringParamsPure ++
+            "      C.peekCString =<< " ++ cFunName ++ " " ++ unwords cCallArgs
+          _ ->
+            "    unsafePerformIO $ do\n" ++
+            concatMap (\(p, pc) -> "      " ++ pc ++ " <- C.newCString " ++ p ++ "\n") stringParamsPure ++
+            "      " ++ retConv ++ cFunName ++ " " ++ unwords cCallArgs
+        | otherwise = case t of
+          CHAR_PTR ->
+            "    unsafePerformIO $ C.peekCString =<< " ++ cFunName ++ " " ++ unwords cCallArgs
+          _ ->
+            "    unsafePerformIO $ " ++ retConv ++ cFunName ++ " " ++ unwords cCallArgs
+
+      exportCall = unlines
+        [ hsName ++ " :: " ++ hsTypeStr
+        , case wrapperParams of
+            [] -> hsName ++ " ="
+            _  -> hsName ++ " " ++ unwords wrapperParams ++ " ="
+        , body
         , ""
         ]
 
   return (importCall ++ "\n" ++ exportCall)
 
-toDecl :: HSFunction -> Maybe String
-toDecl f = Just "Outside Decl"
+-- | Generate a monadic function (returns __isl_give).
+-- isl_take params get %1 (owned), isl_keep params get Ref type.
+toMonadicGiveDecl :: ISLFunction -> String -> Maybe String
+toMonadicGiveDecl (ISLFunction annots t name params) hsName = do
+  TI cRetType hsRetOwnedType _ _ _ _ <- lookupType t
+
+  let filteredParams = filter (not . isCtxParam) params
+      needsCtx = any isCtxParam params
+
+  filteredParamsInfo <- sequence $ map (lookupType . paramType) filteredParams
+
+  let cFunName = "c_" ++ hsName
+
+      -- Foreign import: isl_take → owned, isl_keep → Ref, ctx → Ctx
+      importParamTypes = (if needsCtx then ["Ctx"] else []) ++
+        map (ffiParamType MonadicGive) (zip filteredParams filteredParamsInfo)
+      importType = concat . intersperse " -> " $
+        importParamTypes ++ ["IO " ++ cRetType]
+
+      importCall = "foreign import ccall \"" ++ name ++ "\" " ++ cFunName
+                ++ " :: " ++ importType ++ "\n"
+
+      -- Haskell wrapper: isl_take → "Type %1", isl_keep → "TypeRef", String for CHAR_PTR
+      wrapperParamTypes = map wrapperParamTypeMonadic (zip filteredParams filteredParamsInfo)
+
+      hsTypeStr = concat . intersperse " -> " $
+        wrapperParamTypes ++ ["Isl " ++ hsRetOwnedType]
+
+      wrapperParams = map paramName filteredParams
+
+      -- Handle String→CString conversion
+      stringParams = [(pn, pn ++ "_c") | ISLParam _ CHAR_PTR pn <- filteredParams]
+      hasStringParam = not (null stringParams)
+
+      -- Build C call arguments (in original param order minus ctx)
+      cCallArgs = (if needsCtx then ["ctx"] else []) ++
+        map (cCallArgMonadic stringParams) (zip filteredParams filteredParamsInfo)
+
+      -- Check if any param is linear (%1). If so, we need unsafeCoerce
+      -- because GHC can't verify that the lambda captures linear values safely.
+      hasLinearParam = any isLinearParam (zip filteredParams filteredParamsInfo)
+
+      innerBody
+        | hasStringParam =
+          "unsafeIslFromIO $ \\" ++ (if needsCtx then "ctx" else "_") ++ " -> do\n" ++
+          concatMap (\(p, pc) -> "      " ++ pc ++ " <- C.newCString " ++ p ++ "\n") stringParams ++
+          "      " ++ cFunName ++ " " ++ unwords cCallArgs
+        | needsCtx =
+          "unsafeIslFromIO $ \\ctx -> " ++ cFunName ++ " " ++ unwords cCallArgs
+        | otherwise =
+          "unsafeIslFromIO $ \\_ -> " ++ cFunName ++ " " ++ unwords cCallArgs
+
+      -- Wrap in unsafeCoerce if we have linear params to bypass multiplicity check
+      exportCall
+        | hasLinearParam = unlines
+          [ hsName ++ " :: " ++ hsTypeStr
+          , hsName ++ " = unsafeCoerce $ \\" ++ unwords wrapperParams ++ " ->"
+          , "    " ++ innerBody
+          , ""
+          ]
+        | otherwise = unlines
+          [ hsName ++ " :: " ++ hsTypeStr
+          , case wrapperParams of
+              [] -> hsName ++ " ="
+              _  -> hsName ++ " " ++ unwords wrapperParams ++ " ="
+          , "    " ++ innerBody
+          , ""
+          ]
+
+  return (importCall ++ "\n" ++ exportCall)
+
+-- | FFI param type: type used in the foreign import declaration.
+-- For PureQuery: all ISL ptrs are Ref (isl_keep).
+-- For MonadicGive: isl_take → owned, isl_keep → Ref.
+ffiParamType :: GenStrategy -> (ISLParam, TypeInfo) -> String
+ffiParamType PureQuery (_, ti) =
+  case hsRefType ti of
+    Just ref -> ref        -- ISL pointer → Ref type
+    Nothing  -> cType ti   -- primitive → C type
+ffiParamType MonadicGive (ISLParam annots _ _, ti) =
+  case hsRefType ti of
+    Just ref
+      | ISL_TAKE `elem` annots -> cType ti  -- isl_take → owned type
+      | otherwise              -> ref       -- isl_keep → Ref type
+    Nothing -> cType ti
+ffiParamType _ (_, ti) = cType ti
+
+-- | Wrapper param type for pure query signatures.
+wrapperParamTypePure :: (ISLParam, TypeInfo) -> String
+wrapperParamTypePure (_, ti) =
+  case hsRefType ti of
+    Just ref -> ref         -- ISL pointer → Ref type (unrestricted)
+    Nothing  -> hsType ti   -- primitive → Haskell type
+
+-- | Wrapper param type for monadic signatures.
+wrapperParamTypeMonadic :: (ISLParam, TypeInfo) -> String
+wrapperParamTypeMonadic (ISLParam annots islType _, ti) =
+  case hsRefType ti of
+    Just ref
+      | ISL_TAKE `elem` annots -> hsType ti ++ " %1"  -- linear owned
+      | otherwise              -> ref                  -- unrestricted Ref
+    Nothing
+      | islType == CHAR_PTR    -> "String"
+      | otherwise              -> hsType ti
+
+-- | C call argument for pure query wrapper.
+cCallArgPure :: Bool -> [(String, String)] -> (ISLParam, TypeInfo) -> String
+cCallArgPure needsCtx _ (ISLParam _ ISL_CTX_PTR _, _) = "ctx"  -- shouldn't appear in filtered
+cCallArgPure _ stringParams (ISLParam _ islType pname, ti) =
+  case lookup pname stringParams of
+    Just cname -> cname  -- String → already converted CString
+    Nothing -> case hsToC ti of
+      Just "return . fromIntegral" | islType /= ISL_DIM_TYPE ->
+        "(fromIntegral " ++ pname ++ ")"
+      Just "return . M.fromBool" ->
+        "(M.fromBool " ++ pname ++ ")"
+      _ -> pname  -- ISL types and DimType pass through unchanged
+
+-- | C call argument for monadic wrapper.
+cCallArgMonadic :: [(String, String)] -> (ISLParam, TypeInfo) -> String
+cCallArgMonadic stringParams (ISLParam _ ISL_CTX_PTR _, _) = "ctx"
+cCallArgMonadic stringParams (ISLParam _ islType pname, ti) =
+  case lookup pname stringParams of
+    Just cname -> cname  -- String → already converted CString
+    Nothing -> case hsToC ti of
+      Just "return . fromIntegral" | islType /= ISL_DIM_TYPE ->
+        "(fromIntegral " ++ pname ++ ")"
+      Just "return . M.fromBool" ->
+        "(M.fromBool " ++ pname ++ ")"
+      _ -> pname
+
+-- | Whether a param is linear (isl_take on an ISL pointer type)
+isLinearParam :: (ISLParam, TypeInfo) -> Bool
+isLinearParam (ISLParam annots _ _, ti) =
+  ISL_TAKE `elem` annots && isJust (hsRefType ti)
+
+isCtxParam :: ISLParam -> Bool
+isCtxParam (ISLParam _ ISL_CTX_PTR _) = True
+isCtxParam _ = False
+
+paramType :: ISLParam -> ISLType
+paramType (ISLParam _ t _) = t
+
+paramName :: ISLParam -> String
+paramName (ISLParam _ _ n) = n
+
+paramAnnots :: ISLParam -> [ISLAnnotation]
+paramAnnots (ISLParam a _ _) = a
 
 writeModule :: String -> String -> [HSFunction] -> IO ()
 writeModule outPath name functions = do
@@ -455,41 +598,111 @@ writeModule outPath name functions = do
   createDirectoryIfMissing True dirName
   withFile (dirName ++ "/AutoGen.hs") WriteMode $ \coreh -> do
     mapM_ (hPutStrLn coreh) $
-      [ "{-# LANGUAGE FlexibleContexts #-}"
+      [ "{-# LANGUAGE BangPatterns #-}"
+      , "{-# LANGUAGE FlexibleContexts #-}"
       , "{-# LANGUAGE ForeignFunctionInterface #-}"
+      , "{-# LANGUAGE LinearTypes #-}"
+      , "{-# LANGUAGE MultiParamTypeClasses #-}"
       , "{-# LANGUAGE Strict #-}"
       , ""
       , "module Isl." ++ name ++ ".AutoGen where"
       , ""
-      , "import Control.Monad"
-      , "import Data.Reflection"
       , "import Isl.Types"
-      , "import Debug.Trace"
+      , "import Isl.Monad"
       , ""
       , "import Foreign.C as C"
       , "import Foreign.C.String as C"
       , "import Foreign.C.Types as C"
-      , "import Foreign.ForeignPtr.Unsafe"
       , "import Foreign.Marshal.Utils as M"
       , ""
       , "import System.IO.Unsafe"
-      , "import Unsafe.Coerce"
+      , "import Unsafe.Coerce (unsafeCoerce)"
       , ""
       ]
+    -- Write regular functions
     mapM_ (writeFunction coreh) functions
+    -- Write typeclass instances (Consumable, Dupable, Borrow)
+    writeInstances coreh name functions
   where
-    writeFunction coreh f@(HSFunction (ISLFunction _ t _ p) name) = do
+    writeFunction coreh f@(HSFunction (ISLFunction _ t _ p) fname) = do
       let inDecl = toInDecl f
       case inDecl of
-        Just d -> do
-          hPutStrLn coreh d
-          -- where sig = paramTypes ++ retType
-          --       params = case p of
-          --         (ISLParam _ ISL_CTX_PTR _):ps -> ps
-          --         _ -> p
-          --       paramTypes = concat $ map (\n -> n ++ " -> ") $ catMaybes (map (\(ISLParam _ t _) -> lookupSig t) params)
-          --       Just retType = lookupSig t
+        Just d -> hPutStrLn coreh d
         Nothing -> return ()
+
+-- | Generate Consumable/Dupable/Borrow instances.
+-- We construct the C function names directly from the module name
+-- because _free functions have __isl_null and get filtered by mustKeepFun.
+writeInstances :: Handle -> String -> [HSFunction] -> IO ()
+writeInstances coreh modName _functions = do
+  case M.lookup modName moduleToType of
+    Nothing -> return ()
+    Just (ownedType, refType) -> do
+      let cPrefix = moduleToCPrefix modName
+          cFreeName = cPrefix ++ "_free"
+          cCopyName = cPrefix ++ "_copy"
+
+      -- Consumable instance (isl_*_free)
+      hPutStrLn coreh $ unlines
+        [ "foreign import ccall \"" ++ cFreeName ++ "\" c_free :: " ++ ownedType ++ " -> IO ()"
+        , ""
+        , "instance Consumable " ++ ownedType ++ " where"
+        , "  consume = unsafeCoerce $ \\x -> unsafePerformIO (c_free x)"
+        , ""
+        ]
+
+      -- Dupable instance (isl_*_copy)
+      hPutStrLn coreh $ unlines
+        [ "foreign import ccall \"" ++ cCopyName ++ "\" c_copy :: " ++ ownedType ++ " -> IO " ++ ownedType
+        , ""
+        , "instance Dupable " ++ ownedType ++ " where"
+        , "  dup = unsafeCoerce $ \\x -> unsafePerformIO $ do"
+        , "    copy <- c_copy x"
+        , "    return (x, copy)"
+        , ""
+        ]
+
+      -- Borrow instance (strict in the result — forces `f ref` immediately
+      -- so the query result doesn't become a dangling thunk after the owned
+      -- value is consumed by an isl_take function)
+      hPutStrLn coreh $ unlines
+        [ "instance Borrow " ++ ownedType ++ " " ++ refType ++ " where"
+        , "  borrow = unsafeCoerce $ \\(" ++ ownedType ++ " ptr) f -> let !r = f (" ++ refType ++ " ptr) in (r, " ++ ownedType ++ " ptr)"
+        , ""
+        ]
+
+-- | Map module name to C function prefix (e.g. "BasicSet" → "isl_basic_set").
+moduleToCPrefix :: String -> String
+moduleToCPrefix "Aff"        = "isl_aff"
+moduleToCPrefix "BasicMap"   = "isl_basic_map"
+moduleToCPrefix "BasicSet"   = "isl_basic_set"
+moduleToCPrefix "Constraint" = "isl_constraint"
+moduleToCPrefix "Id"         = "isl_id"
+moduleToCPrefix "LocalSpace" = "isl_local_space"
+moduleToCPrefix "Map"        = "isl_map"
+moduleToCPrefix "Set"        = "isl_set"
+moduleToCPrefix "Space"      = "isl_space"
+moduleToCPrefix "UnionMap"   = "isl_union_map"
+moduleToCPrefix "UnionSet"   = "isl_union_set"
+moduleToCPrefix "Val"        = "isl_val"
+moduleToCPrefix other        = "isl_" ++ map toLower other
+
+-- | Map module names to their primary owned/ref type pair.
+moduleToType :: M.Map String (String, String)
+moduleToType = M.fromList
+  [ ("Set",        ("Set",        "SetRef"))
+  , ("BasicSet",   ("BasicSet",   "BasicSetRef"))
+  , ("UnionSet",   ("UnionSet",   "UnionSetRef"))
+  , ("Map",        ("Map",        "MapRef"))
+  , ("BasicMap",   ("BasicMap",   "BasicMapRef"))
+  , ("UnionMap",   ("UnionMap",   "UnionMapRef"))
+  , ("Aff",        ("Aff",        "AffRef"))
+  , ("Val",        ("Val",        "ValRef"))
+  , ("Id",         ("Id",         "IdRef"))
+  , ("Constraint", ("Constraint", "ConstraintRef"))
+  , ("Space",      ("Space",      "SpaceRef"))
+  , ("LocalSpace", ("LocalSpace", "LocalSpaceRef"))
+  ]
 
 toISLAnnotation :: Attr -> Maybe ISLAnnotation
 toISLAnnotation attr@(Attr (Ident name _ _) _ _) =
@@ -717,7 +930,7 @@ sanitizeFunName name =
     replacements =
       M.fromList
         [ ("mod", "modulo")
-        , ("2exp", "pow2")
+        , ("2exp", "twoExp")
         ]
 
 prefix = ""
