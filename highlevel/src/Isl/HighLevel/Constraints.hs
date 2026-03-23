@@ -71,6 +71,10 @@ deriving instance Show ix => Show (Expr ix)
 deriving instance Show ix => Show (Constraint ix)
 deriving instance Show ix => Show (Conjunction ix)
 
+deriving instance Eq ix => Eq (Expr ix)
+deriving instance Eq ix => Eq (Constraint ix)
+deriving instance Eq ix => Eq (Conjunction ix)
+
 class ToConjunction (c :: Type -> Type) where
   toConjunction :: c ix -> Conjunction ix
 
@@ -79,6 +83,24 @@ instance ToConjunction Conjunction where
 
 instance ToConjunction Constraint where
   toConjunction = Conjunction . pure
+
+-- | Dimension index for map constraints, distinguishing input from output.
+data MapDim = InDim !Int | OutDim !Int
+  deriving (Eq, Ord, Show)
+
+-- | Reconstruct an 'Expr' from a list of (coefficient, variable) pairs and
+-- a constant offset. Inverse of 'expandExpr'.
+--
+-- @expandExpr (rebuildExpr coeffs c) ≈ (coeffs, c)@ (modulo zero-coeff filtering)
+rebuildExpr :: [(Integer, ix)] -> Integer -> Expr ix
+rebuildExpr coeffs constant =
+  let terms = [if c == 1 then Ix i else Mul c (Ix i) | (c, i) <- coeffs, c /= 0]
+      constTerm = [Constant constant | constant /= 0]
+      allTerms = terms ++ constTerm
+  in case allTerms of
+    []     -> Constant 0
+    [t]    -> t
+    (t:ts) -> foldl Add t ts
 
 -- | Expands an affine expression to a set of coefficients / variable pairs,
 -- plus a constant offset.

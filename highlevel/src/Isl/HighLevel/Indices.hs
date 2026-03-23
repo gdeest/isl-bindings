@@ -26,5 +26,11 @@ mkIxList start n =
   let rst = mkIxList (start+1) (n-1) in
   SomeIxList $ start :- (coerceIxList rst)
 
+mkIxListWith :: (Int -> a) -> Int -> Integer -> SomeIxList a
+mkIxListWith _ _ 0 = SomeIxList Nil
+mkIxListWith f start n =
+  let rst = mkIxListWith f (start+1) (n-1) in
+  SomeIxList $ f start :- coerceIxList rst
+
 data SomeIxList ix = forall (n :: Nat).
   SomeIxList { someIxList :: (IxList n ix) }

@@ -1,5 +1,8 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LinearTypes #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE RankNTypes #-}
 
 module Isl.Monad
   ( IslT(..)
@@ -9,6 +12,7 @@ module Isl.Monad
   , runIsl
   , getCtx
   , unsafeIslFromIO
+  , withCtx
   , freeM
   ) where
 
@@ -16,6 +20,7 @@ import Control.DeepSeq (NFData, rnf)
 import Control.Exception (evaluate)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans.Class (MonadTrans(..))
+import Data.Reflection (Given, give)
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -79,6 +84,18 @@ getCtx = IslT $ \ctx -> return ctx
 -- Used by generated code for FFI calls.
 unsafeIslFromIO :: MonadIO m => (Ctx -> IO a) -> IslT m a
 unsafeIslFromIO f = IslT $ \ctx -> liftIO (f ctx)
+
+-- | Bridge between 'IslT' and the @Given Ctx@ pattern used by AutoGen code.
+-- Provides the ISL context from the monad to functions that require
+-- @Given Ctx@ via 'Data.Reflection.give'.
+--
+-- IMPORTANT: The result is forced to WHNF within the @give@ scope.
+-- AutoGen functions use @unsafePerformIO@ internally, and the @Given@
+-- dictionary from @give@ is only valid during the call. Lazy evaluation
+-- would defer the @unsafePerformIO@ past the @give@ scope, causing
+-- the @given :: Ctx@ to resolve to garbage.
+withCtx :: Monad m => (Given Ctx => a) -> IslT m a
+withCtx f = IslT $ \ctx -> let !result = give ctx f in return result
 
 -- | Free an ISL object within the IslT monad. Unlike 'consume' (which uses
 -- unsafePerformIO and can be deferred by lazy evaluation), 'freeM' is

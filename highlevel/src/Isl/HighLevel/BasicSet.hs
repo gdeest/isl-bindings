@@ -17,16 +17,20 @@ import Control.Monad
 import Control.Monad.IO.Class (MonadIO)
 import Data.Proxy
 import GHC.TypeLits
+import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.HighLevel.Constraints
 import Isl.HighLevel.Context
 import Isl.HighLevel.Indices
+import Isl.HighLevel.Pure (PConjunction(..))
 
 import qualified Isl.Types as Isl
 import Isl.Types (Borrow(..), Dupable(..), Consumable(..))
-import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, freeM)
+import Isl.Instances ()
+import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, withCtx, freeM)
 import Isl.Linear (borrowPure)
+import qualified Isl.Foreach as Foreach
 
 import qualified Isl.BasicSet.AutoGen as BS
 import qualified Isl.Constraint.AutoGen as Constraint
@@ -68,30 +72,31 @@ toBasicSet
   :: forall m (n :: Nat). (MonadIO m, KnownNat n)
   => Conjunction Integer -> IslT m (BasicSet n)
 toBasicSet (Conjunction constraints) = do
-  space <- Space.setAlloc 0 (fromIntegral $ natVal $ Proxy @n)
-  univ <- BS.universe space
+  space <- withCtx $ Space.setAlloc 0 (fromIntegral $ natVal $ Proxy @n)
+  univ <- withCtx $ BS.universe space
   result <- foldM addConstraint univ constraints
   return (BasicSet result)
   where
+    getSpace :: Isl.BasicSetRef -> Isl.Space
+    getSpace ref = unsafePerformIO $ Foreach.basicSetGetSpace ref
     addConstraint bs constraint = do
-      let (spAction, bs') = Isl.borrow bs BS.getSpace
-      sp <- spAction
-      ls <- LS.fromSpace sp
+      let !(sp, bs') = borrow bs getSpace
+      ls <- withCtx $ LS.fromSpace sp
       (emptyC, e) <-
         case constraint of
           InequalityConstraint e -> do
-            co <- Constraint.inequalityAlloc ls
+            co <- withCtx $ Constraint.inequalityAlloc ls
             return (co, e)
           EqualityConstraint e -> do
-            co <- Constraint.equalityAlloc ls
+            co <- withCtx $ Constraint.equalityAlloc ls
             return (co, e)
       let (coeffs, constant) = expandExpr e
           setCoeff constr (coeff, ix) =
-            Constraint.setCoefficientSi
+            withCtx $ Constraint.setCoefficientSi
               constr Isl.islDimSet (fromIntegral ix) (fromIntegral coeff)
       linearPart <- foldM setCoeff emptyC coeffs
-      finalC <- Constraint.setConstantSi linearPart (fromIntegral constant)
-      BS.addConstraint bs' finalC
+      finalC <- withCtx $ Constraint.setConstantSi linearPart (fromIntegral constant)
+      withCtx $ BS.addConstraint bs' finalC
 
 -- Operations (consuming)
 
@@ -99,7 +104,7 @@ intersect :: forall m n. MonadIO m => BasicSet n %1 -> BasicSet n %1 -> IslT m (
 intersect = unsafeCoerce go
   where
     go :: BasicSet n -> BasicSet n -> IslT m (BasicSet n)
-    go (BasicSet bs1) (BasicSet bs2) = BasicSet <$> BS.intersect bs1 bs2
+    go (BasicSet bs1) (BasicSet bs2) = BasicSet <$> withCtx (BS.intersect bs1 bs2)
 
 eliminateLast
   :: forall m n. (MonadIO m, KnownNat n, 1 <= n)
@@ -109,15 +114,16 @@ eliminateLast = unsafeCoerce go
     go :: BasicSet n -> IslT m (BasicSet (n-1))
     go (BasicSet bs) =
       let d = fromIntegral $ (natVal $ Proxy @n) - 1
-      in BasicSet <$> BS.projectOut bs Isl.islDimSet d 1
+      in BasicSet <$> withCtx (BS.projectOut bs Isl.islDimSet d 1)
 
 fromString :: MonadIO m => String -> IslT m (BasicSet n)
-fromString str = BasicSet <$> BS.readFromStr str
+fromString str = BasicSet <$> withCtx (BS.readFromStr str)
 
 -- Queries (borrowing)
 
 bsetToString :: BasicSetRef n -> String
-bsetToString (BasicSetRef bsRef) = BS.toStr bsRef
+bsetToString (BasicSetRef bsRef) =
+  unsafePerformIO $ Foreach.basicSetToStr bsRef
 
 -- | Borrow a BasicSet, apply a pure query to its Ref, return the result
 -- as unrestricted (Ur) alongside the still-owned BasicSet.
@@ -128,6 +134,46 @@ borrowBS = unsafeCoerce go
     go (BasicSet bs) f =
       let !(result, bs') = borrow bs (\ref -> f (BasicSetRef ref))
       in IslT $ \_ -> return (Ur result, BasicSet bs')
+
+-- Deconstruction
+
+-- | Decompose a BasicSet into its pure constraint representation.
+-- Borrows the BasicSet and returns both the pure data and the original.
+--
+-- The returned 'PConjunction' uses positional 'Integer' indices
+-- (0-based) for each set dimension.
+--
+-- Note: ISL may normalize constraints, so the result may differ from
+-- the original construction input (reordering, simplification, etc.).
+decomposeBS :: forall m n. (MonadIO m, KnownNat n)
+  => BasicSet n %1 -> IslT m (Ur (PConjunction n), BasicSet n)
+decomposeBS = unsafeCoerce go
+  where
+    nDims = fromIntegral $ natVal (Proxy @n)
+
+    go :: BasicSet n -> IslT m (Ur (PConjunction n), BasicSet n)
+    go (BasicSet rawBs) = do
+      let !(ref, rawBs') = borrow rawBs (\r -> r)
+      constraints <- unsafeIslFromIO $ \_ ->
+        Foreach.basicSetForeachConstraint ref $ \c -> do
+          result <- extractSetConstraint nDims c
+          Foreach.constraintFree c
+          return result
+      return (Ur (PConjunction (Conjunction constraints)), BasicSet rawBs')
+
+-- | Extract a pure 'Constraint' from a raw ISL constraint pointer,
+-- reading coefficients for @nDims@ set dimensions.
+extractSetConstraint :: Int -> Isl.Constraint -> IO (Constraint Integer)
+extractSetConstraint nDims c = do
+  isEq <- Foreach.constraintIsEquality c
+  coeffs <- forM [0 .. nDims - 1] $ \i -> do
+    coeff <- Foreach.constraintGetCoefficientSi c Isl.islDimSet i
+    return (coeff, fromIntegral i)
+  constant <- Foreach.constraintGetConstantSi c
+  let expr = rebuildExpr (filter (\(coeff, _) -> coeff /= 0) coeffs) constant
+  return $ if isEq
+    then EqualityConstraint expr
+    else InequalityConstraint expr
 
 -- Resource management
 

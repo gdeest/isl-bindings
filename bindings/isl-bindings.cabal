@@ -18,8 +18,10 @@ extra-source-files:  CHANGELOG.md
 
 library
   exposed-modules:     Isl.Types,
+                       Isl.Instances,
                        Isl.Monad,
                        Isl.Linear,
+                       Isl.Foreach,
                        Isl.Aff.AutoGen,
                        Isl.BasicMap.AutoGen,
                        Isl.BasicSet.AutoGen,
@@ -37,6 +39,7 @@ library
   other-extensions:    FlexibleContexts, MultiParamTypeClasses
   build-depends:       base >=4.12.0.0 && <5,
                        deepseq,
+                       reflection,
                        transformers
   hs-source-dirs:      src
   extra-libraries:     isl

@@ -13,4 +13,5 @@ module Isl.HighLevel.Context
 
 import Isl.Monad (runIslT, runIsl, IslT, Isl, Ur(..), freeM)
 import Isl.Types (Borrow(..), Consumable(..), Dupable(..))
+import Isl.Instances ()  -- Consumable/Dupable/Borrow instances for raw ISL types
 import Isl.Linear (borrowPure)
