@@ -1,0 +1,22 @@
+cabal-version:       2.4
+
+name:                isl-scan
+version:             0.1.0.0
+synopsis:            Polyhedra scanning via Boulet-Feautrier algorithm
+license:             MIT
+license-file:        LICENSE
+author:              Gaël Deest
+maintainer:          gael.deest@tweag.io
+category:            Math
+extra-source-files:  CHANGELOG.md
+
+library
+  exposed-modules:   Isl.Scan,
+                     Isl.Scan.Types,
+                     Isl.Scan.Build,
+                     Isl.Scan.Enumerate,
+                     Isl.Scan.FSM
+  build-depends:       base >=4.12.0.0 && <5,
+                       isl-bindings-hl
+  hs-source-dirs:      src
+  default-language:    Haskell2010

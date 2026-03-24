@@ -2,4 +2,5 @@ packages:
   codegen/
   bindings/
   highlevel/
+  scan/
   isl-test/

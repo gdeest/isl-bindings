@@ -1,4 +1,6 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -11,10 +13,11 @@ module Test.Helpers
 
 import Control.DeepSeq (NFData)
 import Control.Monad.IO.Class (MonadIO)
-import GHC.TypeLits (Nat, KnownNat)
+import GHC.TypeLits (Nat, KnownNat, Symbol)
 
 import Isl.Monad (IslT, Isl, Ur(..), runIslT, runIsl, withCtx)
-import Isl.HighLevel.Constraints (Conjunction, MapDim)
+import Isl.HighLevel.Constraints (Conjunction, SetIx, MapIx)
+import Isl.HighLevel.Params (KnownSymbols, Length)
 import qualified Isl.HighLevel.BasicSet as BS
 import qualified Isl.HighLevel.BasicMap as BM
 import qualified Isl.HighLevel.Set as Set
@@ -25,15 +28,15 @@ runIslTest :: NFData a => Isl (Ur a) -> a
 runIslTest = runIsl
 
 -- | Build a Set from a Conjunction (convenience for tests).
-mkSet :: forall n m. (MonadIO m, KnownNat n)
-  => Conjunction Integer -> IslT m (Set.Set n)
+mkSet :: forall (ps :: [Symbol]) n m. (MonadIO m, KnownNat n, KnownSymbols ps, KnownNat (Length ps))
+  => Conjunction SetIx -> IslT m (Set.Set ps n)
 mkSet conj = do
-  bs <- BS.toBasicSet conj
+  bs <- BS.toBasicSet @ps conj
   Set.fromBasicSet bs
 
--- | Build a Map from a MapDim Conjunction (convenience for tests).
-mkMap :: forall ni no m. (MonadIO m, KnownNat ni, KnownNat no)
-  => Conjunction MapDim -> IslT m (Map.Map ni no)
+-- | Build a Map from a MapIx Conjunction (convenience for tests).
+mkMap :: forall (ps :: [Symbol]) ni no m. (MonadIO m, KnownNat ni, KnownNat no, KnownSymbols ps, KnownNat (Length ps))
+  => Conjunction MapIx -> IslT m (Map.Map ps ni no)
 mkMap conj = do
-  bm <- BM.toBasicMap conj
+  bm <- BM.toBasicMap @ps conj
   Map.fromBasicMap bm

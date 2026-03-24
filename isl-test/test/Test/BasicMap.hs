@@ -31,7 +31,7 @@ unitTests :: TestTree
 unitTests = testGroup "Unit"
   [ testCase "fromString produces valid map" $ do
       let result = runIslTest $ do
-            bm <- BM.fromString @_ @1 @1 "{ [i] -> [j] : j = i + 1 }"
+            bm <- BM.fromString @_ @_ @1 @1 "{ [i] -> [j] : j = i + 1 }"
             (Ur str, bm') <- BM.borrowBM bm BM.bmapToString
             BM.freeBM bm'
             return (Ur str)
@@ -39,7 +39,7 @@ unitTests = testGroup "Unit"
 
   , testCase "domain extraction" $ do
       let result = runIslTest $ do
-            bm <- BM.mkBasicMap @1 @1 $ \(i :- Nil) (j :- Nil) ->
+            bm <- BM.mkBasicMap @'[] @1 @1 $ \Nil (i :- Nil) (j :- Nil) ->
               idx i >=: cst 0 &&: idx i <=: cst 10
               &&: idx j ==: idx i +: cst 1
             dom <- BM.domain bm
@@ -50,7 +50,7 @@ unitTests = testGroup "Unit"
 
   , testCase "range extraction" $ do
       let result = runIslTest $ do
-            bm <- BM.mkBasicMap @1 @1 $ \(i :- Nil) (j :- Nil) ->
+            bm <- BM.mkBasicMap @'[] @1 @1 $ \Nil (i :- Nil) (j :- Nil) ->
               idx i >=: cst 0 &&: idx i <=: cst 10
               &&: idx j ==: idx i +: cst 1
             rng <- BM.range bm
@@ -62,7 +62,7 @@ unitTests = testGroup "Unit"
   , testCase "isEmpty on empty map" $ do
       let empty = runIslTest $ do
             -- Contradictory: i >= 0 and i <= -1
-            bm <- BM.mkBasicMap @1 @1 $ \(i :- Nil) _ ->
+            bm <- BM.mkBasicMap @'[] @1 @1 $ \Nil (i :- Nil) _ ->
               idx i >=: cst 0 &&: idx i <=: cst (-1)
             (Ur result, bm') <- BM.isEmpty bm
             BM.freeBM bm'
@@ -74,10 +74,10 @@ propertyTests :: TestTree
 propertyTests = testGroup "Properties"
   [ testProperty "intersect is commutative" $ \(MapConj11 ca) (MapConj11 cb) ->
       runIslTest $ do
-        a1 <- BM.toBasicMap @_ @1 @1 ca
-        a2 <- BM.toBasicMap @_ @1 @1 ca
-        b1 <- BM.toBasicMap @_ @1 @1 cb
-        b2 <- BM.toBasicMap @_ @1 @1 cb
+        a1 <- BM.toBasicMap @'[] @_ @1 @1 ca
+        a2 <- BM.toBasicMap @'[] @_ @1 @1 ca
+        b1 <- BM.toBasicMap @'[] @_ @1 @1 cb
+        b2 <- BM.toBasicMap @'[] @_ @1 @1 cb
         lhs <- BM.intersect a1 b1
         rhs <- BM.intersect b2 a2
         m1 <- Map.fromBasicMap lhs
@@ -89,9 +89,9 @@ propertyTests = testGroup "Properties"
 
   , testProperty "decomposeBM round-trip preserves map" $ \(MapConj11 ca) ->
       runIslTest $ do
-        original <- BM.toBasicMap @_ @1 @1 ca
+        original <- BM.toBasicMap @'[] @_ @1 @1 ca
         (Ur (PMapConjunction decomposed), original') <- BM.decomposeBM original
-        rebuilt <- BM.toBasicMap @_ @1 @1 decomposed
+        rebuilt <- BM.toBasicMap @'[] @_ @1 @1 decomposed
         m1 <- Map.fromBasicMap original'
         m2 <- Map.fromBasicMap rebuilt
         (Ur eq, m1', m2') <- Map.isEqual m1 m2

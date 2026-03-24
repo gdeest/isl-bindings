@@ -21,6 +21,7 @@ library
                      Isl.HighLevel.Context,
                      Isl.HighLevel.Indices,
                      Isl.HighLevel.Map,
+                     Isl.HighLevel.Params,
                      Isl.HighLevel.Pure,
                      Isl.HighLevel.Set,
                      Isl.HighLevel.UnionMap,

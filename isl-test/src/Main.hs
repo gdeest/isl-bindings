@@ -19,16 +19,16 @@ import qualified Isl.Linear as Isl
 
 -- Modulo is implemented with an existential variable, by projecting out
 -- the last dimension of the set.
-evenXs :: MonadIO m => IslT m (BasicSet 2)
+evenXs :: MonadIO m => IslT m (BasicSet '[] 2)
 evenXs = Isl.do
-  bs3 <- BS.mkBasicSet @3 $
-    \(x :- _ :- k :- Nil) -> toConjunction $
+  bs3 <- BS.mkBasicSet @'[] @3 $
+    \Nil (x :- _ :- k :- Nil) -> toConjunction $
       idx x ==: 2 *: idx k
   BS.eliminateLast bs3
 
-someSet :: MonadIO m => IslT m (BasicSet 2)
-someSet = BS.mkBasicSet @2 $
-  \(x :- y :- Nil) ->
+someSet :: MonadIO m => IslT m (BasicSet '[] 2)
+someSet = BS.mkBasicSet @'[] @2 $
+  \Nil (x :- y :- Nil) ->
     idx x >=: cst 0 &&: idx x <=: cst 100 &&:
     idx y >=: idx x &&: idx y <=: cst 100
 

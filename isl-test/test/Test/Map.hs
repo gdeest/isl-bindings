@@ -29,7 +29,7 @@ unitTests :: TestTree
 unitTests = testGroup "Unit"
   [ testCase "fromString parses correctly" $ do
       let result = runIslTest $ do
-            m <- Map.fromString @_ @1 @1 "{ [i] -> [j] : 0 <= i <= 10 and j = i + 1 }"
+            m <- Map.fromString @_ @_ @1 @1 "{ [i] -> [j] : 0 <= i <= 10 and j = i + 1 }"
             (Ur str, m') <- Map.borrowMap m Map.mapToString
             Map.freeMap m'
             return (Ur str)
@@ -37,10 +37,10 @@ unitTests = testGroup "Unit"
 
   , testCase "union of maps" $ do
       let empty = runIslTest $ do
-            bm1 <- BM.mkBasicMap @1 @1 $ \(i :- Nil) (j :- Nil) ->
+            bm1 <- BM.mkBasicMap @'[] @1 @1 $ \Nil (i :- Nil) (j :- Nil) ->
               idx j ==: idx i +: cst 1
               &&: idx i >=: cst 0 &&: idx i <=: cst 5
-            bm2 <- BM.mkBasicMap @1 @1 $ \(i :- Nil) (j :- Nil) ->
+            bm2 <- BM.mkBasicMap @'[] @1 @1 $ \Nil (i :- Nil) (j :- Nil) ->
               idx j ==: idx i +: cst 2
               &&: idx i >=: cst 0 &&: idx i <=: cst 5
             m1 <- Map.fromBasicMap bm1
@@ -53,7 +53,7 @@ unitTests = testGroup "Unit"
 
   , testCase "subtract self gives empty" $ do
       let empty = runIslTest $ do
-            let mk = BM.mkBasicMap @1 @1 $ \(i :- Nil) (j :- Nil) ->
+            let mk = BM.mkBasicMap @'[] @1 @1 $ \Nil (i :- Nil) (j :- Nil) ->
                   idx j ==: idx i +: cst 1
                   &&: idx i >=: cst 0 &&: idx i <=: cst 10
             bm1 <- mk
@@ -68,7 +68,7 @@ unitTests = testGroup "Unit"
 
   , testCase "domain of identity-like map" $ do
       let result = runIslTest $ do
-            bm <- BM.mkBasicMap @1 @1 $ \(i :- Nil) (j :- Nil) ->
+            bm <- BM.mkBasicMap @'[] @1 @1 $ \Nil (i :- Nil) (j :- Nil) ->
               idx i >=: cst 0 &&: idx i <=: cst 10
               &&: idx j ==: idx i
             m <- Map.fromBasicMap bm
@@ -83,8 +83,8 @@ propertyTests :: TestTree
 propertyTests = testGroup "Properties"
   [ testProperty "union is commutative" $ \(MapConj11 ca) (MapConj11 cb) ->
       runIslTest $ do
-        a1 <- mkMap @1 @1 ca; a2 <- mkMap @1 @1 ca
-        b1 <- mkMap @1 @1 cb; b2 <- mkMap @1 @1 cb
+        a1 <- mkMap @'[] @1 @1 ca; a2 <- mkMap @'[] @1 @1 ca
+        b1 <- mkMap @'[] @1 @1 cb; b2 <- mkMap @'[] @1 @1 cb
         lhs <- Map.union a1 b1
         rhs <- Map.union b2 a2
         (Ur eq, lhs', rhs') <- Map.isEqual lhs rhs
@@ -93,8 +93,8 @@ propertyTests = testGroup "Properties"
 
   , testProperty "intersect is commutative" $ \(MapConj11 ca) (MapConj11 cb) ->
       runIslTest $ do
-        a1 <- mkMap @1 @1 ca; a2 <- mkMap @1 @1 ca
-        b1 <- mkMap @1 @1 cb; b2 <- mkMap @1 @1 cb
+        a1 <- mkMap @'[] @1 @1 ca; a2 <- mkMap @'[] @1 @1 ca
+        b1 <- mkMap @'[] @1 @1 cb; b2 <- mkMap @'[] @1 @1 cb
         lhs <- Map.intersect a1 b1
         rhs <- Map.intersect b2 a2
         (Ur eq, lhs', rhs') <- Map.isEqual lhs rhs
@@ -103,7 +103,7 @@ propertyTests = testGroup "Properties"
 
   , testProperty "subtract self is empty" $ \(MapConj11 ca) ->
       runIslTest $ do
-        a1 <- mkMap @1 @1 ca; a2 <- mkMap @1 @1 ca
+        a1 <- mkMap @'[] @1 @1 ca; a2 <- mkMap @'[] @1 @1 ca
         diff <- Map.subtract a1 a2
         (Ur result, diff') <- Map.isEmpty diff
         Map.freeMap diff'

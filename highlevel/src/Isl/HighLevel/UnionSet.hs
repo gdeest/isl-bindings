@@ -1,6 +1,8 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LinearTypes #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -8,12 +10,12 @@
 module Isl.HighLevel.UnionSet where
 
 import Control.Monad.IO.Class (MonadIO)
-import GHC.TypeLits (someNatVal, SomeNat(..), KnownNat)
+import GHC.TypeLits (someNatVal, SomeNat(..), KnownNat, Symbol)
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.HighLevel.BasicSet (extractSetConstraint)
-import Isl.HighLevel.Constraints (Conjunction(..))
+import Isl.HighLevel.Constraints (Conjunction(..), SetIx)
 import Isl.HighLevel.Pure
 import Isl.HighLevel.Set (Set(..))
 
@@ -45,10 +47,10 @@ instance Borrow UnionSet UnionSetRef where
 
 -- Construction
 
-fromSet :: forall m n. MonadIO m => Set n %1 -> IslT m UnionSet
+fromSet :: forall m (ps :: [Symbol]) n. MonadIO m => Set ps n %1 -> IslT m UnionSet
 fromSet = unsafeCoerce go
   where
-    go :: Set n -> IslT m UnionSet
+    go :: Set ps n -> IslT m UnionSet
     go (Set s) = UnionSet <$> withCtx (US.fromSet s)
 
 fromString :: forall m. MonadIO m => String -> IslT m UnionSet
@@ -120,6 +122,11 @@ borrowUS = unsafeCoerce go
       in IslT $ \_ -> return (Ur result, UnionSet us')
 
 -- Decomposition
+--
+-- Note: Parameters are extracted at runtime and wrapped existentially
+-- since the parameter names are not known statically for union types.
+-- For now, we extract with 0 params (matching old behavior).
+-- TODO: read parameter names from ISL space and wrap with KnownSymbols.
 
 decomposeUnionSet :: forall m. MonadIO m
   => UnionSet %1 -> IslT m (Ur [SomeDisjunction], UnionSet)
@@ -133,11 +140,12 @@ decomposeUnionSet = unsafeCoerce go
           let !(sRef, _) = borrow s (\r -> r)
           space <- Foreach.setGetSpace sRef
           nDims <- Foreach.spaceDim space Isl.islDimSet
+          nParams <- Foreach.spaceDim space Isl.islDimParam
           Foreach.spaceFree space
           conjunctions <- Foreach.setForeachBasicSet sRef $ \bs -> do
             let !(bsRef, _) = borrow bs (\r -> r)
             constraints <- Foreach.basicSetForeachConstraint bsRef $ \c -> do
-              result <- extractSetConstraint nDims c
+              result <- extractSetConstraint nParams nDims c
               Foreach.constraintFree c
               return result
             Foreach.basicSetFree bs
@@ -146,11 +154,12 @@ decomposeUnionSet = unsafeCoerce go
           return (nDims, conjunctions)
       return (Ur (map wrapDisjunction results), UnionSet rawUs')
 
-wrapDisjunction :: (Int, [Conjunction Integer]) -> SomeDisjunction
+wrapDisjunction :: (Int, [Conjunction SetIx]) -> SomeDisjunction
 wrapDisjunction (nDims, conjs) =
   case someNatVal (fromIntegral nDims) of
     Just (SomeNat (_ :: proxy n)) ->
-      SomeDisjunction (unsafeCoerce (PDisjunction (map PConjunction conjs)) :: PDisjunction n)
+      -- Wrap with empty params for now; full param recovery is a TODO
+      SomeDisjunction (unsafeCoerce (PDisjunction (map PConjunction conjs)) :: PDisjunction '[] n)
     Nothing -> error "wrapDisjunction: negative dimension count"
 
 -- Resource management

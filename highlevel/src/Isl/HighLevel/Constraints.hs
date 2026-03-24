@@ -5,6 +5,14 @@ module Isl.HighLevel.Constraints where
 
 import Data.Kind (Type)
 
+-- | Dimension index for set constraints, distinguishing dimensions from parameters.
+data SetIx = SetDim !Int | SetParam !Int
+  deriving (Eq, Ord, Show)
+
+-- | Dimension index for map constraints, distinguishing input, output, and parameters.
+data MapIx = InDim !Int | OutDim !Int | MapParam !Int
+  deriving (Eq, Ord, Show)
+
 -- | Affine expressions, with variables of type 'ix'.
 data Expr ix
   = Ix ix
@@ -84,9 +92,8 @@ instance ToConjunction Conjunction where
 instance ToConjunction Constraint where
   toConjunction = Conjunction . pure
 
--- | Dimension index for map constraints, distinguishing input from output.
-data MapDim = InDim !Int | OutDim !Int
-  deriving (Eq, Ord, Show)
+-- | Legacy alias — use 'MapIx' for new code.
+type MapDim = MapIx
 
 -- | Reconstruct an 'Expr' from a list of (coefficient, variable) pairs and
 -- a constant offset. Inverse of 'expandExpr'.

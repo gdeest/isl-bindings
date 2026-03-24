@@ -63,10 +63,15 @@
             (pkgs.lib.cleanSource ./highlevel) {
               isl-bindings = hself.isl-bindings;
             };
+          isl-scan = hsuper.callCabal2nix "isl-scan"
+            (pkgs.lib.cleanSource ./scan) {
+              isl-bindings-hl = hself.isl-bindings-hl;
+            };
           isl-test = hsuper.callCabal2nix "isl-test"
             (pkgs.lib.cleanSource ./isl-test) {
               isl-bindings = hself.isl-bindings;
               isl-bindings-hl = hself.isl-bindings-hl;
+              isl-scan = hself.isl-scan;
             };
         });
       in
@@ -75,6 +80,7 @@
           inherit isl-codegen;
           isl-bindings = haskellPackages.isl-bindings;
           isl-bindings-hl = haskellPackages.isl-bindings-hl;
+          isl-scan = haskellPackages.isl-scan;
           isl-test = haskellPackages.isl-test;
           default = haskellPackages.isl-test;
         };
@@ -83,6 +89,7 @@
           packages = ps: [
             ps.isl-bindings
             ps.isl-bindings-hl
+            ps.isl-scan
             ps.isl-test
           ];
           buildInputs = [

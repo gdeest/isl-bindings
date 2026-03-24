@@ -29,7 +29,7 @@ unitTests :: TestTree
 unitTests = testGroup "Unit"
   [ testCase "mkBasicSet produces non-empty set" $ do
       let result = runIslTest $ do
-            bs <- BS.mkBasicSet @2 $ \(x :- y :- Nil) ->
+            bs <- BS.mkBasicSet @'[] @2 $ \Nil (x :- y :- Nil) ->
               idx x >=: cst 0 &&: idx x <=: cst 10
               &&: idx y >=: cst 0 &&: idx y <=: cst 10
             (Ur str, bs') <- BS.borrowBS bs BS.bsetToString
@@ -39,10 +39,10 @@ unitTests = testGroup "Unit"
 
   , testCase "intersect produces subset" $ do
       let result = runIslTest $ do
-            a <- BS.mkBasicSet @2 $ \(x :- y :- Nil) ->
+            a <- BS.mkBasicSet @'[] @2 $ \Nil (x :- y :- Nil) ->
               idx x >=: cst 0 &&: idx x <=: cst 10
               &&: idx y >=: cst 0 &&: idx y <=: cst 10
-            b <- BS.mkBasicSet @2 $ \(x :- y :- Nil) ->
+            b <- BS.mkBasicSet @'[] @2 $ \Nil (x :- y :- Nil) ->
               idx x >=: cst 5 &&: idx x <=: cst 15
               &&: idx y >=: cst 5 &&: idx y <=: cst 15
             c <- BS.intersect a b
@@ -53,7 +53,7 @@ unitTests = testGroup "Unit"
 
   , testCase "fromString round-trip" $ do
       let result = runIslTest $ do
-            bs <- BS.fromString @_ @2 "{ [x, y] : 0 <= x <= 5 and 0 <= y <= 5 }"
+            bs <- BS.fromString @_ @_ @2 "{ [x, y] : 0 <= x <= 5 and 0 <= y <= 5 }"
             (Ur str, bs') <- BS.borrowBS bs BS.bsetToString
             BS.freeBS bs'
             return (Ur str)
@@ -62,14 +62,14 @@ unitTests = testGroup "Unit"
   , testCase "decomposeBS round-trip is ISL-equal" $ do
       let eq = runIslTest $ do
             let conj = Conjunction
-                  [ InequalityConstraint (Ix 0)
-                  , InequalityConstraint (Add (Constant 5) (Mul (-1) (Ix 0)))
-                  , InequalityConstraint (Ix 1)
-                  , InequalityConstraint (Add (Constant 5) (Mul (-1) (Ix 1)))
+                  [ InequalityConstraint (Ix (SetDim 0))
+                  , InequalityConstraint (Add (Constant 5) (Mul (-1) (Ix (SetDim 0))))
+                  , InequalityConstraint (Ix (SetDim 1))
+                  , InequalityConstraint (Add (Constant 5) (Mul (-1) (Ix (SetDim 1))))
                   ]
-            original <- BS.toBasicSet @_ @2 conj
+            original <- BS.toBasicSet @'[] @2 conj
             (Ur (PConjunction decomposed), original') <- BS.decomposeBS original
-            rebuilt <- BS.toBasicSet @_ @2 decomposed
+            rebuilt <- BS.toBasicSet @'[] @2 decomposed
             s1 <- Set.fromBasicSet original'
             s2 <- Set.fromBasicSet rebuilt
             (Ur result, s1', s2') <- Set.isEqual s1 s2
@@ -83,10 +83,10 @@ propertyTests :: TestTree
 propertyTests = testGroup "Properties"
   [ testProperty "intersect is commutative" $ \(Conj2 ca) (Conj2 cb) ->
       runIslTest $ do
-        a1 <- BS.toBasicSet @_ @2 ca
-        a2 <- BS.toBasicSet @_ @2 ca
-        b1 <- BS.toBasicSet @_ @2 cb
-        b2 <- BS.toBasicSet @_ @2 cb
+        a1 <- BS.toBasicSet @'[] @2 ca
+        a2 <- BS.toBasicSet @'[] @2 ca
+        b1 <- BS.toBasicSet @'[] @2 cb
+        b2 <- BS.toBasicSet @'[] @2 cb
         lhs <- BS.intersect a1 b1
         rhs <- BS.intersect b2 a2
         s1 <- Set.fromBasicSet lhs
@@ -98,9 +98,9 @@ propertyTests = testGroup "Properties"
 
   , testProperty "intersect is idempotent" $ \(Conj2 ca) ->
       runIslTest $ do
-        a1 <- BS.toBasicSet @_ @2 ca
-        a2 <- BS.toBasicSet @_ @2 ca
-        a3 <- BS.toBasicSet @_ @2 ca
+        a1 <- BS.toBasicSet @'[] @2 ca
+        a2 <- BS.toBasicSet @'[] @2 ca
+        a3 <- BS.toBasicSet @'[] @2 ca
         aa <- BS.intersect a1 a2
         s1 <- Set.fromBasicSet aa
         s2 <- Set.fromBasicSet a3
@@ -111,9 +111,9 @@ propertyTests = testGroup "Properties"
 
   , testProperty "decomposeBS round-trip preserves set" $ \(Conj2 ca) ->
       runIslTest $ do
-        original <- BS.toBasicSet @_ @2 ca
+        original <- BS.toBasicSet @'[] @2 ca
         (Ur (PConjunction decomposed), original') <- BS.decomposeBS original
-        rebuilt <- BS.toBasicSet @_ @2 decomposed
+        rebuilt <- BS.toBasicSet @'[] @2 decomposed
         s1 <- Set.fromBasicSet original'
         s2 <- Set.fromBasicSet rebuilt
         (Ur eq, s1', s2') <- Set.isEqual s1 s2

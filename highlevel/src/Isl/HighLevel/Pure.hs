@@ -1,11 +1,14 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
 -- | Phantom-indexed pure Haskell representations of ISL objects.
--- These types carry dimension counts at the type level, ensuring
--- you cannot accidentally mix representations of different dimensionality.
+-- These types carry parameter names at the type level (@ps@) and
+-- dimension counts (@n@), ensuring you cannot accidentally mix
+-- representations of different parameter spaces or dimensionality.
 --
 -- Use 'decomposeBS', 'decomposeSet', etc. to convert from ISL objects
 -- to these pure types, and 'mkBasicSet', 'toBasicSet' etc. to go back.
@@ -21,48 +24,52 @@ module Isl.HighLevel.Pure
   , SomeMapDisjunction(..)
   ) where
 
-import GHC.TypeLits (Nat, KnownNat)
+import GHC.TypeLits (Nat, KnownNat, Symbol)
 
-import Isl.HighLevel.Constraints (Conjunction, MapDim)
+import Isl.HighLevel.Constraints (Conjunction, SetIx, MapIx)
+import Isl.HighLevel.Params (KnownSymbols)
 
--- | A single convex polyhedron (conjunction of constraints) with @n@
--- set dimensions. Pure Haskell — no ISL pointers.
-newtype PConjunction (n :: Nat) = PConjunction (Conjunction Integer)
+-- | A single convex polyhedron (conjunction of constraints) with
+-- parameter names @ps@ and @n@ set dimensions. Pure Haskell — no ISL pointers.
+newtype PConjunction (ps :: [Symbol]) (n :: Nat) = PConjunction (Conjunction SetIx)
 
-deriving instance Show (PConjunction n)
-deriving instance Eq (PConjunction n)
+deriving instance Show (PConjunction ps n)
+deriving instance Eq (PConjunction ps n)
 
--- | A union of convex polyhedra (disjunction of conjunctions) with @n@
--- set dimensions. Represents the same thing as an ISL 'Set'.
-newtype PDisjunction (n :: Nat) = PDisjunction [PConjunction n]
+-- | A union of convex polyhedra (disjunction of conjunctions) with
+-- parameter names @ps@ and @n@ set dimensions.
+-- Represents the same thing as an ISL 'Set'.
+newtype PDisjunction (ps :: [Symbol]) (n :: Nat) = PDisjunction [PConjunction ps n]
 
-deriving instance Show (PDisjunction n)
-deriving instance Eq (PDisjunction n)
+deriving instance Show (PDisjunction ps n)
+deriving instance Eq (PDisjunction ps n)
 
--- | A single convex polyhedron in map space with @nIn@ input dimensions
--- and @nOut@ output dimensions. Constraints use 'MapDim' to distinguish
--- input ('InDim') from output ('OutDim') variables.
-newtype PMapConjunction (nIn :: Nat) (nOut :: Nat) = PMapConjunction (Conjunction MapDim)
+-- | A single convex polyhedron in map space with parameter names @ps@,
+-- @nIn@ input dimensions and @nOut@ output dimensions.
+-- Constraints use 'MapIx' to distinguish input ('InDim'), output ('OutDim'),
+-- and parameter ('MapParam') variables.
+newtype PMapConjunction (ps :: [Symbol]) (nIn :: Nat) (nOut :: Nat) = PMapConjunction (Conjunction MapIx)
 
-deriving instance Show (PMapConjunction nIn nOut)
-deriving instance Eq (PMapConjunction nIn nOut)
+deriving instance Show (PMapConjunction ps nIn nOut)
+deriving instance Eq (PMapConjunction ps nIn nOut)
 
--- | A union of map polyhedra with @nIn@ input and @nOut@ output dimensions.
+-- | A union of map polyhedra with parameter names @ps@,
+-- @nIn@ input and @nOut@ output dimensions.
 -- Represents the same thing as an ISL 'Map'.
-newtype PMapDisjunction (nIn :: Nat) (nOut :: Nat) = PMapDisjunction [PMapConjunction nIn nOut]
+newtype PMapDisjunction (ps :: [Symbol]) (nIn :: Nat) (nOut :: Nat) = PMapDisjunction [PMapConjunction ps nIn nOut]
 
-deriving instance Show (PMapDisjunction nIn nOut)
-deriving instance Eq (PMapDisjunction nIn nOut)
+deriving instance Show (PMapDisjunction ps nIn nOut)
+deriving instance Eq (PMapDisjunction ps nIn nOut)
 
 -- | Existentially-quantified disjunction. Used when deconstructing
--- union types where the dimension count is not statically known.
-data SomeDisjunction = forall n. KnownNat n => SomeDisjunction (PDisjunction n)
+-- union types where the dimension count and parameters are not statically known.
+data SomeDisjunction = forall ps n. (KnownSymbols ps, KnownNat n) => SomeDisjunction (PDisjunction ps n)
 
 instance Show SomeDisjunction where
   show (SomeDisjunction d) = show d
 
 -- | Existentially-quantified map disjunction.
-data SomeMapDisjunction = forall ni no. (KnownNat ni, KnownNat no) => SomeMapDisjunction (PMapDisjunction ni no)
+data SomeMapDisjunction = forall ps ni no. (KnownSymbols ps, KnownNat ni, KnownNat no) => SomeMapDisjunction (PMapDisjunction ps ni no)
 
 instance Show SomeMapDisjunction where
   show (SomeMapDisjunction d) = show d

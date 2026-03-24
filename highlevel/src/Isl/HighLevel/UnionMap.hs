@@ -1,6 +1,8 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LinearTypes #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -8,12 +10,12 @@
 module Isl.HighLevel.UnionMap where
 
 import Control.Monad.IO.Class (MonadIO)
-import GHC.TypeLits (someNatVal, SomeNat(..), KnownNat)
+import GHC.TypeLits (someNatVal, SomeNat(..), KnownNat, Symbol)
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.HighLevel.BasicMap (extractMapConstraint)
-import Isl.HighLevel.Constraints (Conjunction(..), MapDim)
+import Isl.HighLevel.Constraints (Conjunction(..), MapIx)
 import Isl.HighLevel.Map (Map(..))
 import Isl.HighLevel.Pure
 
@@ -45,10 +47,10 @@ instance Borrow UnionMap UnionMapRef where
 
 -- Construction
 
-fromMap :: forall m ni no. MonadIO m => Map ni no %1 -> IslT m UnionMap
+fromMap :: forall m (ps :: [Symbol]) ni no. MonadIO m => Map ps ni no %1 -> IslT m UnionMap
 fromMap = unsafeCoerce go
   where
-    go :: Map ni no -> IslT m UnionMap
+    go :: Map ps ni no -> IslT m UnionMap
     go (Map m) = UnionMap <$> withCtx (UM.fromMap m)
 
 fromString :: forall m. MonadIO m => String -> IslT m UnionMap
@@ -134,11 +136,12 @@ decomposeUnionMap = unsafeCoerce go
           space <- Foreach.mapGetSpace mRef
           nIn  <- Foreach.spaceDim space Isl.islDimIn
           nOut <- Foreach.spaceDim space Isl.islDimOut
+          nParams <- Foreach.spaceDim space Isl.islDimParam
           Foreach.spaceFree space
           conjunctions <- Foreach.mapForeachBasicMap mRef $ \bm -> do
             let !(bmRef, _) = borrow bm (\r -> r)
             constraints <- Foreach.basicMapForeachConstraint bmRef $ \c -> do
-              result <- extractMapConstraint nIn nOut c
+              result <- extractMapConstraint nParams nIn nOut c
               Foreach.constraintFree c
               return result
             Foreach.basicMapFree bm
@@ -147,11 +150,11 @@ decomposeUnionMap = unsafeCoerce go
           return (nIn, nOut, conjunctions)
       return (Ur (map wrapMapDisjunction results), UnionMap rawUm')
 
-wrapMapDisjunction :: (Int, Int, [Conjunction MapDim]) -> SomeMapDisjunction
+wrapMapDisjunction :: (Int, Int, [Conjunction MapIx]) -> SomeMapDisjunction
 wrapMapDisjunction (nIn, nOut, conjs) =
   case (someNatVal (fromIntegral nIn), someNatVal (fromIntegral nOut)) of
     (Just (SomeNat (_ :: proxy ni)), Just (SomeNat (_ :: proxy no))) ->
-      SomeMapDisjunction (unsafeCoerce (PMapDisjunction (map PMapConjunction conjs)) :: PMapDisjunction ni no)
+      SomeMapDisjunction (unsafeCoerce (PMapDisjunction (map PMapConjunction conjs)) :: PMapDisjunction '[] ni no)
     _ -> error "wrapMapDisjunction: negative dimension count"
 
 -- Resource management
