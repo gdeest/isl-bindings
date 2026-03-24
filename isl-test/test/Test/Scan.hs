@@ -1,6 +1,8 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Test.Scan (tests) where
 
@@ -11,58 +13,44 @@ import Test.Tasty.HUnit
 import Isl.Monad (Ur(..))
 import Isl.HighLevel.Constraints
 import Isl.HighLevel.Indices
-import Isl.HighLevel.Pure (PConjunction(..), PDisjunction(..))
+import GHC.TypeLits (KnownNat)
+import Isl.HighLevel.Params (Length)
+import Isl.HighLevel.Pure
 
 import qualified Isl.HighLevel.BasicSet as BS
 
 import Isl.Scan
-import Isl.Scan.FSM (scanFSM, scanFoldFSM)
 
 import Test.Helpers
 
 -- Shared test domains
 
 rectConj :: PConjunction '[] 2
-rectConj = PConjunction $ Conjunction
-  [ InequalityConstraint (Ix (SetDim 0))
-  , InequalityConstraint (Add (Constant 2) (Mul (-1) (Ix (SetDim 0))))
-  , InequalityConstraint (Ix (SetDim 1))
-  , InequalityConstraint (Add (Constant 1) (Mul (-1) (Ix (SetDim 1))))
-  ]
+rectConj = mkPConjunction @'[] @2 $ \Nil (x :- y :- Nil) ->
+  idx x >=: cst 0 &&: idx x <=: cst 2
+  &&: idx y >=: cst 0 &&: idx y <=: cst 1
 
 triConj :: PConjunction '[] 2
-triConj = PConjunction $ Conjunction
-  [ InequalityConstraint (Ix (SetDim 0))
-  , InequalityConstraint (Add (Constant 2) (Mul (-1) (Ix (SetDim 0))))
-  , InequalityConstraint (Ix (SetDim 1))
-  , InequalityConstraint (Add (Ix (SetDim 0)) (Mul (-1) (Ix (SetDim 1))))
-  ]
+triConj = mkPConjunction @'[] @2 $ \Nil (x :- y :- Nil) ->
+  idx x >=: cst 0 &&: idx x <=: cst 2
+  &&: idx y >=: cst 0 &&: idx y <=: idx x
 
 paramConj :: PConjunction '["N"] 1
-paramConj = PConjunction $ Conjunction
-  [ InequalityConstraint (Ix (SetDim 0))
-  , InequalityConstraint (Add (Ix (SetParam 0)) (Mul (-1) (Ix (SetDim 0))))
-  ]
+paramConj = mkPConjunction @'["N"] @1 $ \(n :- Nil) (x :- Nil) ->
+  idx x >=: cst 0 &&: idx x <=: idx n
 
 singlePointConj :: PConjunction '[] 2
-singlePointConj = PConjunction $ Conjunction
-  [ EqualityConstraint (Add (Mul (-1) (Ix (SetDim 0))) (Constant 5))
-  , EqualityConstraint (Add (Mul (-1) (Ix (SetDim 1))) (Constant 3))
-  ]
+singlePointConj = mkPConjunction @'[] @2 $ \Nil (x :- y :- Nil) ->
+  idx x ==: cst 5 &&: idx y ==: cst 3
 
 emptyConj :: PConjunction '[] 1
-emptyConj = PConjunction $ Conjunction
-  [ InequalityConstraint (Ix (SetDim 0))
-  , InequalityConstraint (Add (Constant (-1)) (Mul (-1) (Ix (SetDim 0))))
-  ]
+emptyConj = mkPConjunction @'[] @1 $ \Nil (x :- Nil) ->
+  idx x >=: cst 0 &&: idx x <=: cst (-1)
 
 squareConj :: PConjunction '[] 2
-squareConj = PConjunction $ Conjunction
-  [ InequalityConstraint (Ix (SetDim 0))
-  , InequalityConstraint (Add (Constant 2) (Mul (-1) (Ix (SetDim 0))))
-  , InequalityConstraint (Ix (SetDim 1))
-  , InequalityConstraint (Add (Constant 2) (Mul (-1) (Ix (SetDim 1))))
-  ]
+squareConj = mkPConjunction @'[] @2 $ \Nil (x :- y :- Nil) ->
+  idx x >=: cst 0 &&: idx x <=: cst 2
+  &&: idx y >=: cst 0 &&: idx y <=: cst 2
 
 tests :: TestTree
 tests = testGroup "Scan"
@@ -75,24 +63,24 @@ tests = testGroup "Scan"
 nestedLoopTests :: TestTree
 nestedLoopTests = testGroup "Nested loops"
   [ testCase "rectangle" $ do
-      let points = sort $ scanPoints (mkScanner (PDisjunction [rectConj])) []
+      let points = sort $ map toList $ scanPoints (mkScanner (PDisjunction [rectConj])) (mkVec @0 [])
       assertEqual "6 points" (sort [[0,0],[0,1],[1,0],[1,1],[2,0],[2,1]]) points
 
   , testCase "triangle" $ do
-      let points = sort $ scanPoints (mkScanner (PDisjunction [triConj])) []
+      let points = sort $ map toList $ scanPoints (mkScanner (PDisjunction [triConj])) (mkVec @0 [])
       assertEqual "6 points" (sort [[0,0],[1,0],[1,1],[2,0],[2,1],[2,2]]) points
 
   , testCase "parametric" $ do
       let s = mkScanner (PDisjunction [paramConj])
-      assertEqual "N=3" [[0],[1],[2],[3]] (scanPoints s [3])
-      assertEqual "N=0" [[0]] (scanPoints s [0])
+      assertEqual "N=3" [[0],[1],[2],[3]] (map toList $ scanPoints s (mkVec @1 [3]))
+      assertEqual "N=0" [[0]] (map toList $ scanPoints s (mkVec @1 [0]))
 
   , testCase "single point" $ do
-      let points = scanPoints (mkScanner (PDisjunction [singlePointConj])) []
+      let points = map toList $ scanPoints (mkScanner (PDisjunction [singlePointConj])) (mkVec @0 [])
       assertEqual "one point" [[5,3]] points
 
   , testCase "empty set" $ do
-      let points = scanPoints (mkScanner (PDisjunction [emptyConj])) []
+      let points = map toList $ scanPoints (mkScanner (PDisjunction [emptyConj])) (mkVec @0 [])
       assertEqual "no points" [] points
 
   , testCase "ISL round-trip" $ do
@@ -102,12 +90,12 @@ nestedLoopTests = testGroup "Nested loops"
               &&: idx y >=: cst 0 &&: idx y <=: idx x
             (Ur (PConjunction conj), bs') <- BS.decomposeBS bs
             BS.freeBS bs'
-            let scanner = mkScanner (PDisjunction [PConjunction conj])
-            return (Ur (sort $ scanPoints scanner []))
+            let scanner = mkScanner @'[] @2 (PDisjunction [PConjunction conj])
+            return (Ur (sort $ map toList $ scanPoints scanner (mkVec @0 [])))
       assertEqual "matches" (sort [[0,0],[1,0],[1,1],[2,0],[2,1],[2,2]]) points
 
   , testCase "scanFold count" $ do
-      let count = scanFold (mkScanner (PDisjunction [squareConj])) [] (\n _ -> n + 1) (0 :: Int)
+      let count = scanFold (mkScanner (PDisjunction [squareConj])) (mkVec @0 []) (\n _ -> n + 1) (0 :: Int)
       assertEqual "9 points" 9 count
   ]
 
@@ -116,52 +104,52 @@ fsmTests :: TestTree
 fsmTests = testGroup "FSM"
   [ testCase "rectangle" $ do
       let nest = mkLoopNest rectConj
-          points = sort $ scanFSM nest []
+          points = sort $ map toList $ scanFSM nest (mkVec @0 [])
       assertEqual "6 points" (sort [[0,0],[0,1],[1,0],[1,1],[2,0],[2,1]]) points
 
   , testCase "triangle" $ do
       let nest = mkLoopNest triConj
-          points = sort $ scanFSM nest []
+          points = sort $ map toList $ scanFSM nest (mkVec @0 [])
       assertEqual "6 points" (sort [[0,0],[1,0],[1,1],[2,0],[2,1],[2,2]]) points
 
   , testCase "parametric" $ do
       let nest = mkLoopNest paramConj
-      assertEqual "N=3" [[0],[1],[2],[3]] (scanFSM nest [3])
-      assertEqual "N=0" [[0]] (scanFSM nest [0])
+      assertEqual "N=3" [[0],[1],[2],[3]] (map toList $ scanFSM nest (mkVec @1 [3]))
+      assertEqual "N=0" [[0]] (map toList $ scanFSM nest (mkVec @1 [0]))
 
   , testCase "single point" $ do
-      let points = scanFSM (mkLoopNest singlePointConj) []
+      let points = map toList $ scanFSM (mkLoopNest singlePointConj) (mkVec @0 [])
       assertEqual "one point" [[5,3]] points
 
   , testCase "empty set" $ do
-      let points = scanFSM (mkLoopNest emptyConj) []
+      let points = map toList $ scanFSM (mkLoopNest emptyConj) (mkVec @0 [])
       assertEqual "no points" [] points
 
   , testCase "scanFoldFSM count" $ do
-      let count = scanFoldFSM (mkLoopNest squareConj) [] (\n _ -> n + 1) (0 :: Int)
+      let count = scanFoldFSM (mkLoopNest squareConj) (mkVec @0 []) (\n _ -> n + 1) (0 :: Int)
       assertEqual "9 points" 9 count
 
   , testCase "FSM produces lexicographic order" $ do
       let nest = mkLoopNest triConj
-          points = scanFSM nest []
+          points = map toList $ scanFSM nest (mkVec @0 [])
       assertEqual "lex order" [[0,0],[1,0],[1,1],[2,0],[2,1],[2,2]] points
   ]
 
 -- | Cross-check: nested loops and FSM produce the same points
 crossCheckTests :: TestTree
 crossCheckTests = testGroup "Cross-check (nested ≡ FSM)"
-  [ testCase "rectangle" $ crossCheck rectConj []
-  , testCase "triangle" $ crossCheck triConj []
-  , testCase "parametric N=5" $ crossCheck paramConj [5]
-  , testCase "parametric N=0" $ crossCheck paramConj [0]
-  , testCase "single point" $ crossCheck singlePointConj []
-  , testCase "empty set" $ crossCheck emptyConj []
-  , testCase "3×3 square" $ crossCheck squareConj []
+  [ testCase "rectangle" $ crossCheck rectConj (mkVec @0 [])
+  , testCase "triangle" $ crossCheck triConj (mkVec @0 [])
+  , testCase "parametric N=5" $ crossCheck paramConj (mkVec @1 [5])
+  , testCase "parametric N=0" $ crossCheck paramConj (mkVec @1 [0])
+  , testCase "single point" $ crossCheck singlePointConj (mkVec @0 [])
+  , testCase "empty set" $ crossCheck emptyConj (mkVec @0 [])
+  , testCase "3×3 square" $ crossCheck squareConj (mkVec @0 [])
   ]
 
-crossCheck :: PConjunction ps n -> [Integer] -> Assertion
+crossCheck :: KnownNat (Length ps) => PConjunction ps n -> Vec (Length ps) Integer -> Assertion
 crossCheck conj params = do
   let Scanner [nest] = mkScanner (PDisjunction [conj])
-      nested = sort $ scanPoints (Scanner [nest]) params
-      fsm    = sort $ scanFSM nest params
+      nested = sort $ map toList $ scanPoints (Scanner [nest]) params
+      fsm    = sort $ map toList $ scanFSM nest params
   assertEqual "nested and FSM should produce same points" nested fsm

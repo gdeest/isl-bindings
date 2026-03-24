@@ -1,3 +1,11 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DeriveFoldable #-}
+{-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
+
 -- | Core data types for the Boulet-Feautrier polyhedra scanner.
 --
 -- These types represent a "compiled" form of a polyhedron — a nested
@@ -8,7 +16,30 @@ module Isl.Scan.Types
   , LoopLevel(..)
   , LoopNest(..)
   , Scanner(..)
+  , Vec(..)
+  , mkVec
+  , unsafeVec
   ) where
+
+import Data.Proxy (Proxy(..))
+import GHC.TypeLits (Nat, KnownNat, natVal, Symbol)
+
+-- | Length-indexed vector. Phantom @n@ tracks the number of elements
+-- at the type level. Zero runtime overhead over a plain list.
+newtype Vec (n :: Nat) a = Vec { toList :: [a] }
+  deriving (Show, Eq, Ord, Functor, Foldable, Traversable)
+
+-- | Construct a 'Vec' with runtime length validation.
+mkVec :: forall n a. KnownNat n => [a] -> Vec n a
+mkVec xs
+  | length xs == expected = Vec xs
+  | otherwise = error $ "mkVec: expected " ++ show expected
+                     ++ " elements, got " ++ show (length xs)
+  where expected = fromIntegral (natVal (Proxy @n))
+
+-- | Construct a 'Vec' without validation. For internal use.
+unsafeVec :: [a] -> Vec n a
+unsafeVec = Vec
 
 -- | An affine function of outer loop variables and parameters.
 --
@@ -44,7 +75,10 @@ data LoopLevel = LoopLevel
 
 -- | A complete loop nest for one convex polyhedron (basic set).
 -- Levels are ordered outermost to innermost.
-data LoopNest = LoopNest
+--
+-- Phantom types track the parameter space @ps@ and number of
+-- set dimensions @n@, matching the 'PConjunction' it was built from.
+data LoopNest (ps :: [Symbol]) (n :: Nat) = LoopNest
   { lnLevels :: [LoopLevel]
   , lnParams :: Int
   , lnDims   :: Int
@@ -52,5 +86,5 @@ data LoopNest = LoopNest
 
 -- | A scanner for a (possibly non-convex) set: union of loop nests.
 -- Each loop nest corresponds to one basic set in the disjoint decomposition.
-newtype Scanner = Scanner [LoopNest]
+newtype Scanner (ps :: [Symbol]) (n :: Nat) = Scanner [LoopNest ps n]
   deriving (Show, Eq)

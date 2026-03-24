@@ -1,9 +1,13 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeOperators #-}
 
 -- | Phantom-indexed pure Haskell representations of ISL objects.
 -- These types carry parameter names at the type level (@ps@) and
@@ -12,6 +16,10 @@
 --
 -- Use 'decomposeBS', 'decomposeSet', etc. to convert from ISL objects
 -- to these pure types, and 'mkBasicSet', 'toBasicSet' etc. to go back.
+--
+-- Use 'mkPConjunction' and 'mkPMapConjunction' to build pure constraint
+-- representations using the same DSL as 'mkBasicSet' / 'mkBasicMap',
+-- without allocating ISL objects.
 module Isl.HighLevel.Pure
   ( -- * Set-like pure representations
     PConjunction(..)
@@ -19,15 +27,21 @@ module Isl.HighLevel.Pure
     -- * Map-like pure representations
   , PMapConjunction(..)
   , PMapDisjunction(..)
+    -- * DSL builders
+  , mkPConjunction
+  , mkPDisjunction
+  , mkPMapConjunction
     -- * Existential wrappers (for union types with unknown dimensionality)
   , SomeDisjunction(..)
   , SomeMapDisjunction(..)
   ) where
 
-import GHC.TypeLits (Nat, KnownNat, Symbol)
+import Data.Proxy (Proxy(..))
+import GHC.TypeLits (Nat, KnownNat, natVal, Symbol)
 
-import Isl.HighLevel.Constraints (Conjunction, SetIx, MapIx)
-import Isl.HighLevel.Params (KnownSymbols)
+import Isl.HighLevel.Constraints (Conjunction, SetIx(..), MapIx(..))
+import Isl.HighLevel.Indices (IxList, coerceIxList, mkIxListWith)
+import Isl.HighLevel.Params (KnownSymbols, Length)
 
 -- | A single convex polyhedron (conjunction of constraints) with
 -- parameter names @ps@ and @n@ set dimensions. Pure Haskell — no ISL pointers.
@@ -73,3 +87,48 @@ data SomeMapDisjunction = forall ps ni no. (KnownSymbols ps, KnownNat ni, KnownN
 
 instance Show SomeMapDisjunction where
   show (SomeMapDisjunction d) = show d
+
+-- DSL builders
+
+-- | Build a 'PConjunction' using the same lambda DSL as 'mkBasicSet',
+-- but purely — no ISL allocation, no 'IslT' monad needed.
+--
+-- @
+-- domain :: PConjunction '["N"] 2
+-- domain = mkPConjunction \@'["N"] \@2 $
+--   \\(n :- Nil) (x :- y :- Nil) ->
+--     idx x >=: cst 0 &&: idx x <=: idx n -: cst 1
+--     &&: idx y >=: cst 0 &&: idx y <=: idx x
+-- @
+mkPConjunction
+  :: forall ps (n :: Nat). (KnownNat n, KnownSymbols ps, KnownNat (Length ps))
+  => (IxList (Length ps) SetIx -> IxList n SetIx -> Conjunction SetIx)
+  -> PConjunction ps n
+mkPConjunction mkConstraints = PConjunction conj
+  where
+    nParams = natVal (Proxy @(Length ps))
+    nDims = natVal (Proxy @n)
+    paramList = coerceIxList $ mkIxListWith SetParam 0 nParams
+    dimList = coerceIxList $ mkIxListWith SetDim 0 nDims
+    conj = mkConstraints paramList dimList
+
+-- | Build a 'PDisjunction' from a list of constraint-building lambdas.
+mkPDisjunction
+  :: forall ps (n :: Nat). (KnownNat n, KnownSymbols ps, KnownNat (Length ps))
+  => [IxList (Length ps) SetIx -> IxList n SetIx -> Conjunction SetIx]
+  -> PDisjunction ps n
+mkPDisjunction fns = PDisjunction (map (mkPConjunction @ps @n) fns)
+
+-- | Build a 'PMapConjunction' using the same lambda DSL as 'mkBasicMap'.
+mkPMapConjunction
+  :: forall ps (ni :: Nat) (no :: Nat).
+     (KnownNat ni, KnownNat no, KnownSymbols ps, KnownNat (Length ps))
+  => (IxList (Length ps) MapIx -> IxList ni MapIx -> IxList no MapIx -> Conjunction MapIx)
+  -> PMapConjunction ps ni no
+mkPMapConjunction mkConstraints = PMapConjunction conj
+  where
+    nParams = natVal (Proxy @(Length ps))
+    paramList = coerceIxList $ mkIxListWith MapParam 0 nParams
+    inList  = coerceIxList $ mkIxListWith InDim 0 (natVal (Proxy @ni))
+    outList = coerceIxList $ mkIxListWith OutDim 0 (natVal (Proxy @no))
+    conj = mkConstraints paramList inList outList

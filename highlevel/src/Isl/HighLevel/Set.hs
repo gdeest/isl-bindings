@@ -173,3 +173,45 @@ freeSet = unsafeCoerce go
   where
     go :: Set ps n -> IslT m ()
     go (Set s) = freeM s
+
+-- Consuming combinators
+
+-- | Borrow a Set for a query, then free it. Returns the query result.
+consumingSet :: forall m ps n a. MonadIO m => Set ps n %1 -> (SetRef ps n -> a) -> IslT m (Ur a)
+consumingSet = unsafeCoerce go
+  where
+    go :: Set ps n -> (SetRef ps n -> a) -> IslT m (Ur a)
+    go (Set s) f = do
+      let !(result, s') = borrow s (\ref -> f (SetRef ref))
+      freeM s'
+      return (Ur result)
+
+-- | Check if a Set is empty, then free it.
+consumingIsEmpty :: forall m ps n. MonadIO m => Set ps n %1 -> IslT m (Ur Bool)
+consumingIsEmpty = unsafeCoerce go
+  where
+    go :: Set ps n -> IslT m (Ur Bool)
+    go (Set s) = do
+      r <- withCtx (S.isEmpty s)
+      freeM s
+      return (Ur r)
+
+-- | Check equality of two Sets, then free both.
+consumingIsEqual :: forall m ps n. MonadIO m => Set ps n %1 -> Set ps n %1 -> IslT m (Ur Bool)
+consumingIsEqual = unsafeCoerce go
+  where
+    go :: Set ps n -> Set ps n -> IslT m (Ur Bool)
+    go (Set s1) (Set s2) = do
+      r <- withCtx (S.isEqual s1 s2)
+      freeM s1; freeM s2
+      return (Ur r)
+
+-- | Check if first Set is a subset of the second, then free both.
+consumingIsSubset :: forall m ps n. MonadIO m => Set ps n %1 -> Set ps n %1 -> IslT m (Ur Bool)
+consumingIsSubset = unsafeCoerce go
+  where
+    go :: Set ps n -> Set ps n -> IslT m (Ur Bool)
+    go (Set s1) (Set s2) = do
+      r <- withCtx (S.isSubset s1 s2)
+      freeM s1; freeM s2
+      return (Ur r)

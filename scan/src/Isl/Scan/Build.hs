@@ -15,7 +15,7 @@ module Isl.Scan.Build
   ) where
 
 import Data.List (partition)
-import GHC.TypeLits (Symbol)
+import GHC.TypeLits (Nat, Symbol)
 
 import Isl.HighLevel.Constraints
   ( Conjunction(..), Constraint(..), SetIx(..), Expr, expandExpr )
@@ -28,7 +28,7 @@ import Isl.Scan.Types
 -- Each basic set in the disjunction becomes one 'LoopNest'.
 -- For correct enumeration without duplicates, the input should have been
 -- made disjoint (via @isl_set_make_disjoint@) before decomposition.
-mkScanner :: forall (ps :: [Symbol]) n. PDisjunction ps n -> Scanner
+mkScanner :: forall (ps :: [Symbol]) (n :: Nat). PDisjunction ps n -> Scanner ps n
 mkScanner (PDisjunction pcs) = Scanner (map mkLoopNest pcs)
 
 -- | Build a 'LoopNest' from a single convex polyhedron.
@@ -41,7 +41,7 @@ mkScanner (PDisjunction pcs) = Scanner (map mkLoopNest pcs)
 --    in an equality = equality constraint.
 -- 3. Normalize each into an 'AffineBound' by dividing out the
 --    coefficient of x_k.
-mkLoopNest :: forall (ps :: [Symbol]) n. PConjunction ps n -> LoopNest
+mkLoopNest :: forall (ps :: [Symbol]) (n :: Nat). PConjunction ps n -> LoopNest ps n
 mkLoopNest (PConjunction (Conjunction constraints)) =
   let (levels, nParams, nDims) = buildLevels constraints
   in LoopNest levels nParams nDims

@@ -183,3 +183,45 @@ freeMap = unsafeCoerce go
   where
     go :: Map ps ni no -> IslT m ()
     go (Map m) = freeM m
+
+-- Consuming combinators
+
+-- | Borrow a Map for a query, then free it.
+consumingMap :: forall m ps ni no a. MonadIO m => Map ps ni no %1 -> (MapRef ps ni no -> a) -> IslT m (Ur a)
+consumingMap = unsafeCoerce go
+  where
+    go :: Map ps ni no -> (MapRef ps ni no -> a) -> IslT m (Ur a)
+    go (Map m) f = do
+      let !(result, m') = borrow m (\ref -> f (MapRef ref))
+      freeM m'
+      return (Ur result)
+
+-- | Check if a Map is empty, then free it.
+consumingIsEmpty :: forall m ps ni no. MonadIO m => Map ps ni no %1 -> IslT m (Ur Bool)
+consumingIsEmpty = unsafeCoerce go
+  where
+    go :: Map ps ni no -> IslT m (Ur Bool)
+    go (Map m) = do
+      r <- withCtx (M.isEmpty m)
+      freeM m
+      return (Ur r)
+
+-- | Check equality of two Maps, then free both.
+consumingIsEqual :: forall m ps ni no. MonadIO m => Map ps ni no %1 -> Map ps ni no %1 -> IslT m (Ur Bool)
+consumingIsEqual = unsafeCoerce go
+  where
+    go :: Map ps ni no -> Map ps ni no -> IslT m (Ur Bool)
+    go (Map m1) (Map m2) = do
+      r <- withCtx (M.isEqual m1 m2)
+      freeM m1; freeM m2
+      return (Ur r)
+
+-- | Check if first Map is a subset of the second, then free both.
+consumingIsSubset :: forall m ps ni no. MonadIO m => Map ps ni no %1 -> Map ps ni no %1 -> IslT m (Ur Bool)
+consumingIsSubset = unsafeCoerce go
+  where
+    go :: Map ps ni no -> Map ps ni no -> IslT m (Ur Bool)
+    go (Map m1) (Map m2) = do
+      r <- withCtx (M.isSubset m1 m2)
+      freeM m1; freeM m2
+      return (Ur r)

@@ -169,3 +169,45 @@ freeUnionSet = unsafeCoerce go
   where
     go :: UnionSet -> IslT m ()
     go (UnionSet us) = freeM us
+
+-- Consuming combinators
+
+-- | Borrow a UnionSet for a query, then free it.
+consumingUS :: forall m a. MonadIO m => UnionSet %1 -> (UnionSetRef -> a) -> IslT m (Ur a)
+consumingUS = unsafeCoerce go
+  where
+    go :: UnionSet -> (UnionSetRef -> a) -> IslT m (Ur a)
+    go (UnionSet us) f = do
+      let !(result, us') = borrow us (\ref -> f (UnionSetRef ref))
+      freeM us'
+      return (Ur result)
+
+-- | Check if a UnionSet is empty, then free it.
+consumingIsEmpty :: forall m. MonadIO m => UnionSet %1 -> IslT m (Ur Bool)
+consumingIsEmpty = unsafeCoerce go
+  where
+    go :: UnionSet -> IslT m (Ur Bool)
+    go (UnionSet us) = do
+      r <- withCtx (US.isEmpty us)
+      freeM us
+      return (Ur r)
+
+-- | Check equality of two UnionSets, then free both.
+consumingIsEqual :: forall m. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m (Ur Bool)
+consumingIsEqual = unsafeCoerce go
+  where
+    go :: UnionSet -> UnionSet -> IslT m (Ur Bool)
+    go (UnionSet us1) (UnionSet us2) = do
+      r <- withCtx (US.isEqual us1 us2)
+      freeM us1; freeM us2
+      return (Ur r)
+
+-- | Check if first UnionSet is a subset of the second, then free both.
+consumingIsSubset :: forall m. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m (Ur Bool)
+consumingIsSubset = unsafeCoerce go
+  where
+    go :: UnionSet -> UnionSet -> IslT m (Ur Bool)
+    go (UnionSet us1) (UnionSet us2) = do
+      r <- withCtx (US.isSubset us1 us2)
+      freeM us1; freeM us2
+      return (Ur r)

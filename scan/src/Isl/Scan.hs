@@ -12,7 +12,7 @@
 -- -- Build scanner from a decomposed set:
 -- let scanner = mkScanner disjunction
 -- -- Enumerate points (with parameter values):
--- let points = scanPoints scanner [10]  -- e.g. N=10
+-- let points = scanPoints scanner (mkVec \@1 [10])  -- e.g. N=10
 -- @
 module Isl.Scan
   ( -- * Building scanners
@@ -21,17 +21,27 @@ module Isl.Scan
     -- * Nested-loop enumeration
   , scanPoints
   , scanFold
+  , scanForM_
+  , scanMapM
     -- * FSM (state machine) enumeration
   , scanFSM
   , scanFoldFSM
+  , scanForM_FSM
   , ScanState(..)
   , initScan
   , scanStep
+    -- * Pretty-printing
+  , prettyScanner
+  , prettyLoopNest
+  , prettyBound
     -- * Types
   , Scanner(..)
   , LoopNest(..)
   , LoopLevel(..)
   , AffineBound(..)
+  , Vec(..)
+  , mkVec
+  , unsafeVec
     -- * Utilities
   , ceilDiv
   , floorDiv
@@ -41,3 +51,4 @@ import Isl.Scan.Types
 import Isl.Scan.Build
 import Isl.Scan.Enumerate
 import Isl.Scan.FSM
+import Isl.Scan.Pretty

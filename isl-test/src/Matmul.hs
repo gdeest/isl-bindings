@@ -15,30 +15,20 @@ import Data.Array.IO (IOUArray)
 import Data.Array.Unsafe (unsafeFreeze)
 
 import Isl.HighLevel.Constraints
-import Isl.HighLevel.Pure (PConjunction(..), PDisjunction(..))
+import Isl.HighLevel.Indices
+import Isl.HighLevel.Pure (PConjunction, PDisjunction(..), mkPConjunction)
 import Isl.Scan
 
--- | The matmul iteration domain as a pure Haskell constraint set.
+-- | The matmul iteration domain.
 --
 -- Parameters (alphabetical): K=0, M=1, N=2
 -- Dimensions: i=0, j=1, k=2
---
--- { [i, j, k] : 0 <= i <= N-1 and 0 <= j <= M-1 and 0 <= k <= K-1 }
 matmulDomain :: PConjunction '["K", "M", "N"] 3
-matmulDomain = PConjunction $ Conjunction
-  [ -- i >= 0
-    InequalityConstraint (Ix (SetDim 0))
-  , -- i <= N - 1  ⟺  N - 1 - i >= 0
-    InequalityConstraint (Add (Add (Ix (SetParam 2)) (Constant (-1))) (Mul (-1) (Ix (SetDim 0))))
-  , -- j >= 0
-    InequalityConstraint (Ix (SetDim 1))
-  , -- j <= M - 1  ⟺  M - 1 - j >= 0
-    InequalityConstraint (Add (Add (Ix (SetParam 1)) (Constant (-1))) (Mul (-1) (Ix (SetDim 1))))
-  , -- k >= 0
-    InequalityConstraint (Ix (SetDim 2))
-  , -- k <= K - 1  ⟺  K - 1 - k >= 0
-    InequalityConstraint (Add (Add (Ix (SetParam 0)) (Constant (-1))) (Mul (-1) (Ix (SetDim 2))))
-  ]
+matmulDomain = mkPConjunction @'["K","M","N"] @3 $
+  \(kp :- mp :- np :- Nil) (i :- j :- k :- Nil) ->
+    idx i >=: cst 0 &&: idx i <=: idx np -: cst 1
+    &&: idx j >=: cst 0 &&: idx j <=: idx mp -: cst 1
+    &&: idx k >=: cst 0 &&: idx k <=: idx kp -: cst 1
 
 main :: IO ()
 main = do
@@ -64,19 +54,14 @@ main = do
 
   -- Use the scanner to drive matmul
   -- Parameters in alphabetical order: K, M, N
-  let params = [fromIntegral k, fromIntegral m, fromIntegral n]
+  let params = mkVec @3 [fromIntegral k, fromIntegral m, fromIntegral n]
 
   matC <- do
     c <- newArray ((0,0),(n-1,m-1)) 0 :: IO (IOUArray (Int,Int) Int)
-    -- scanFold visits every (i, j, k) in the domain
-    scanFold scanner params
-      (\io point -> io >> case point of
-          [i, j, kk] -> do
-            let ii = fromIntegral i; jj = fromIntegral j; kkk = fromIntegral kk
-            old <- readArray c (ii, jj)
-            writeArray c (ii, jj) (old + matA ! (ii, kkk) * matB ! (kkk, jj))
-          _ -> error "unexpected point shape"
-      ) (return ())
+    scanForM_ scanner params $ \(Vec [ii, jj, kk]) -> do
+      let i = fromIntegral ii; j = fromIntegral jj; kv = fromIntegral kk
+      old <- readArray c (i, j)
+      writeArray c (i, j) (old + matA ! (i, kv) * matB ! (kv, j))
     unsafeFreeze c :: IO (Array (Int,Int) Int)
 
   putStrLn $ "\nC = A × B (" ++ show n ++ "×" ++ show m ++ "):"
@@ -88,15 +73,9 @@ main = do
     then "\nResult matches naive matmul."
     else "\nMISMATCH!"
 
-  -- Show the scanner structure
-  putStrLn "\n--- Scanner structure ---"
-  let Scanner [nest] = scanner
-  putStrLn $ "Params: " ++ show (lnParams nest) ++ ", Dims: " ++ show (lnDims nest)
-  mapM_ (\lvl -> do
-    putStrLn $ "  dim " ++ show (llDim lvl) ++ ":"
-    putStrLn $ "    lowers: " ++ show (llLowerBounds lvl)
-    putStrLn $ "    uppers: " ++ show (llUpperBounds lvl)
-    ) (lnLevels nest)
+  -- Show the scanner structure using pretty-printing
+  putStrLn "\n--- Scanner loop nest ---"
+  putStrLn $ prettyScanner ["K", "M", "N"] ["i", "j", "k"] scanner
 
 printMatrix :: Show a => Array (Int,Int) a -> Int -> Int -> IO ()
 printMatrix mat rows cols =
@@ -108,5 +87,5 @@ printMatrix mat rows cols =
 
 naiveMatmul :: Array (Int,Int) Int -> Array (Int,Int) Int -> Int -> Int -> Int -> Array (Int,Int) Int
 naiveMatmul a b nn mm kk = array ((0,0),(nn-1,mm-1))
-  [((i,j), sum [a!(i,k) * b!(k,j) | k <- [0..kk-1]])
+  [((i,j), sum [a!(i,kv) * b!(kv,j) | kv <- [0..kk-1]])
   | i <- [0..nn-1], j <- [0..mm-1]]

@@ -13,6 +13,9 @@
 -- This is a natural @unfoldr@ source and works for any polyhedron
 -- (including non-convex via disjoint decomposition).
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE TypeOperators #-}
 
 module Isl.Scan.FSM
   ( ScanState(..)
@@ -20,31 +23,34 @@ module Isl.Scan.FSM
   , scanStep
   , scanFSM
   , scanFoldFSM
+  , scanForM_FSM
   ) where
 
-import Data.List (unfoldr)
+import GHC.TypeLits (Symbol, Nat)
 
+import Isl.HighLevel.Params (Length)
 import Isl.Scan.Types
 import Isl.Scan.Enumerate (evalLower, evalUpper, evalBound, ceilDiv)
 
 -- | The state machine state: current iteration vector + context.
-data ScanState = ScanState
-  { ssPoint  :: ![Integer]   -- ^ Current iteration vector (outermost first).
-  , ssNest   :: !LoopNest    -- ^ Loop nest descriptor.
-  , ssParams :: ![Integer]   -- ^ Parameter values.
+data ScanState ps n = ScanState
+  { ssPoint  :: ![Integer]        -- ^ Current iteration vector (outermost first).
+  , ssNest   :: !(LoopNest ps n)  -- ^ Loop nest descriptor.
+  , ssParams :: ![Integer]        -- ^ Parameter values.
   } deriving (Show)
 
 -- | Compute the lexicographic minimum of the polyhedron.
 -- For each dimension (outermost to innermost), fix it to the maximum
 -- of its lower bounds given the already-fixed outer values.
-initScan :: LoopNest -> [Integer] -> Maybe ScanState
+initScan :: LoopNest ps n -> Vec (Length ps) Integer -> Maybe (ScanState ps n)
 initScan nest params =
-  case computeLexMin (lnLevels nest) params [] of
+  let paramList = toList params
+  in case computeLexMin (lnLevels nest) paramList [] of
     Nothing -> Nothing  -- empty polyhedron
     Just point -> Just ScanState
       { ssPoint = point
       , ssNest = nest
-      , ssParams = params
+      , ssParams = paramList
       }
 
 -- | Compute lexmin: greedily pick the minimum for each dimension.
@@ -75,7 +81,7 @@ computeLexMin (level : rest) params prefix =
 --
 -- If all dimensions are saturated (we're at the vertex = lexmax),
 -- emits the final point and returns Nothing on subsequent call.
-scanStep :: ScanState -> Maybe ([Integer], ScanState)
+scanStep :: ScanState ps n -> Maybe (Vec n Integer, ScanState ps n)
 scanStep (ScanState [] _ _) = Nothing  -- exhausted
 scanStep (ScanState point nest params) =
   let levels = lnLevels nest
@@ -84,12 +90,12 @@ scanStep (ScanState point nest params) =
        Nothing ->
          -- At lexmax. Emit this point, signal done via Nothing next time.
          -- We use a sentinel: set point to [] to indicate exhaustion.
-         Just (point, ScanState [] nest params)
+         Just (unsafeVec point, ScanState [] nest params)
        Just newPoint ->
-         Just (point, ScanState newPoint nest params)
+         Just (unsafeVec point, ScanState newPoint nest params)
 
 -- | Enumerate all points via the FSM. This is the primary interface.
-scanFSM :: LoopNest -> [Integer] -> [[Integer]]
+scanFSM :: LoopNest ps n -> Vec (Length ps) Integer -> [Vec n Integer]
 scanFSM nest params =
   case initScan nest params of
     Nothing -> []
@@ -97,14 +103,15 @@ scanFSM nest params =
   where
     levels = lnLevels nest
     n = length levels
+    paramList = toList params
 
     go point =
-      point : case findCarryAndAdvance levels params point (n - 1) of
+      unsafeVec point : case findCarryAndAdvance levels paramList point (n - 1) of
                 Nothing       -> []  -- was at lexmax, done
                 Just newPoint -> go newPoint
 
 -- | Strict fold over points via the FSM.
-scanFoldFSM :: LoopNest -> [Integer] -> (a -> [Integer] -> a) -> a -> a
+scanFoldFSM :: LoopNest ps n -> Vec (Length ps) Integer -> (a -> Vec n Integer -> a) -> a -> a
 scanFoldFSM nest params f z =
   case initScan nest params of
     Nothing -> z
@@ -112,12 +119,18 @@ scanFoldFSM nest params f z =
   where
     levels = lnLevels nest
     n = length levels
+    paramList = toList params
 
     go !acc point =
-      let acc' = f acc point
-      in case findCarryAndAdvance levels params point (n - 1) of
+      let acc' = f acc (unsafeVec point)
+      in case findCarryAndAdvance levels paramList point (n - 1) of
            Nothing       -> acc'
            Just newPoint -> go acc' newPoint
+
+-- | Monadic traversal over points via the FSM.
+scanForM_FSM :: Monad m => LoopNest ps n -> Vec (Length ps) Integer -> (Vec n Integer -> m ()) -> m ()
+scanForM_FSM nest params action =
+  scanFoldFSM nest params (\m pt -> m >> action pt) (return ())
 
 -- | Find the carry dimension and compute the new iteration vector.
 --

@@ -204,3 +204,25 @@ freeBS = unsafeCoerce go
   where
     go :: BasicSet ps n -> IslT m ()
     go (BasicSet bs) = freeM bs
+
+-- Consuming combinators
+
+-- | Borrow a BasicSet for a query, then free it. Returns the query result.
+consumingBS :: forall m ps n a. MonadIO m => BasicSet ps n %1 -> (BasicSetRef ps n -> a) -> IslT m (Ur a)
+consumingBS = unsafeCoerce go
+  where
+    go :: BasicSet ps n -> (BasicSetRef ps n -> a) -> IslT m (Ur a)
+    go (BasicSet bs) f = do
+      let !(result, bs') = borrow bs (\ref -> f (BasicSetRef ref))
+      freeM bs'
+      return (Ur result)
+
+-- | Check if a BasicSet is empty, then free it.
+consumingIsEmpty :: forall m ps n. MonadIO m => BasicSet ps n %1 -> IslT m (Ur Bool)
+consumingIsEmpty = unsafeCoerce go
+  where
+    go :: BasicSet ps n -> IslT m (Ur Bool)
+    go (BasicSet bs) = do
+      r <- withCtx (BS.isEmpty bs)
+      freeM bs
+      return (Ur r)

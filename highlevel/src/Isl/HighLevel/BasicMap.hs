@@ -213,3 +213,35 @@ freeBM = unsafeCoerce go
   where
     go :: BasicMap ps ni no -> IslT m ()
     go (BasicMap bm) = freeM bm
+
+-- Consuming combinators
+
+-- | Borrow a BasicMap for a query, then free it.
+consumingBM :: forall m ps ni no a. MonadIO m => BasicMap ps ni no %1 -> (BasicMapRef ps ni no -> a) -> IslT m (Ur a)
+consumingBM = unsafeCoerce go
+  where
+    go :: BasicMap ps ni no -> (BasicMapRef ps ni no -> a) -> IslT m (Ur a)
+    go (BasicMap bm) f = do
+      let !(result, bm') = borrow bm (\ref -> f (BasicMapRef ref))
+      freeM bm'
+      return (Ur result)
+
+-- | Check if a BasicMap is empty, then free it.
+consumingIsEmpty :: forall m ps ni no. MonadIO m => BasicMap ps ni no %1 -> IslT m (Ur Bool)
+consumingIsEmpty = unsafeCoerce go
+  where
+    go :: BasicMap ps ni no -> IslT m (Ur Bool)
+    go (BasicMap bm) = do
+      r <- withCtx (BM.isEmpty bm)
+      freeM bm
+      return (Ur r)
+
+-- | Check equality of two BasicMaps, then free both.
+consumingIsEqual :: forall m ps ni no. MonadIO m => BasicMap ps ni no %1 -> BasicMap ps ni no %1 -> IslT m (Ur Bool)
+consumingIsEqual = unsafeCoerce go
+  where
+    go :: BasicMap ps ni no -> BasicMap ps ni no -> IslT m (Ur Bool)
+    go (BasicMap bm1) (BasicMap bm2) = do
+      r <- withCtx (BM.isEqual bm1 bm2)
+      freeM bm1; freeM bm2
+      return (Ur r)

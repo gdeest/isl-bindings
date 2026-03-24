@@ -1,7 +1,13 @@
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE TypeOperators #-}
+
 -- | Enumerate integer points of polyhedra using compiled scanners.
 module Isl.Scan.Enumerate
   ( scanPoints
   , scanFold
+  , scanForM_
+  , scanMapM
   , evalBound
   , evalLower
   , evalUpper
@@ -9,36 +15,49 @@ module Isl.Scan.Enumerate
   , floorDiv
   ) where
 
+import GHC.TypeLits (Symbol, Nat)
+
+import Isl.HighLevel.Params (Length)
 import Isl.Scan.Types
 
 -- | Enumerate all integer points in a (possibly non-convex) set.
 --
--- @params@ is a list of parameter values, indexed positionally
+-- @params@ is a 'Vec' of parameter values, indexed positionally
 -- (matching the parameter order in the ISL space).
 --
--- Returns a list of points, where each point is a list of dimension
+-- Returns a list of points, where each point is a 'Vec' of dimension
 -- values (outermost first).
 --
 -- For non-convex sets (multiple loop nests), results are concatenated.
 -- If the scanner was built from a disjoint decomposition, there are
 -- no duplicates.
-scanPoints :: Scanner -> [Integer] -> [[Integer]]
+scanPoints :: Scanner ps n -> Vec (Length ps) Integer -> [Vec n Integer]
 scanPoints (Scanner nests) params =
-  concatMap (\nest -> scanLoopNest nest params) nests
+  concatMap (\nest -> scanLoopNest nest (toList params)) nests
 
 -- | Strict left fold over all integer points.
 --
 -- More efficient than @foldl' f z (scanPoints s params)@ because
 -- it avoids building the intermediate list of points.
-scanFold :: Scanner -> [Integer] -> (a -> [Integer] -> a) -> a -> a
+scanFold :: Scanner ps n -> Vec (Length ps) Integer -> (a -> Vec n Integer -> a) -> a -> a
 scanFold (Scanner nests) params f z =
-  foldl (\acc nest -> foldLoopNest nest params f acc) z nests
+  foldl (\acc nest -> foldLoopNest nest (toList params) (\a pt -> f a (unsafeVec pt)) acc) z nests
+
+-- | Monadic traversal over all integer points.
+scanForM_ :: Monad m => Scanner ps n -> Vec (Length ps) Integer -> (Vec n Integer -> m ()) -> m ()
+scanForM_ scanner params action =
+  scanFold scanner params (\m pt -> m >> action pt) (return ())
+
+-- | Monadic map over all integer points.
+scanMapM :: Monad m => Scanner ps n -> Vec (Length ps) Integer -> (Vec n Integer -> m a) -> m [a]
+scanMapM scanner params action =
+  fmap reverse $ scanFold scanner params (\m pt -> m >>= \acc -> action pt >>= \a -> return (a : acc)) (return [])
 
 -- | Enumerate all integer points of a single convex loop nest.
-scanLoopNest :: LoopNest -> [Integer] -> [[Integer]]
+scanLoopNest :: LoopNest ps n -> [Integer] -> [Vec n Integer]
 scanLoopNest nest params = go [] (lnLevels nest)
   where
-    go prefix [] = [reverse prefix]
+    go prefix [] = [unsafeVec (reverse prefix)]
     go prefix (level : rest) =
       case llEquality level of
         Just eq ->
@@ -54,7 +73,7 @@ scanLoopNest nest params = go [] (lnLevels nest)
                        [lo, lo + stride .. hi]
 
 -- | Strict fold over a single loop nest.
-foldLoopNest :: LoopNest -> [Integer] -> (a -> [Integer] -> a) -> a -> a
+foldLoopNest :: LoopNest ps n -> [Integer] -> (a -> [Integer] -> a) -> a -> a
 foldLoopNest nest params f = go [] (lnLevels nest)
   where
     go prefix [] acc = f acc (reverse prefix)
