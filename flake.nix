@@ -48,6 +48,7 @@
           buildPhase = ''
             mkdir -p ./src/Isl
             cp -r ${pkgs.lib.cleanSource ./bindings}/* .
+            chmod -R u+w .
             cp -r ${isl-bindings-srcgen}/* .
           '';
           installPhase = ''
@@ -67,11 +68,24 @@
             (pkgs.lib.cleanSource ./scan) {
               isl-bindings-hl = hself.isl-bindings-hl;
             };
+          isl-typelevel = hsuper.callCabal2nix "isl-typelevel"
+            (pkgs.lib.cleanSource ./typelevel) {
+              isl-bindings = hself.isl-bindings;
+              isl-bindings-hl = hself.isl-bindings-hl;
+            };
+          isl-plugin = hsuper.callCabal2nix "isl-plugin"
+            (pkgs.lib.cleanSource ./plugin) {
+              isl-bindings = hself.isl-bindings;
+              isl-bindings-hl = hself.isl-bindings-hl;
+              isl-typelevel = hself.isl-typelevel;
+            };
           isl-test = hsuper.callCabal2nix "isl-test"
             (pkgs.lib.cleanSource ./isl-test) {
               isl-bindings = hself.isl-bindings;
               isl-bindings-hl = hself.isl-bindings-hl;
               isl-scan = hself.isl-scan;
+              isl-typelevel = hself.isl-typelevel;
+              isl-plugin = hself.isl-plugin;
             };
         });
       in
@@ -81,6 +95,8 @@
           isl-bindings = haskellPackages.isl-bindings;
           isl-bindings-hl = haskellPackages.isl-bindings-hl;
           isl-scan = haskellPackages.isl-scan;
+          isl-typelevel = haskellPackages.isl-typelevel;
+          isl-plugin = haskellPackages.isl-plugin;
           isl-test = haskellPackages.isl-test;
           default = haskellPackages.isl-test;
         };
@@ -90,6 +106,8 @@
             ps.isl-bindings
             ps.isl-bindings-hl
             ps.isl-scan
+            ps.isl-typelevel
+            ps.isl-plugin
             ps.isl-test
           ];
           buildInputs = [

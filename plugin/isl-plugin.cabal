@@ -1,0 +1,22 @@
+cabal-version:       2.4
+
+name:                isl-plugin
+version:             0.1.0.0
+synopsis:            GHC typechecker plugin for compile-time polyhedral reasoning
+license:             MIT
+author:              Gaël Deest
+maintainer:          gael.deest@gmail.com
+category:            Math
+
+library
+  exposed-modules:   Isl.Plugin
+  build-depends:     base >= 4.20 && < 5
+                   , ghc >= 9.10 && < 9.12
+                   , reflection
+                   , isl-typelevel
+                   , isl-bindings-hl
+                   , isl-bindings
+  hs-source-dirs:    src
+  default-language:   GHC2021
+  default-extensions: DataKinds
+                    , TypeFamilies

@@ -3,4 +3,6 @@ packages:
   bindings/
   highlevel/
   scan/
+  typelevel/
+  plugin/
   isl-test/
