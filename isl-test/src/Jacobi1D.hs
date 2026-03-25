@@ -45,21 +45,29 @@ s1Domain = mkNamedPConjunction @"S1" @'["N","T"] @2 $
     idx t >=: cst 1 &&: idx t <=: idx tp
     &&: idx i >=: cst 1 &&: idx i <=: idx np
 
--- Skewed schedule: S0[t,i] -> [t+i, t, 0], S1[t,i] -> [t+i, t, 1]
+-- Schedule: t outermost, then statement selector (all S0s before all S1s
+-- within each time step), then spatial index.
+--
+--   S0[t,i] -> [t, 0, i]   -- compute all new values first
+--   S1[t,i] -> [t, 1, i]   -- then copy all back to old
+--
+-- This respects the Jacobi data dependencies: within one time step,
+-- all stencil reads use old values (S0 phase), then all writes update
+-- old in the copy-back phase (S1 phase).
 
 s0Sched :: NamedMap
 s0Sched = mkNamedPMapConjunction @"S0" @'["N","T"] @2 @3 $
-  \_ (t :- i :- Nil) (w :- tt :- s :- Nil) ->
-    idx w ==: idx t +: idx i
-    &&: idx tt ==: idx t
+  \_ (t :- i :- Nil) (tt :- s :- ii :- Nil) ->
+    idx tt ==: idx t
     &&: idx s ==: cst 0
+    &&: idx ii ==: idx i
 
 s1Sched :: NamedMap
 s1Sched = mkNamedPMapConjunction @"S1" @'["N","T"] @2 @3 $
-  \_ (t :- i :- Nil) (w :- tt :- s :- Nil) ->
-    idx w ==: idx t +: idx i
-    &&: idx tt ==: idx t
+  \_ (t :- i :- Nil) (tt :- s :- ii :- Nil) ->
+    idx tt ==: idx t
     &&: idx s ==: cst 1
+    &&: idx ii ==: idx i
 
 main :: IO ()
 main = do
@@ -99,8 +107,8 @@ main = do
   let ms = mkMultiScannerFromNamed @2 nsets nmaps
 
   -- Print merged loop nest
-  putStrLn "=== Jacobi 1D — skewed schedule ==="
-  putStrLn $ prettyMultiScanner ["w", "t", "s"] ms
+  putStrLn "=== Jacobi 1D — phase-separated schedule ==="
+  putStrLn $ prettyMultiScanner ["t", "s", "i"] ms
 
   -- Params: N=0, T=1 (alphabetical)
   let params = mkVec @2 [fromIntegral nSize, fromIntegral tSteps]
@@ -154,7 +162,7 @@ main = do
   mapM_ (\pt -> putStrLn $ "  " ++ spStmt pt
                 ++ " (t=" ++ show (spOrigCoord pt !! 0)
                 ++ ",i=" ++ show (spOrigCoord pt !! 1) ++ ")"
-                ++ " @ wavefront=" ++ show (spTimeCoord pt !! 0))
+                ++ " @ time=" ++ show (spTimeCoord pt))
         (take 15 points)
   putStrLn $ "  ... (" ++ show (length points) ++ " total)"
 

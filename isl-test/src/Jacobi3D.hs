@@ -46,25 +46,27 @@ s1Domain = mkNamedPConjunction @"S1" @'["M","N","P","T"] @4 $
     &&: idx j >=: cst 1 &&: idx j <=: idx mp
     &&: idx k >=: cst 1 &&: idx k <=: idx pp
 
--- Skewed schedule: 3D wavefront via t+i, t+j, t+k
+-- Phase-separated schedule: all S0s before all S1s per time step.
+--   S0[t,i,j,k] -> [t, 0, i, j, k]
+--   S1[t,i,j,k] -> [t, 1, i, j, k]
 
 s0Sched :: NamedMap
 s0Sched = mkNamedPMapConjunction @"S0" @'["M","N","P","T"] @4 @5 $
-  \_ (t :- i :- j :- k :- Nil) (w1 :- w2 :- w3 :- tt :- s :- Nil) ->
-    idx w1 ==: idx t +: idx i
-    &&: idx w2 ==: idx t +: idx j
-    &&: idx w3 ==: idx t +: idx k
-    &&: idx tt ==: idx t
+  \_ (t :- i :- j :- k :- Nil) (tt :- s :- ii :- jj :- kk :- Nil) ->
+    idx tt ==: idx t
     &&: idx s ==: cst 0
+    &&: idx ii ==: idx i
+    &&: idx jj ==: idx j
+    &&: idx kk ==: idx k
 
 s1Sched :: NamedMap
 s1Sched = mkNamedPMapConjunction @"S1" @'["M","N","P","T"] @4 @5 $
-  \_ (t :- i :- j :- k :- Nil) (w1 :- w2 :- w3 :- tt :- s :- Nil) ->
-    idx w1 ==: idx t +: idx i
-    &&: idx w2 ==: idx t +: idx j
-    &&: idx w3 ==: idx t +: idx k
-    &&: idx tt ==: idx t
+  \_ (t :- i :- j :- k :- Nil) (tt :- s :- ii :- jj :- kk :- Nil) ->
+    idx tt ==: idx t
     &&: idx s ==: cst 1
+    &&: idx ii ==: idx i
+    &&: idx jj ==: idx j
+    &&: idx kk ==: idx k
 
 main :: IO ()
 main = do
@@ -112,7 +114,7 @@ main = do
   let ms = mkMultiScannerFromNamed @4 nsets nmaps
 
   putStrLn "=== Jacobi 3D — skewed schedule ==="
-  putStrLn $ prettyMultiScanner ["w1", "w2", "w3", "t", "s"] ms
+  putStrLn $ prettyMultiScanner ["t", "s", "i", "j", "k"] ms
 
   -- Params: M=0, N=1, P=2, T=3 (alphabetical)
   let params = mkVec @4 [fromIntegral mSize, fromIntegral nSize, fromIntegral pSize, fromIntegral tSteps]
