@@ -86,7 +86,10 @@ data ScheduledStatement = ScheduledStatement
 
 -- | Multi-statement scanner: a collection of scheduled statements
 -- ready for merged enumeration.
-newtype MultiScanner = MultiScanner
+--
+-- The phantom @nParams@ tracks the number of parameters at the type level,
+-- validated at construction time by 'mkMultiScanner'.
+newtype MultiScanner (nParams :: Nat) = MultiScanner
   { msStatements :: [ScheduledStatement]
   } deriving (Show, Eq)
 
@@ -105,19 +108,21 @@ data StmtPoint = StmtPoint
 -- Each 'NamedSet' comes from decomposing the result of applying the schedule
 -- to the domain ('decomposeUnionSetNamed'). Each 'NamedMap' comes from
 -- decomposing the reversed schedule ('decomposeUnionMapNamed').
-mkMultiScannerFromNamed :: [NamedSet] -> [NamedMap] -> MultiScanner
+mkMultiScannerFromNamed :: KnownNat nParams => [NamedSet] -> [NamedMap] -> MultiScanner nParams
 mkMultiScannerFromNamed namedSets namedMaps = mkMultiScanner pairs
   where
     pairs = map matchInverse namedSets
     matchInverse ns =
       let name = nsName ns
-          inv = case filter (\nm -> nmDomainName nm == name) namedMaps of
+          -- Match by domain name first (forward schedule), then by range name
+          -- (reversed schedule: domain is time-space, range is original space)
+          inv = case filter (\nm -> nmDomainName nm == name || nmRangeName nm == name) namedMaps of
                   (nm:_) -> extractInverse nm
                   []     -> StmtInverse 0 []
       in (ns, inv)
 
 -- | Build a 'MultiScanner' from @(NamedSet, StmtInverse)@ pairs.
-mkMultiScanner :: [(NamedSet, StmtInverse)] -> MultiScanner
+mkMultiScanner :: KnownNat nParams => [(NamedSet, StmtInverse)] -> MultiScanner nParams
 mkMultiScanner pairs = MultiScanner
   { msStatements = map mkStmt pairs }
   where
@@ -347,21 +352,21 @@ data ActiveStream = ActiveStream
   }
 
 -- | Enumerate all statement instances in lexicographic time order.
-scanMulti :: KnownNat nParams => MultiScanner -> Vec nParams Integer -> [StmtPoint]
+scanMulti :: KnownNat nParams => MultiScanner nParams -> Vec nParams Integer -> [StmtPoint]
 scanMulti ms params =
   mergeLinear (initStreams ms (toList params)) (toList params)
 
 -- | Strict left fold over all statement instances in schedule order.
-scanMultiFold :: KnownNat nParams => MultiScanner -> Vec nParams Integer -> (a -> StmtPoint -> a) -> a -> a
+scanMultiFold :: KnownNat nParams => MultiScanner nParams -> Vec nParams Integer -> (a -> StmtPoint -> a) -> a -> a
 scanMultiFold ms params f z =
   mergeLinearFold (initStreams ms (toList params)) (toList params) f z
 
 -- | Monadic traversal over all statement instances in schedule order.
-scanMultiForM_ :: (Monad m, KnownNat nParams) => MultiScanner -> Vec nParams Integer -> (StmtPoint -> m ()) -> m ()
+scanMultiForM_ :: (Monad m, KnownNat nParams) => MultiScanner nParams -> Vec nParams Integer -> (StmtPoint -> m ()) -> m ()
 scanMultiForM_ ms params action =
   scanMultiFold ms params (\m pt -> m >> action pt) (return ())
 
-initStreams :: MultiScanner -> [Integer] -> [ActiveStream]
+initStreams :: MultiScanner nParams -> [Integer] -> [ActiveStream]
 initStreams (MultiScanner stmts) params =
   concatMap (stmtStreams params) stmts
 
@@ -416,17 +421,17 @@ minimumBy' cmp (x:xs) = foldl' (\a b -> if cmp a b == GT then b else a) x xs
 -- * Priority-queue enumeration
 
 -- | Enumerate all statement instances in lexicographic time order (PQ variant).
-scanMultiPQ :: KnownNat nParams => MultiScanner -> Vec nParams Integer -> [StmtPoint]
+scanMultiPQ :: KnownNat nParams => MultiScanner nParams -> Vec nParams Integer -> [StmtPoint]
 scanMultiPQ ms params =
   mergePQ (sortBy (comparing asHead) (initStreams ms (toList params))) (toList params)
 
 -- | Strict left fold, priority-queue variant.
-scanMultiPQFold :: KnownNat nParams => MultiScanner -> Vec nParams Integer -> (a -> StmtPoint -> a) -> a -> a
+scanMultiPQFold :: KnownNat nParams => MultiScanner nParams -> Vec nParams Integer -> (a -> StmtPoint -> a) -> a -> a
 scanMultiPQFold ms params f z =
   mergePQFold (sortBy (comparing asHead) (initStreams ms (toList params))) (toList params) f z
 
 -- | Monadic traversal, priority-queue variant.
-scanMultiPQForM_ :: (Monad m, KnownNat nParams) => MultiScanner -> Vec nParams Integer -> (StmtPoint -> m ()) -> m ()
+scanMultiPQForM_ :: (Monad m, KnownNat nParams) => MultiScanner nParams -> Vec nParams Integer -> (StmtPoint -> m ()) -> m ()
 scanMultiPQForM_ ms params action =
   scanMultiPQFold ms params (\m pt -> m >> action pt) (return ())
 

@@ -9,7 +9,7 @@
 
 module Isl.HighLevel.UnionMap where
 
-import Control.Monad (forM)
+import Control.Monad (forM, foldM)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Maybe (catMaybes)
 import GHC.TypeLits (someNatVal, SomeNat(..), KnownNat, Symbol)
@@ -17,7 +17,8 @@ import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.HighLevel.BasicMap (extractMapConstraint)
-import Isl.HighLevel.Constraints (Conjunction(..), MapIx)
+import Isl.HighLevel.Constraints
+  ( Conjunction(..), Constraint(..), MapIx(..), expandExpr )
 import Isl.HighLevel.Map (Map(..))
 import Isl.HighLevel.UnionSet (UnionSet(..))
 import Isl.HighLevel.Pure
@@ -28,6 +29,12 @@ import Isl.Instances ()
 import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, withCtx, freeM)
 import qualified Isl.Foreach as Foreach
 import qualified Isl.UnionMap.AutoGen as UM
+import qualified Isl.UnionSet.AutoGen as USAutoGen
+import qualified Isl.BasicMap.AutoGen as BM
+import qualified Isl.Map.AutoGen as M
+import qualified Isl.Constraint.AutoGen as C
+import qualified Isl.LocalSpace.AutoGen as LS
+import qualified Isl.Space.AutoGen as Space
 
 -- | Owned UnionMap. Not dimension-indexed because a union can contain
 -- maps of different spaces.
@@ -155,6 +162,75 @@ gistDomain = unsafeCoerce go
     go :: UnionMap -> UnionSet -> IslT m UnionMap
     go (UnionMap um) (UnionSet us) = UnionMap <$> withCtx (UM.gistDomain um us)
 
+-- Lift pure representations to ISL objects
+
+-- | Construct an ISL 'UnionMap' from a 'NamedMap' (pure representation).
+-- Sets the domain tuple name and parameter names on the ISL space.
+toUnionMapFromNamed :: forall m. MonadIO m => NamedMap -> IslT m UnionMap
+toUnionMapFromNamed nm = do
+  let nParams = length (nmParams nm)
+      nIn     = nmNIn nm
+      nOut    = nmNOut nm
+  maps <- mapM (buildOneMap nParams nIn nOut (nmParams nm) (nmDomainName nm)) (nmConjs nm)
+  case maps of
+    []     -> do
+      sp <- withCtx $ Space.alloc (fromIntegral nParams) (fromIntegral nIn) (fromIntegral nOut)
+      sp' <- setParamNames sp (nmParams nm)
+      sp'' <- case nmDomainName nm of
+                Just name -> withCtx $ Space.setTupleName sp' Isl.islDimIn name
+                Nothing   -> return sp'
+      UnionMap <$> withCtx (UM.emptySpace sp'')
+    (m:ms) -> do
+      um0 <- UnionMap <$> withCtx (UM.fromMap m)
+      foldM (\(UnionMap acc) m' -> UnionMap <$> withCtx (UM.union acc (UM.fromMap m')))
+            um0 ms
+  where
+    buildOneMap nP nI nO paramNames domName (Conjunction constraints) = do
+      space0 <- withCtx $ Space.alloc (fromIntegral nP) (fromIntegral nI) (fromIntegral nO)
+      space1 <- setParamNames space0 paramNames
+      space2 <- case domName of
+                  Just name -> withCtx $ Space.setTupleName space1 Isl.islDimIn name
+                  Nothing   -> return space1
+      univ <- withCtx $ BM.universe space2
+      bm <- foldM addMapConstraint univ constraints
+      withCtx $ M.fromBasicMap bm
+
+    setParamNames sp names =
+      foldM (\s (i, name) -> withCtx $ Space.setDimName s Isl.islDimParam i name)
+            sp (zip [0..] names)
+
+    addMapConstraint bm constraint = do
+      let !(sp, bm') = borrow bm (\ref -> unsafePerformIO $ Foreach.basicMapGetSpace ref)
+      ls <- withCtx $ LS.fromSpace sp
+      (emptyC, e) <- case constraint of
+        InequalityConstraint e -> do
+          co <- withCtx $ C.inequalityAlloc ls
+          return (co, e)
+        EqualityConstraint e -> do
+          co <- withCtx $ C.equalityAlloc ls
+          return (co, e)
+      let (coeffs, constant) = expandExpr e
+          setCoeff constr (coeff, ix) = do
+            let (dimType, pos) = case ix of
+                  InDim i    -> (Isl.islDimIn, i)
+                  OutDim i   -> (Isl.islDimOut, i)
+                  MapParam i -> (Isl.islDimParam, i)
+            withCtx $ C.setCoefficientSi constr dimType (fromIntegral pos) (fromIntegral coeff)
+      linearPart <- foldM setCoeff emptyC coeffs
+      finalC <- withCtx $ C.setConstantSi linearPart (fromIntegral constant)
+      withCtx $ BM.addConstraint bm' finalC
+
+-- | Apply a union map to a union set. This is the core operation for
+-- computing scheduled domains: @applyToSet domain schedule@ gives the
+-- image of @domain@ under @schedule@.
+--
+-- Both arguments are consumed (__isl_take).
+applyToSet :: forall m. MonadIO m => UnionSet %1 -> UnionMap %1 -> IslT m UnionSet
+applyToSet = unsafeCoerce go
+  where
+    go :: UnionSet -> UnionMap -> IslT m UnionSet
+    go (UnionSet us) (UnionMap um) = UnionSet <$> withCtx (USAutoGen.apply us um)
+
 -- Predicates (borrowing)
 
 isEmpty :: forall m. Monad m => UnionMap %1 -> IslT m (Ur Bool, UnionMap)
@@ -251,6 +327,7 @@ decomposeUnionMapNamed = unsafeCoerce go
           nOut <- Foreach.spaceDim space Isl.islDimOut
           nParams <- Foreach.spaceDim space Isl.islDimParam
           domainName <- Foreach.spaceGetTupleName space Isl.islDimIn
+          rangeName  <- Foreach.spaceGetTupleName space Isl.islDimOut
           paramNames <- forM [0 .. nParams - 1] $ \i ->
             Foreach.spaceGetDimName space Isl.islDimParam i
           Foreach.spaceFree space
@@ -265,6 +342,7 @@ decomposeUnionMapNamed = unsafeCoerce go
           Foreach.mapFree m
           return NamedMap
             { nmDomainName = domainName
+            , nmRangeName  = rangeName
             , nmParams     = catMaybes paramNames
             , nmNIn        = nIn
             , nmNOut       = nOut

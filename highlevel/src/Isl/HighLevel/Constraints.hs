@@ -1,17 +1,24 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE StandaloneDeriving #-}
 
 module Isl.HighLevel.Constraints where
 
+import Control.DeepSeq (NFData)
 import Data.Kind (Type)
+import GHC.Generics (Generic)
 
 -- | Dimension index for set constraints, distinguishing dimensions from parameters.
 data SetIx = SetDim !Int | SetParam !Int
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
+
+instance NFData SetIx
 
 -- | Dimension index for map constraints, distinguishing input, output, and parameters.
 data MapIx = InDim !Int | OutDim !Int | MapParam !Int
-  deriving (Eq, Ord, Show)
+  deriving (Eq, Ord, Show, Generic)
+
+instance NFData MapIx
 
 -- | Affine expressions, with variables of type 'ix'.
 data Expr ix
@@ -19,6 +26,9 @@ data Expr ix
   | Constant Integer
   | Mul Integer (Expr ix)
   | Add (Expr ix) (Expr ix)
+  deriving (Generic)
+
+instance NFData ix => NFData (Expr ix)
 
 infixl 4 -:
 infixl 4 +:
@@ -70,10 +80,16 @@ data Constraint ix
     -- ^ 'EqualityConstraint e' represents the constraint 'e = 0'.
   | InequalityConstraint (Expr ix)
     -- ^ 'InequalityConstraint e' represents the constraint 'e >= 0'.
+  deriving (Generic)
+
+instance NFData ix => NFData (Constraint ix)
 
 -- | Represents a conjunction of constraints, defining a single convex
 -- polyhedron.
 newtype Conjunction ix = Conjunction [Constraint ix]
+  deriving (Generic)
+
+instance NFData ix => NFData (Conjunction ix)
 
 deriving instance Show ix => Show (Expr ix)
 deriving instance Show ix => Show (Constraint ix)

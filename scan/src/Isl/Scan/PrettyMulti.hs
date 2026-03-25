@@ -47,7 +47,7 @@ data StmtEntry = StmtEntry
 -- | Build a merged AST from a multi-scanner's statements.
 -- Uses the first loop nest per statement (if a statement has multiple
 -- disjuncts, each is treated as a separate entry).
-buildMergedAST :: [String] -> MultiScanner -> MergedAST
+buildMergedAST :: [String] -> MultiScanner nParams -> MergedAST
 buildMergedAST timeDimNames (MultiScanner stmts) =
   let entries = [ StmtEntry (ssName s) (ulnLevels nest) (ssInverse s)
                 | s <- stmts, nest <- ssLoopNests s ]
@@ -146,7 +146,7 @@ safeDimName names i
 -- | Pretty-print a multi-scanner as merged pseudo-code loop nests.
 --
 -- @timeDimNames@ provides names for the time dimensions (e.g. @["t0","t1","t2","t3"]@).
-prettyMultiScanner :: [String] -> MultiScanner -> String
+prettyMultiScanner :: [String] -> MultiScanner nParams -> String
 prettyMultiScanner timeDimNames ms =
   prettyMergedAST [] timeDimNames (buildMergedAST timeDimNames ms)
 

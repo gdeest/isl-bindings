@@ -9,7 +9,7 @@
 
 module Isl.HighLevel.UnionSet where
 
-import Control.Monad (forM)
+import Control.Monad (forM, foldM)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Maybe (catMaybes)
 import GHC.TypeLits (someNatVal, SomeNat(..), KnownNat, Symbol)
@@ -17,7 +17,8 @@ import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.HighLevel.BasicSet (extractSetConstraint)
-import Isl.HighLevel.Constraints (Conjunction(..), SetIx)
+import Isl.HighLevel.Constraints
+  ( Conjunction(..), Constraint(..), SetIx(..), expandExpr )
 import Isl.HighLevel.Pure
 import Isl.HighLevel.Set (Set(..))
 
@@ -27,6 +28,11 @@ import Isl.Instances ()
 import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, withCtx, freeM)
 import qualified Isl.Foreach as Foreach
 import qualified Isl.UnionSet.AutoGen as US
+import qualified Isl.BasicSet.AutoGen as BS
+import qualified Isl.Set.AutoGen as S
+import qualified Isl.Constraint.AutoGen as C
+import qualified Isl.LocalSpace.AutoGen as LS
+import qualified Isl.Space.AutoGen as Space
 
 -- | Owned UnionSet. Not dimension-indexed because a union can contain
 -- sets of different spaces.
@@ -164,18 +170,63 @@ wrapDisjunction (nDims, conjs) =
       SomeDisjunction (unsafeCoerce (PDisjunction (map PConjunction conjs)) :: PDisjunction '[] n)
     Nothing -> error "wrapDisjunction: negative dimension count"
 
--- Apply (schedule application)
+-- Lift pure representations to ISL objects
 
--- | Apply a union map to a union set. This is the core operation for
--- computing scheduled domains: @apply domain schedule@ gives the image
--- of @domain@ under @schedule@.
---
--- Both arguments are consumed (__isl_take).
-apply :: forall m. MonadIO m => UnionSet %1 -> Isl.UnionMap %1 -> IslT m UnionSet
-apply = unsafeCoerce go
+-- | Construct an ISL 'UnionSet' from a 'NamedSet' (pure representation).
+-- Sets the tuple name and parameter names on the ISL space, builds
+-- a BasicSet per conjunction, promotes to Set, unions them into a UnionSet.
+toUnionSetFromNamed :: forall m. MonadIO m => NamedSet -> IslT m UnionSet
+toUnionSetFromNamed ns = do
+  let nParams = length (nsParams ns)
+      nDims   = nsNDims ns
+  sets <- mapM (buildOneSet nParams nDims (nsParams ns) (nsName ns)) (nsConjs ns)
+  case sets of
+    []     -> do
+      -- Empty: build an empty union set
+      sp <- withCtx $ Space.setAlloc (fromIntegral nParams) (fromIntegral nDims)
+      sp' <- setParamNames sp (nsParams ns)
+      sp'' <- case nsName ns of
+                Just name -> withCtx $ Space.setTupleName sp' Isl.islDimSet name
+                Nothing   -> return sp'
+      UnionSet <$> withCtx (US.emptySpace sp'')
+    (s:ss) -> do
+      us0 <- UnionSet <$> withCtx (US.fromSet s)
+      foldM (\(UnionSet acc) s' -> UnionSet <$> withCtx (US.union acc (US.fromSet s')))
+            us0 ss
   where
-    go :: UnionSet -> Isl.UnionMap -> IslT m UnionSet
-    go (UnionSet us) um = UnionSet <$> withCtx (US.apply us um)
+    buildOneSet nP nD paramNames tupleName (Conjunction constraints) = do
+      space0 <- withCtx $ Space.setAlloc (fromIntegral nP) (fromIntegral nD)
+      space1 <- setParamNames space0 paramNames
+      space2 <- case tupleName of
+                  Just name -> withCtx $ Space.setTupleName space1 Isl.islDimSet name
+                  Nothing   -> return space1
+      univ <- withCtx $ BS.universe space2
+      bs <- foldM addSetConstraint univ constraints
+      withCtx $ S.fromBasicSet bs
+
+    setParamNames sp names =
+      foldM (\s (i, name) -> withCtx $ Space.setDimName s Isl.islDimParam i name)
+            sp (zip [0..] names)
+
+    addSetConstraint bs constraint = do
+      let !(sp, bs') = borrow bs (\ref -> unsafePerformIO $ Foreach.basicSetGetSpace ref)
+      ls <- withCtx $ LS.fromSpace sp
+      (emptyC, e) <- case constraint of
+        InequalityConstraint e -> do
+          co <- withCtx $ C.inequalityAlloc ls
+          return (co, e)
+        EqualityConstraint e -> do
+          co <- withCtx $ C.equalityAlloc ls
+          return (co, e)
+      let (coeffs, constant) = expandExpr e
+          setCoeff constr (coeff, ix) = do
+            let (dimType, pos) = case ix of
+                  SetDim i  -> (Isl.islDimSet, i)
+                  SetParam i -> (Isl.islDimParam, i)
+            withCtx $ C.setCoefficientSi constr dimType (fromIntegral pos) (fromIntegral coeff)
+      linearPart <- foldM setCoeff emptyC coeffs
+      finalC <- withCtx $ C.setConstantSi linearPart (fromIntegral constant)
+      withCtx $ BS.addConstraint bs' finalC
 
 -- Named decomposition
 
