@@ -7,6 +7,7 @@ import qualified Test.Set
 import qualified Test.BasicMap
 import qualified Test.Map
 import qualified Test.Scan
+import qualified Test.Multi
 
 main :: IO ()
 main = defaultMain $ testGroup "ISL HighLevel Bindings"
@@ -15,4 +16,5 @@ main = defaultMain $ testGroup "ISL HighLevel Bindings"
   , Test.BasicMap.tests
   , Test.Map.tests
   , Test.Scan.tests
+  , Test.Multi.tests
   ]

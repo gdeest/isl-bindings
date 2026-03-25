@@ -16,7 +16,9 @@ library
                      Isl.Scan.Build,
                      Isl.Scan.Enumerate,
                      Isl.Scan.FSM,
-                     Isl.Scan.Pretty
+                     Isl.Scan.Pretty,
+                     Isl.Scan.Multi,
+                     Isl.Scan.PrettyMulti
   build-depends:       base >=4.12.0.0 && <5,
                        isl-bindings-hl
   hs-source-dirs:      src

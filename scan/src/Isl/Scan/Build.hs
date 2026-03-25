@@ -12,6 +12,7 @@
 module Isl.Scan.Build
   ( mkScanner
   , mkLoopNest
+  , buildLevels
   ) where
 
 import Data.List (partition)

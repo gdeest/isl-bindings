@@ -9,7 +9,9 @@
 
 module Isl.HighLevel.UnionSet where
 
+import Control.Monad (forM)
 import Control.Monad.IO.Class (MonadIO)
+import Data.Maybe (catMaybes)
 import GHC.TypeLits (someNatVal, SomeNat(..), KnownNat, Symbol)
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
@@ -161,6 +163,60 @@ wrapDisjunction (nDims, conjs) =
       -- Wrap with empty params for now; full param recovery is a TODO
       SomeDisjunction (unsafeCoerce (PDisjunction (map PConjunction conjs)) :: PDisjunction '[] n)
     Nothing -> error "wrapDisjunction: negative dimension count"
+
+-- Apply (schedule application)
+
+-- | Apply a union map to a union set. This is the core operation for
+-- computing scheduled domains: @apply domain schedule@ gives the image
+-- of @domain@ under @schedule@.
+--
+-- Both arguments are consumed (__isl_take).
+apply :: forall m. MonadIO m => UnionSet %1 -> Isl.UnionMap %1 -> IslT m UnionSet
+apply = unsafeCoerce go
+  where
+    go :: UnionSet -> Isl.UnionMap -> IslT m UnionSet
+    go (UnionSet us) um = UnionSet <$> withCtx (US.apply us um)
+
+-- Named decomposition
+
+-- | Decompose a UnionSet into per-space 'NamedSet's, preserving tuple names
+-- and parameter names from the ISL spaces. This is the primary interface for
+-- multi-statement programs where tuple names identify statements.
+--
+-- Borrows the UnionSet (returned alongside the result).
+decomposeUnionSetNamed :: forall m. MonadIO m
+  => UnionSet %1 -> IslT m (Ur [NamedSet], UnionSet)
+decomposeUnionSetNamed = unsafeCoerce go
+  where
+    go :: UnionSet -> IslT m (Ur [NamedSet], UnionSet)
+    go (UnionSet rawUs) = do
+      let !(ref, rawUs') = borrow rawUs (\r -> r)
+      results <- unsafeIslFromIO $ \_ ->
+        Foreach.unionSetForeachSet ref $ \s -> do
+          let !(sRef, _) = borrow s (\r -> r)
+          space <- Foreach.setGetSpace sRef
+          nDims <- Foreach.spaceDim space Isl.islDimSet
+          nParams <- Foreach.spaceDim space Isl.islDimParam
+          tupleName <- Foreach.spaceGetTupleName space Isl.islDimSet
+          paramNames <- forM [0 .. nParams - 1] $ \i ->
+            Foreach.spaceGetDimName space Isl.islDimParam i
+          Foreach.spaceFree space
+          conjunctions <- Foreach.setForeachBasicSet sRef $ \bs -> do
+            let !(bsRef, _) = borrow bs (\r -> r)
+            constraints <- Foreach.basicSetForeachConstraint bsRef $ \c -> do
+              result <- extractSetConstraint nParams nDims c
+              Foreach.constraintFree c
+              return result
+            Foreach.basicSetFree bs
+            return (Conjunction constraints)
+          Foreach.setFree s
+          return NamedSet
+            { nsName   = tupleName
+            , nsParams = catMaybes paramNames
+            , nsNDims  = nDims
+            , nsConjs  = conjunctions
+            }
+      return (Ur results, UnionSet rawUs')
 
 -- Resource management
 

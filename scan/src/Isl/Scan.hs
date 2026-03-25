@@ -42,6 +42,26 @@ module Isl.Scan
   , Vec(..)
   , mkVec
   , unsafeVec
+    -- * Multi-statement scanning
+  , MultiScanner(..)
+  , ScheduledStatement(..)
+  , StmtInverse(..)
+  , StmtPoint(..)
+  , mkMultiScanner
+  , mkMultiScannerFromNamed
+  , extractInverse
+  , scanMulti
+  , scanMultiFold
+  , scanMultiForM_
+  , scanMultiPQ
+  , scanMultiPQFold
+  , scanMultiPQForM_
+  , recoverOrigCoords
+    -- * Multi-statement pretty-printing
+  , MergedAST(..)
+  , buildMergedAST
+  , prettyMergedAST
+  , prettyMultiScanner
     -- * Utilities
   , ceilDiv
   , floorDiv
@@ -52,3 +72,5 @@ import Isl.Scan.Build
 import Isl.Scan.Enumerate
 import Isl.Scan.FSM
 import Isl.Scan.Pretty
+import Isl.Scan.Multi
+import Isl.Scan.PrettyMulti

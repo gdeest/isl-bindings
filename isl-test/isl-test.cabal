@@ -60,6 +60,17 @@ executable prefix-sum
   hs-source-dirs:      src
   default-language:    Haskell2010
 
+executable multi-stmt
+  main-is:             MultiStmt.hs
+  build-depends:       base >=4.12.0.0 && <5,
+                       array,
+                       isl-bindings,
+                       isl-bindings-hl,
+                       isl-scan
+  ghc-options:         -O2 -Wall -Wno-incomplete-uni-patterns
+  hs-source-dirs:      src
+  default-language:    Haskell2010
+
 executable typelevel-demo
   main-is:             TypeLevelDemo.hs
   build-depends:       base >=4.12.0.0 && <5,
@@ -80,7 +91,8 @@ test-suite isl-tests
                        Test.Set,
                        Test.BasicMap,
                        Test.Map,
-                       Test.Scan
+                       Test.Scan,
+                       Test.Multi
   hs-source-dirs:      test
   build-depends:       base >=4.12.0.0 && <5,
                        isl-bindings,

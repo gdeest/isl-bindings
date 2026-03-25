@@ -9,7 +9,9 @@
 
 module Isl.HighLevel.UnionMap where
 
+import Control.Monad (forM)
 import Control.Monad.IO.Class (MonadIO)
+import Data.Maybe (catMaybes)
 import GHC.TypeLits (someNatVal, SomeNat(..), KnownNat, Symbol)
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
@@ -17,6 +19,7 @@ import Unsafe.Coerce (unsafeCoerce)
 import Isl.HighLevel.BasicMap (extractMapConstraint)
 import Isl.HighLevel.Constraints (Conjunction(..), MapIx)
 import Isl.HighLevel.Map (Map(..))
+import Isl.HighLevel.UnionSet (UnionSet(..))
 import Isl.HighLevel.Pure
 
 import qualified Isl.Types as Isl
@@ -81,6 +84,76 @@ coalesce = unsafeCoerce go
   where
     go :: UnionMap -> IslT m UnionMap
     go (UnionMap um) = UnionMap <$> withCtx (UM.coalesce um)
+
+-- | Extract the domain of a union map as a union set. Consuming.
+domain :: forall m. MonadIO m => UnionMap %1 -> IslT m UnionSet
+domain = unsafeCoerce go
+  where
+    go :: UnionMap -> IslT m UnionSet
+    go (UnionMap um) = UnionSet <$> withCtx (UM.domain um)
+
+-- | Extract the range of a union map as a union set. Consuming.
+range :: forall m. MonadIO m => UnionMap %1 -> IslT m UnionSet
+range = unsafeCoerce go
+  where
+    go :: UnionMap -> IslT m UnionSet
+    go (UnionMap um) = UnionSet <$> withCtx (UM.range um)
+
+-- | Reverse a union map (swap domain and range). Consuming.
+reverse :: forall m. MonadIO m => UnionMap %1 -> IslT m UnionMap
+reverse = unsafeCoerce go
+  where
+    go :: UnionMap -> IslT m UnionMap
+    go (UnionMap um) = UnionMap <$> withCtx (UM.reverse um)
+
+-- | Compose two union maps on the domain side. Consuming.
+applyDomain :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
+applyDomain = unsafeCoerce go
+  where
+    go :: UnionMap -> UnionMap -> IslT m UnionMap
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.applyDomain um1 um2)
+
+-- | Compose two union maps on the range side. Consuming.
+applyRange :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
+applyRange = unsafeCoerce go
+  where
+    go :: UnionMap -> UnionMap -> IslT m UnionMap
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.applyRange um1 um2)
+
+-- | Flat range product of two union maps. Consuming.
+flatRangeProduct :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
+flatRangeProduct = unsafeCoerce go
+  where
+    go :: UnionMap -> UnionMap -> IslT m UnionMap
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.flatRangeProduct um1 um2)
+
+-- | Lexicographic less-than relation between two union maps. Consuming.
+lexLtUnionMap :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
+lexLtUnionMap = unsafeCoerce go
+  where
+    go :: UnionMap -> UnionMap -> IslT m UnionMap
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.lexLtUnionMap um1 um2)
+
+-- | Intersect the domain of a union map with a union set. Consuming.
+intersectDomain :: forall m. MonadIO m => UnionMap %1 -> UnionSet %1 -> IslT m UnionMap
+intersectDomain = unsafeCoerce go
+  where
+    go :: UnionMap -> UnionSet -> IslT m UnionMap
+    go (UnionMap um) (UnionSet us) = UnionMap <$> withCtx (UM.intersectDomain um us)
+
+-- | Simplify a union map given a context (another union map). Consuming.
+gist :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
+gist = unsafeCoerce go
+  where
+    go :: UnionMap -> UnionMap -> IslT m UnionMap
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.gist um1 um2)
+
+-- | Simplify a union map given a domain context (a union set). Consuming.
+gistDomain :: forall m. MonadIO m => UnionMap %1 -> UnionSet %1 -> IslT m UnionMap
+gistDomain = unsafeCoerce go
+  where
+    go :: UnionMap -> UnionSet -> IslT m UnionMap
+    go (UnionMap um) (UnionSet us) = UnionMap <$> withCtx (UM.gistDomain um us)
 
 -- Predicates (borrowing)
 
@@ -156,6 +229,48 @@ wrapMapDisjunction (nIn, nOut, conjs) =
     (Just (SomeNat (_ :: proxy ni)), Just (SomeNat (_ :: proxy no))) ->
       SomeMapDisjunction (unsafeCoerce (PMapDisjunction (map PMapConjunction conjs)) :: PMapDisjunction '[] ni no)
     _ -> error "wrapMapDisjunction: negative dimension count"
+
+-- Named decomposition
+
+-- | Decompose a UnionMap into per-space 'NamedMap's, preserving domain tuple
+-- names and parameter names. Used for extracting per-statement schedule inverses.
+--
+-- Borrows the UnionMap (returned alongside the result).
+decomposeUnionMapNamed :: forall m. MonadIO m
+  => UnionMap %1 -> IslT m (Ur [NamedMap], UnionMap)
+decomposeUnionMapNamed = unsafeCoerce go
+  where
+    go :: UnionMap -> IslT m (Ur [NamedMap], UnionMap)
+    go (UnionMap rawUm) = do
+      let !(ref, rawUm') = borrow rawUm (\r -> r)
+      results <- unsafeIslFromIO $ \_ ->
+        Foreach.unionMapForeachMap ref $ \m -> do
+          let !(mRef, _) = borrow m (\r -> r)
+          space <- Foreach.mapGetSpace mRef
+          nIn  <- Foreach.spaceDim space Isl.islDimIn
+          nOut <- Foreach.spaceDim space Isl.islDimOut
+          nParams <- Foreach.spaceDim space Isl.islDimParam
+          domainName <- Foreach.spaceGetTupleName space Isl.islDimIn
+          paramNames <- forM [0 .. nParams - 1] $ \i ->
+            Foreach.spaceGetDimName space Isl.islDimParam i
+          Foreach.spaceFree space
+          conjunctions <- Foreach.mapForeachBasicMap mRef $ \bm -> do
+            let !(bmRef, _) = borrow bm (\r -> r)
+            constraints <- Foreach.basicMapForeachConstraint bmRef $ \c -> do
+              result <- extractMapConstraint nParams nIn nOut c
+              Foreach.constraintFree c
+              return result
+            Foreach.basicMapFree bm
+            return (Conjunction constraints)
+          Foreach.mapFree m
+          return NamedMap
+            { nmDomainName = domainName
+            , nmParams     = catMaybes paramNames
+            , nmNIn        = nIn
+            , nmNOut       = nOut
+            , nmConjs      = conjunctions
+            }
+      return (Ur results, UnionMap rawUm')
 
 -- Resource management
 

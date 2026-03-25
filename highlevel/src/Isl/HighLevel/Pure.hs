@@ -34,6 +34,9 @@ module Isl.HighLevel.Pure
     -- * Existential wrappers (for union types with unknown dimensionality)
   , SomeDisjunction(..)
   , SomeMapDisjunction(..)
+    -- * Named (value-level) representations for union decomposition
+  , NamedSet(..)
+  , NamedMap(..)
   ) where
 
 import Data.Proxy (Proxy(..))
@@ -132,3 +135,25 @@ mkPMapConjunction mkConstraints = PMapConjunction conj
     inList  = coerceIxList $ mkIxListWith InDim 0 (natVal (Proxy @ni))
     outList = coerceIxList $ mkIxListWith OutDim 0 (natVal (Proxy @no))
     conj = mkConstraints paramList inList outList
+
+-- * Named (value-level) representations
+
+-- | A set decomposed from a 'UnionSet', with its tuple name and parameter
+-- names preserved as value-level data. Used for multi-statement programs
+-- where the tuple name identifies the statement.
+data NamedSet = NamedSet
+  { nsName   :: !(Maybe String)     -- ^ Tuple name (statement ID), e.g. @Just "S0"@
+  , nsParams :: ![String]           -- ^ Parameter names from the ISL space
+  , nsNDims  :: !Int                -- ^ Number of set dimensions
+  , nsConjs  :: ![Conjunction SetIx] -- ^ Disjuncts (basic sets)
+  } deriving (Show, Eq)
+
+-- | A map decomposed from a 'UnionMap', with domain tuple name and parameter
+-- names preserved. Used for extracting per-statement schedule inverses.
+data NamedMap = NamedMap
+  { nmDomainName :: !(Maybe String)  -- ^ Domain tuple name (statement ID)
+  , nmParams     :: ![String]        -- ^ Parameter names from the ISL space
+  , nmNIn        :: !Int             -- ^ Number of input (domain) dimensions
+  , nmNOut       :: !Int             -- ^ Number of output (range) dimensions
+  , nmConjs      :: ![Conjunction MapIx] -- ^ Disjuncts (basic maps)
+  } deriving (Show, Eq)
