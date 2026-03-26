@@ -21,11 +21,13 @@ data MapIx = InDim !Int | OutDim !Int | MapParam !Int
 instance NFData MapIx
 
 -- | Affine expressions, with variables of type 'ix'.
+-- | Affine expressions (with floor division for existentials).
 data Expr ix
-  = Ix ix
-  | Constant Integer
-  | Mul Integer (Expr ix)
-  | Add (Expr ix) (Expr ix)
+  = Ix ix                        -- ^ Variable reference
+  | Constant Integer             -- ^ Integer constant
+  | Mul Integer (Expr ix)        -- ^ Scalar multiplication
+  | Add (Expr ix) (Expr ix)      -- ^ Addition
+  | FloorDiv (Expr ix) Integer   -- ^ @floor(expr / d)@ — from ISL existentials
   deriving (Generic)
 
 instance NFData ix => NFData (Expr ix)
@@ -144,3 +146,4 @@ expandExpr (Add e1 e2) = merge (expandExpr e1) (expandExpr e2)
           | ix1 < ix2 = t1:(mergeTerms rst1 ts2)
           | ix2 < ix1 = t2:(mergeTerms ts1 rst2)
           | otherwise = (coeff1+coeff2, ix1):(mergeTerms rst1 rst2)
+expandExpr (FloorDiv _ _) = error "expandExpr: FloorDiv cannot be linearized — use ISL string building for constraints with floor division"

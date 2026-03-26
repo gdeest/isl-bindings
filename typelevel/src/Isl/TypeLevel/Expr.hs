@@ -3,99 +3,170 @@
 
 -- | Type-level affine expressions over polyhedral dimensions and parameters.
 --
--- These mirror the value-level 'Isl.HighLevel.Constraints.Expr' but live
--- entirely at the type level, so GHC (and our plugin) can reason about them
--- during compilation.
+-- Expressions are indexed by their parameter list @ps@ and dimension count @n@,
+-- preventing accidental mixing of expressions from different spaces at the
+-- kind level.  Dimension indices use 'Idx' (bounded by @n@) and parameter
+-- names use 'PIdx' (bounded by membership in @ps@).
 --
--- GHC has no type-level 'Integer', so we introduce 'Z' to represent signed
--- integers at the kind level.
+-- The 'D' and 'P' type families provide checked construction that emits a
+-- 'TypeError' for out-of-bounds dimensions or unknown parameters.  The
+-- 'ValidExpr' family provides container-level validation as a safety net.
 module Isl.TypeLevel.Expr
   ( -- * Type-level signed integers
     Z(..)
-    -- * Type-level affine expressions
+    -- * Bounded indices
+  , Idx(..), PIdx(..)
+    -- * Type-level affine expressions (indexed by space)
   , TExpr(..)
     -- * Sugar: type-level operators
   , type (+.), type (-.), type (*.)
-    -- * Validation type families
-  , Assert, NatLT, Elem
-  , CheckDim, CheckParam, ValidExpr
+    -- * Smart constructors with validation
+  , D, P
+    -- * Validation helpers
+  , If, NatLT, Elem
+    -- * Container-level validation
+  , Assert, CheckDim, CheckParam, ValidExpr
   ) where
 
-import Data.Kind (Constraint)
+import Data.Kind (Constraint, Type)
 import GHC.TypeLits (Nat, Symbol, CmpNat, CmpSymbol, ErrorMessage(..), TypeError)
+
+-- * Type-level signed integers
 
 -- | Signed integers at the type/kind level.
 --
 -- @'Pos' 3@ represents +3, @'Neg' 2@ represents −2, @'Pos' 0@ is zero.
+type Z :: Type
 data Z = Pos Nat | Neg Nat
 
--- | Type-level affine expressions.
+-- * Bounded indices
+
+-- | A dimension index bounded by @n@.  @'MkIdx' d@ represents dimension @d@,
+-- valid when @d < n@.  Use 'D' for checked construction.
+type Idx :: Nat -> Type
+data Idx n = MkIdx Nat
+
+-- | A parameter name bounded by membership in @ps@.  @'MkPIdx' s@ represents
+-- parameter @s@, valid when @s ∈ ps@.  Use 'P' for checked construction.
+type PIdx :: [Symbol] -> Type
+data PIdx ps = MkPIdx Symbol
+
+-- * Type-level affine expressions
+
+-- | Type-level affine expressions, indexed by parameter list @ps@ and
+-- dimension count @n@.
 --
--- Variables are referenced either by dimension index ('TDim') or by
--- parameter name ('TParam').  Constants use 'TConst' with a 'Z'.
+-- The space indices ensure that 'TAdd' can only combine expressions from
+-- the same space — mixing spaces is a kind error.
 --
--- This mirrors 'Isl.HighLevel.Constraints.Expr' but promoted to kinds.
-data TExpr
-  = TDim Nat           -- ^ Dimension variable by positional index
-  | TParam Symbol      -- ^ Parameter variable by name (matches ISL naming)
-  | TConst Z           -- ^ Integer constant
-  | TAdd TExpr TExpr   -- ^ Addition of two expressions
-  | TMul Z TExpr       -- ^ Scalar multiplication
+-- @
+-- -- In a 2-dim space with parameter "N":
+-- 'TDim' (D 0) +. 'TParam' (P "N")   :: TExpr '["N"] 2
+-- @
+type TExpr :: [Symbol] -> Nat -> Type
+data TExpr ps n
+  = TDim (Idx n)                       -- ^ Dimension variable (bounded index)
+  | TParam (PIdx ps)                   -- ^ Parameter variable (bounded name)
+  | TConst Z                           -- ^ Integer constant
+  | TAdd (TExpr ps n) (TExpr ps n)     -- ^ Addition of two expressions
+  | TMul Z (TExpr ps n)                -- ^ Scalar multiplication
+  | TFloorDiv (TExpr ps n) Z           -- ^ @floor(expr / d)@ — from ISL existentials
+
+-- * Operators
 
 -- | @a +. b@  =  @'TAdd' a b@
-type family (a :: TExpr) +. (b :: TExpr) :: TExpr where
+type (+.) :: TExpr ps n -> TExpr ps n -> TExpr ps n
+type family a +. b where
   a +. b = 'TAdd a b
 
 -- | @a -. b@  =  @'TAdd' a ('TMul' ('Neg' 1) b)@
-type family (a :: TExpr) -. (b :: TExpr) :: TExpr where
+type (-.) :: TExpr ps n -> TExpr ps n -> TExpr ps n
+type family a -. b where
   a -. b = 'TAdd a ('TMul ('Neg 1) b)
 
 -- | @k *. a@  =  @'TMul' k a@
-type family (k :: Z) *. (a :: TExpr) :: TExpr where
+type (*.) :: Z -> TExpr ps n -> TExpr ps n
+type family k *. a where
   k *. a = 'TMul k a
 
--- * Validation type families
+-- * Smart constructors with bounds checking
 
--- | Assert a boolean condition at the type level, with a custom error message.
-type family Assert (b :: Bool) (msg :: ErrorMessage) :: Constraint where
-  Assert 'True  _   = ()
-  Assert 'False msg = TypeError msg
+-- | Construct a dimension index.  Shorthand for @'MkIdx'@.
+--
+-- Bounds checking (@d < n@) is deferred to the container level via 'AllValid',
+-- which fires when constructing a 'TBasicSet', 'TBasicMap', etc.
+-- This allows use in type synonyms where @n@ is not yet determined.
+--
+-- @
+-- type Cs = '[ 'TDim (D 0)  >=. 'TConst ('Pos 0) ]
+-- type MySet = TBasicSet '["N"] 2 Cs   -- AllValid checks 0 < 2 here
+-- @
+type D (d :: Nat) = 'MkIdx d
+
+-- | Construct a parameter index.  Shorthand for @'MkPIdx'@.
+--
+-- Membership checking (@s ∈ ps@) is deferred to the container level via
+-- 'AllValid', which fires when constructing a 'TBasicSet', 'TBasicMap', etc.
+type P (s :: Symbol) = 'MkPIdx s
+
+-- * Validation helpers
+
+-- | Type-level conditional.
+type If :: Bool -> k -> k -> k
+type family If b t f where
+  If 'True  t _ = t
+  If 'False _ f = f
 
 -- | Type-level @a < b@ for 'Nat', returning 'Bool'.
-type family NatLT (a :: Nat) (b :: Nat) :: Bool where
+type NatLT :: Nat -> Nat -> Bool
+type family NatLT a b where
   NatLT a b = OrdLT (CmpNat a b)
 
-type family OrdLT (o :: Ordering) :: Bool where
+type OrdLT :: Ordering -> Bool
+type family OrdLT o where
   OrdLT 'LT = 'True
   OrdLT _   = 'False
 
 -- | Type-level membership test: is symbol @s@ in the list @ps@?
-type family Elem (s :: Symbol) (ps :: [Symbol]) :: Bool where
+type Elem :: Symbol -> [Symbol] -> Bool
+type family Elem s ps where
   Elem _ '[]       = 'False
   Elem s (p ': ps) = ElemCase (CmpSymbol s p) s ps
 
-type family ElemCase (o :: Ordering) (s :: Symbol) (ps :: [Symbol]) :: Bool where
+type ElemCase :: Ordering -> Symbol -> [Symbol] -> Bool
+type family ElemCase o s ps where
   ElemCase 'EQ _ _  = 'True
   ElemCase _   s ps = Elem s ps
 
+-- * Container-level validation
+
+-- | Assert a boolean condition at the type level, with a custom error message.
+type Assert :: Bool -> ErrorMessage -> Constraint
+type family Assert b msg where
+  Assert 'True  _   = ()
+  Assert 'False msg = TypeError msg
+
 -- | Check that dimension index @d@ is in bounds for an @n@-dimensional space.
-type family CheckDim (d :: Nat) (n :: Nat) :: Constraint where
+type CheckDim :: Nat -> Nat -> Constraint
+type family CheckDim d n where
   CheckDim d n = Assert (NatLT d n)
     ('Text "Dimension index " ':<>: 'ShowType d
      ':<>: 'Text " out of bounds for "
      ':<>: 'ShowType n ':<>: 'Text "-dimensional space")
 
 -- | Check that parameter name @s@ appears in the parameter list @ps@.
-type family CheckParam (s :: Symbol) (ps :: [Symbol]) :: Constraint where
+type CheckParam :: Symbol -> [Symbol] -> Constraint
+type family CheckParam s ps where
   CheckParam s ps = Assert (Elem s ps)
     ('Text "Unknown parameter " ':<>: 'ShowType s
      ':<>: 'Text " not in parameter list " ':<>: 'ShowType ps)
 
--- | Validate all dimension/parameter references in a 'TExpr' against
--- a parameter list @ps@ and dimension count @n@.
-type family ValidExpr (ps :: [Symbol]) (n :: Nat) (e :: TExpr) :: Constraint where
-  ValidExpr _  n ('TDim d)   = CheckDim d n
-  ValidExpr ps _ ('TParam s) = CheckParam s ps
-  ValidExpr _  _ ('TConst _) = ()
-  ValidExpr ps n ('TAdd a b) = (ValidExpr ps n a, ValidExpr ps n b)
-  ValidExpr ps n ('TMul _ a) = ValidExpr ps n a
+-- | Validate all dimension/parameter references in a 'TExpr'.
+-- The @ps@ and @n@ parameters must match the expression's space indices.
+type family ValidExpr (ps :: [Symbol]) (n :: Nat) (e :: TExpr ps n) :: Constraint where
+  ValidExpr ps n ('TDim ('MkIdx d))    = CheckDim d n
+  ValidExpr ps n ('TParam ('MkPIdx s)) = CheckParam s ps
+  ValidExpr ps n ('TConst _)           = ()
+  ValidExpr ps n ('TAdd a b)           = (ValidExpr ps n a, ValidExpr ps n b)
+  ValidExpr ps n ('TMul _ a)           = ValidExpr ps n a
+  ValidExpr ps n ('TFloorDiv a _)      = ValidExpr ps n a

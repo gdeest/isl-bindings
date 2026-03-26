@@ -11,6 +11,8 @@ module Isl.Foreach
   , valGetDenSi
     -- * Space queries
   , spaceDim
+  , basicSetDim
+  , basicMapDim
   , spaceFree
   , basicSetGetSpace
   , basicMapGetSpace
@@ -94,6 +96,23 @@ foreign import ccall "isl_space_dim"
 -- | Get the number of dimensions of the given type in a Space.
 spaceDim :: Space -> DimType -> IO Int
 spaceDim sp (DimType dt) = fromIntegral <$> c_space_dim sp dt
+
+foreign import ccall "isl_basic_set_dim"
+  c_basic_set_dim :: BasicSet -> CInt -> IO CUInt
+
+-- | Get the number of dimensions of the given type in a BasicSet.
+-- Unlike 'spaceDim', this can query 'islDimDiv' for existential variables.
+basicSetDim :: BasicSetRef -> DimType -> IO Int
+basicSetDim (BasicSetRef bsPtr) (DimType dt) =
+  fromIntegral <$> c_basic_set_dim (BasicSet bsPtr) dt
+
+foreign import ccall "isl_basic_map_dim"
+  c_basic_map_dim :: BasicMap -> CInt -> IO CUInt
+
+-- | Get the number of dimensions of the given type in a BasicMap.
+basicMapDim :: BasicMapRef -> DimType -> IO Int
+basicMapDim (BasicMapRef bmPtr) (DimType dt) =
+  fromIntegral <$> c_basic_map_dim (BasicMap bmPtr) dt
 
 foreign import ccall "isl_space_free"
   c_space_free :: Space -> IO ()

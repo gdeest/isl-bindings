@@ -7,7 +7,6 @@ module Isl.Aff.AutoGen where
 import Control.Monad
 import Data.Reflection
 import Isl.Types
-import Debug.Trace
 
 import Foreign.C as C
 import Foreign.C.String as C
@@ -22,7 +21,7 @@ foreign import ccall "isl_aff_coefficient_sgn" c_coefficientSgn :: Aff -> DimTyp
 
 
 coefficientSgn :: (Given Ctx) => Aff -> DimType -> Int -> Int
-coefficientSgn = \aff' typ' pos' -> trace "coefficientSgn" $ 
+coefficientSgn = \aff' typ' pos' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -36,7 +35,7 @@ foreign import ccall "isl_aff_find_dim_by_name" c_findDimByName :: Aff -> DimTyp
 
 
 findDimByName :: (Given Ctx) => Aff -> DimType -> String -> Int
-findDimByName = \aff' typ' name' -> trace "findDimByName" $ 
+findDimByName = \aff' typ' name' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -50,7 +49,7 @@ foreign import ccall "isl_aff_involves_dims" c_involvesDims :: Aff -> DimType ->
 
 
 involvesDims :: (Given Ctx) => Aff -> DimType -> Int -> Int -> Int
-involvesDims = \aff' typ' first' n' -> trace "involvesDims" $ 
+involvesDims = \aff' typ' first' n' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -65,7 +64,7 @@ foreign import ccall "isl_aff_involves_locals" c_involvesLocals :: Aff -> IO C.C
 
 
 involvesLocals :: (Given Ctx) => Aff -> Int
-involvesLocals = \aff' -> trace "involvesLocals" $ 
+involvesLocals = \aff' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       aff <- (return) aff'
 
@@ -77,7 +76,7 @@ foreign import ccall "isl_aff_get_ctx" c_getCtx :: Aff -> IO Ctx
 
 
 getCtx :: (Given Ctx) => Aff -> Ctx
-getCtx = \aff' -> trace "getCtx" $ 
+getCtx = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -89,7 +88,7 @@ foreign import ccall "isl_aff_dump" c_dump :: Aff -> IO ()
 
 
 dump :: (Given Ctx) => Aff -> ()
-dump = \aff' -> trace "dump" $ 
+dump = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -101,7 +100,7 @@ foreign import ccall "isl_aff_get_dim_name" c_getDimName :: Aff -> DimType -> C.
 
 
 getDimName :: (Given Ctx) => Aff -> DimType -> Int -> String
-getDimName = \aff' typ' pos' -> trace "getDimName" $ 
+getDimName = \aff' typ' pos' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -115,7 +114,7 @@ foreign import ccall "isl_aff_is_nan" c_isNan :: Aff -> IO C.CBool
 
 
 isNan :: (Given Ctx) => Aff -> Bool
-isNan = \aff' -> trace "isNan" $ 
+isNan = \aff' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       aff <- (return) aff'
 
@@ -127,7 +126,7 @@ foreign import ccall "isl_aff_plain_is_zero" c_plainIsZero :: Aff -> IO C.CBool
 
 
 plainIsZero :: (Given Ctx) => Aff -> Bool
-plainIsZero = \aff' -> trace "plainIsZero" $ 
+plainIsZero = \aff' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       aff <- (return) aff'
 
@@ -139,7 +138,7 @@ foreign import ccall "isl_aff_get_domain_space" c_getDomainSpace :: Aff -> IO Sp
 
 
 getDomainSpace :: (Given Ctx) => Aff -> Space
-getDomainSpace = \aff' -> trace "getDomainSpace" $ 
+getDomainSpace = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -151,7 +150,7 @@ foreign import ccall "isl_aff_get_space" c_getSpace :: Aff -> IO Space
 
 
 getSpace :: (Given Ctx) => Aff -> Space
-getSpace = \aff' -> trace "getSpace" $ 
+getSpace = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -163,7 +162,7 @@ foreign import ccall "isl_aff_bind_id" c_bindId :: Aff -> Id -> IO BasicSet
 
 
 bindId :: (Given Ctx) => Aff -> Id -> BasicSet
-bindId = \aff' id' -> trace "bindId" $ 
+bindId = \aff' id' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       id <- (return) id'
@@ -176,7 +175,7 @@ foreign import ccall "isl_aff_eq_basic_set" c_eqBasicSet :: Aff -> Aff -> IO Bas
 
 
 eqBasicSet :: (Given Ctx) => Aff -> Aff -> BasicSet
-eqBasicSet = \aff1' aff2' -> trace "eqBasicSet" $ 
+eqBasicSet = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -189,7 +188,7 @@ foreign import ccall "isl_aff_ge_basic_set" c_geBasicSet :: Aff -> Aff -> IO Bas
 
 
 geBasicSet :: (Given Ctx) => Aff -> Aff -> BasicSet
-geBasicSet = \aff1' aff2' -> trace "geBasicSet" $ 
+geBasicSet = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -202,7 +201,7 @@ foreign import ccall "isl_aff_gt_basic_set" c_gtBasicSet :: Aff -> Aff -> IO Bas
 
 
 gtBasicSet :: (Given Ctx) => Aff -> Aff -> BasicSet
-gtBasicSet = \aff1' aff2' -> trace "gtBasicSet" $ 
+gtBasicSet = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -215,7 +214,7 @@ foreign import ccall "isl_aff_le_basic_set" c_leBasicSet :: Aff -> Aff -> IO Bas
 
 
 leBasicSet :: (Given Ctx) => Aff -> Aff -> BasicSet
-leBasicSet = \aff1' aff2' -> trace "leBasicSet" $ 
+leBasicSet = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -228,7 +227,7 @@ foreign import ccall "isl_aff_lt_basic_set" c_ltBasicSet :: Aff -> Aff -> IO Bas
 
 
 ltBasicSet :: (Given Ctx) => Aff -> Aff -> BasicSet
-ltBasicSet = \aff1' aff2' -> trace "ltBasicSet" $ 
+ltBasicSet = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -241,7 +240,7 @@ foreign import ccall "isl_aff_neg_basic_set" c_negBasicSet :: Aff -> IO BasicSet
 
 
 negBasicSet :: (Given Ctx) => Aff -> BasicSet
-negBasicSet = \aff' -> trace "negBasicSet" $ 
+negBasicSet = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -253,7 +252,7 @@ foreign import ccall "isl_aff_zero_basic_set" c_zeroBasicSet :: Aff -> IO BasicS
 
 
 zeroBasicSet :: (Given Ctx) => Aff -> BasicSet
-zeroBasicSet = \aff' -> trace "zeroBasicSet" $ 
+zeroBasicSet = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -265,7 +264,7 @@ foreign import ccall "isl_aff_get_coefficient_val" c_getCoefficientVal :: Aff ->
 
 
 getCoefficientVal :: (Given Ctx) => Aff -> DimType -> Int -> Val
-getCoefficientVal = \aff' typ' pos' -> trace "getCoefficientVal" $ 
+getCoefficientVal = \aff' typ' pos' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -279,7 +278,7 @@ foreign import ccall "isl_aff_get_denominator_val" c_getDenominatorVal :: Aff ->
 
 
 getDenominatorVal :: (Given Ctx) => Aff -> Val
-getDenominatorVal = \aff' -> trace "getDenominatorVal" $ 
+getDenominatorVal = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -291,7 +290,7 @@ foreign import ccall "isl_aff_add_coefficient_si" c_addCoefficientSi :: Aff -> D
 
 
 addCoefficientSi :: (Given Ctx) => Aff -> DimType -> Int -> Int -> Aff
-addCoefficientSi = \aff' typ' pos' v' -> trace "addCoefficientSi" $ 
+addCoefficientSi = \aff' typ' pos' v' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -306,7 +305,7 @@ foreign import ccall "isl_aff_add_coefficient_val" c_addCoefficientVal :: Aff ->
 
 
 addCoefficientVal :: (Given Ctx) => Aff -> DimType -> Int -> Val -> Aff
-addCoefficientVal = \aff' typ' pos' v' -> trace "addCoefficientVal" $ 
+addCoefficientVal = \aff' typ' pos' v' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -321,7 +320,7 @@ foreign import ccall "isl_aff_add_constant_num_si" c_addConstantNumSi :: Aff -> 
 
 
 addConstantNumSi :: (Given Ctx) => Aff -> Int -> Aff
-addConstantNumSi = \aff' v' -> trace "addConstantNumSi" $ 
+addConstantNumSi = \aff' v' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       v <- (return . fromIntegral) v'
@@ -334,7 +333,7 @@ foreign import ccall "isl_aff_add_constant_si" c_addConstantSi :: Aff -> C.CInt 
 
 
 addConstantSi :: (Given Ctx) => Aff -> Int -> Aff
-addConstantSi = \aff' v' -> trace "addConstantSi" $ 
+addConstantSi = \aff' v' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       v <- (return . fromIntegral) v'
@@ -347,7 +346,7 @@ foreign import ccall "isl_aff_add_constant_val" c_addConstantVal :: Aff -> Val -
 
 
 addConstantVal :: (Given Ctx) => Aff -> Val -> Aff
-addConstantVal = \aff' v' -> trace "addConstantVal" $ 
+addConstantVal = \aff' v' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       v <- (return) v'
@@ -360,7 +359,7 @@ foreign import ccall "isl_aff_add_dims" c_addDims :: Aff -> DimType -> C.CUInt -
 
 
 addDims :: (Given Ctx) => Aff -> DimType -> Int -> Aff
-addDims = \aff' typ' n' -> trace "addDims" $ 
+addDims = \aff' typ' n' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -374,7 +373,7 @@ foreign import ccall "isl_aff_align_params" c_alignParams :: Aff -> Space -> IO 
 
 
 alignParams :: (Given Ctx) => Aff -> Space -> Aff
-alignParams = \aff' model' -> trace "alignParams" $ 
+alignParams = \aff' model' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       model <- (return) model'
@@ -387,7 +386,7 @@ foreign import ccall "isl_aff_copy" c_copy :: Aff -> IO Aff
 
 
 copy :: (Given Ctx) => Aff -> Aff
-copy = \aff' -> trace "copy" $ 
+copy = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -399,7 +398,7 @@ foreign import ccall "isl_aff_drop_dims" c_dropDims :: Aff -> DimType -> C.CUInt
 
 
 dropDims :: (Given Ctx) => Aff -> DimType -> Int -> Int -> Aff
-dropDims = \aff' typ' first' n' -> trace "dropDims" $ 
+dropDims = \aff' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -414,7 +413,7 @@ foreign import ccall "isl_aff_from_range" c_fromRange :: Aff -> IO Aff
 
 
 fromRange :: (Given Ctx) => Aff -> Aff
-fromRange = \aff' -> trace "fromRange" $ 
+fromRange = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -426,7 +425,7 @@ foreign import ccall "isl_aff_get_div" c_getDiv :: Aff -> C.CInt -> IO Aff
 
 
 getDiv :: (Given Ctx) => Aff -> Int -> Aff
-getDiv = \aff' pos' -> trace "getDiv" $ 
+getDiv = \aff' pos' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       pos <- (return . fromIntegral) pos'
@@ -439,7 +438,7 @@ foreign import ccall "isl_aff_insert_dims" c_insertDims :: Aff -> DimType -> C.C
 
 
 insertDims :: (Given Ctx) => Aff -> DimType -> Int -> Int -> Aff
-insertDims = \aff' typ' first' n' -> trace "insertDims" $ 
+insertDims = \aff' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -454,7 +453,7 @@ foreign import ccall "isl_aff_mod_val" c_modVal :: Aff -> Val -> IO Aff
 
 
 modVal :: (Given Ctx) => Aff -> Val -> Aff
-modVal = \aff' modulo' -> trace "modVal" $ 
+modVal = \aff' modulo' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       modulo <- (return) modulo'
@@ -467,7 +466,7 @@ foreign import ccall "isl_aff_move_dims" c_moveDims :: Aff -> DimType -> C.CUInt
 
 
 moveDims :: (Given Ctx) => Aff -> DimType -> Int -> DimType -> Int -> Int -> Aff
-moveDims = \aff' dst_type' dst_pos' src_type' src_pos' n' -> trace "moveDims" $ 
+moveDims = \aff' dst_type' dst_pos' src_type' src_pos' n' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       dst_type <- (return) dst_type'
@@ -484,7 +483,7 @@ foreign import ccall "isl_aff_nan_on_domain" c_nanOnDomain :: LocalSpace -> IO A
 
 
 nanOnDomain :: (Given Ctx) => LocalSpace -> Aff
-nanOnDomain = \ls' -> trace "nanOnDomain" $ 
+nanOnDomain = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -496,7 +495,7 @@ foreign import ccall "isl_aff_nan_on_domain_space" c_nanOnDomainSpace :: Space -
 
 
 nanOnDomainSpace :: (Given Ctx) => Space -> Aff
-nanOnDomainSpace = \space' -> trace "nanOnDomainSpace" $ 
+nanOnDomainSpace = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -508,7 +507,7 @@ foreign import ccall "isl_aff_param_on_domain_space_id" c_paramOnDomainSpaceId :
 
 
 paramOnDomainSpaceId :: (Given Ctx) => Space -> Id -> Aff
-paramOnDomainSpaceId = \space' id' -> trace "paramOnDomainSpaceId" $ 
+paramOnDomainSpaceId = \space' id' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       id <- (return) id'
@@ -521,7 +520,7 @@ foreign import ccall "isl_aff_project_domain_on_params" c_projectDomainOnParams 
 
 
 projectDomainOnParams :: (Given Ctx) => Aff -> Aff
-projectDomainOnParams = \aff' -> trace "projectDomainOnParams" $ 
+projectDomainOnParams = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -533,7 +532,7 @@ foreign import ccall "isl_aff_pullback_aff" c_pullbackAff :: Aff -> Aff -> IO Af
 
 
 pullbackAff :: (Given Ctx) => Aff -> Aff -> Aff
-pullbackAff = \aff1' aff2' -> trace "pullbackAff" $ 
+pullbackAff = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -546,7 +545,7 @@ foreign import ccall "isl_aff_scale_down_ui" c_scaleDownUi :: Aff -> C.CUInt -> 
 
 
 scaleDownUi :: (Given Ctx) => Aff -> Int -> Aff
-scaleDownUi = \aff' f' -> trace "scaleDownUi" $ 
+scaleDownUi = \aff' f' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       f <- (return . fromIntegral) f'
@@ -559,7 +558,7 @@ foreign import ccall "isl_aff_scale_down_val" c_scaleDownVal :: Aff -> Val -> IO
 
 
 scaleDownVal :: (Given Ctx) => Aff -> Val -> Aff
-scaleDownVal = \aff' v' -> trace "scaleDownVal" $ 
+scaleDownVal = \aff' v' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       v <- (return) v'
@@ -572,7 +571,7 @@ foreign import ccall "isl_aff_scale_val" c_scaleVal :: Aff -> Val -> IO Aff
 
 
 scaleVal :: (Given Ctx) => Aff -> Val -> Aff
-scaleVal = \aff' v' -> trace "scaleVal" $ 
+scaleVal = \aff' v' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       v <- (return) v'
@@ -585,7 +584,7 @@ foreign import ccall "isl_aff_set_coefficient_si" c_setCoefficientSi :: Aff -> D
 
 
 setCoefficientSi :: (Given Ctx) => Aff -> DimType -> Int -> Int -> Aff
-setCoefficientSi = \aff' typ' pos' v' -> trace "setCoefficientSi" $ 
+setCoefficientSi = \aff' typ' pos' v' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -600,7 +599,7 @@ foreign import ccall "isl_aff_set_coefficient_val" c_setCoefficientVal :: Aff ->
 
 
 setCoefficientVal :: (Given Ctx) => Aff -> DimType -> Int -> Val -> Aff
-setCoefficientVal = \aff' typ' pos' v' -> trace "setCoefficientVal" $ 
+setCoefficientVal = \aff' typ' pos' v' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -615,7 +614,7 @@ foreign import ccall "isl_aff_set_constant_si" c_setConstantSi :: Aff -> C.CInt 
 
 
 setConstantSi :: (Given Ctx) => Aff -> Int -> Aff
-setConstantSi = \aff' v' -> trace "setConstantSi" $ 
+setConstantSi = \aff' v' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       v <- (return . fromIntegral) v'
@@ -628,7 +627,7 @@ foreign import ccall "isl_aff_set_constant_val" c_setConstantVal :: Aff -> Val -
 
 
 setConstantVal :: (Given Ctx) => Aff -> Val -> Aff
-setConstantVal = \aff' v' -> trace "setConstantVal" $ 
+setConstantVal = \aff' v' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       v <- (return) v'
@@ -641,7 +640,7 @@ foreign import ccall "isl_aff_set_dim_id" c_setDimId :: Aff -> DimType -> C.CUIn
 
 
 setDimId :: (Given Ctx) => Aff -> DimType -> Int -> Id -> Aff
-setDimId = \aff' typ' pos' id' -> trace "setDimId" $ 
+setDimId = \aff' typ' pos' id' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -656,7 +655,7 @@ foreign import ccall "isl_aff_set_dim_name" c_setDimName :: Aff -> DimType -> C.
 
 
 setDimName :: (Given Ctx) => Aff -> DimType -> Int -> String -> Aff
-setDimName = \aff' typ' pos' s' -> trace "setDimName" $ 
+setDimName = \aff' typ' pos' s' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -671,7 +670,7 @@ foreign import ccall "isl_aff_set_tuple_id" c_setTupleId :: Aff -> DimType -> Id
 
 
 setTupleId :: (Given Ctx) => Aff -> DimType -> Id -> Aff
-setTupleId = \aff' typ' id' -> trace "setTupleId" $ 
+setTupleId = \aff' typ' id' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       typ <- (return) typ'
@@ -685,7 +684,7 @@ foreign import ccall "isl_aff_val_on_domain" c_valOnDomain :: LocalSpace -> Val 
 
 
 valOnDomain :: (Given Ctx) => LocalSpace -> Val -> Aff
-valOnDomain = \ls' val' -> trace "valOnDomain" $ 
+valOnDomain = \ls' val' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
       val <- (return) val'
@@ -698,7 +697,7 @@ foreign import ccall "isl_aff_val_on_domain_space" c_valOnDomainSpace :: Space -
 
 
 valOnDomainSpace :: (Given Ctx) => Space -> Val -> Aff
-valOnDomainSpace = \space' val' -> trace "valOnDomainSpace" $ 
+valOnDomainSpace = \space' val' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       val <- (return) val'
@@ -711,7 +710,7 @@ foreign import ccall "isl_aff_var_on_domain" c_varOnDomain :: LocalSpace -> DimT
 
 
 varOnDomain :: (Given Ctx) => LocalSpace -> DimType -> Int -> Aff
-varOnDomain = \ls' typ' pos' -> trace "varOnDomain" $ 
+varOnDomain = \ls' typ' pos' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
       typ <- (return) typ'
@@ -725,7 +724,7 @@ foreign import ccall "isl_aff_zero_on_domain" c_zeroOnDomain :: LocalSpace -> IO
 
 
 zeroOnDomain :: (Given Ctx) => LocalSpace -> Aff
-zeroOnDomain = \ls' -> trace "zeroOnDomain" $ 
+zeroOnDomain = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -737,7 +736,7 @@ foreign import ccall "isl_aff_zero_on_domain_space" c_zeroOnDomainSpace :: Space
 
 
 zeroOnDomainSpace :: (Given Ctx) => Space -> Aff
-zeroOnDomainSpace = \space' -> trace "zeroOnDomainSpace" $ 
+zeroOnDomainSpace = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -749,7 +748,7 @@ foreign import ccall "isl_aff_to_str" c_toStr :: Aff -> IO C.CString
 
 
 toStr :: (Given Ctx) => Aff -> String
-toStr = \aff' -> trace "toStr" $ 
+toStr = \aff' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       aff <- (return) aff'
 
@@ -761,7 +760,7 @@ foreign import ccall "isl_aff_get_domain_local_space" c_getDomainLocalSpace :: A
 
 
 getDomainLocalSpace :: (Given Ctx) => Aff -> LocalSpace
-getDomainLocalSpace = \aff' -> trace "getDomainLocalSpace" $ 
+getDomainLocalSpace = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -773,7 +772,7 @@ foreign import ccall "isl_aff_get_local_space" c_getLocalSpace :: Aff -> IO Loca
 
 
 getLocalSpace :: (Given Ctx) => Aff -> LocalSpace
-getLocalSpace = \aff' -> trace "getLocalSpace" $ 
+getLocalSpace = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -785,7 +784,7 @@ foreign import ccall "isl_aff_is_cst" c_isCst :: Aff -> IO C.CBool
 
 
 isCst :: (Given Ctx) => Aff -> Bool
-isCst = \aff' -> trace "isCst" $ 
+isCst = \aff' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       aff <- (return) aff'
 
@@ -797,7 +796,7 @@ foreign import ccall "isl_aff_plain_is_equal" c_plainIsEqual :: Aff -> Aff -> IO
 
 
 plainIsEqual :: (Given Ctx) => Aff -> Aff -> Bool
-plainIsEqual = \aff1' aff2' -> trace "plainIsEqual" $ 
+plainIsEqual = \aff1' aff2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -810,7 +809,7 @@ foreign import ccall "isl_aff_eq_set" c_eqSet :: Aff -> Aff -> IO Set
 
 
 eqSet :: (Given Ctx) => Aff -> Aff -> Set
-eqSet = \aff1' aff2' -> trace "eqSet" $ 
+eqSet = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -823,7 +822,7 @@ foreign import ccall "isl_aff_ge_set" c_geSet :: Aff -> Aff -> IO Set
 
 
 geSet :: (Given Ctx) => Aff -> Aff -> Set
-geSet = \aff1' aff2' -> trace "geSet" $ 
+geSet = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -836,7 +835,7 @@ foreign import ccall "isl_aff_gt_set" c_gtSet :: Aff -> Aff -> IO Set
 
 
 gtSet :: (Given Ctx) => Aff -> Aff -> Set
-gtSet = \aff1' aff2' -> trace "gtSet" $ 
+gtSet = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -849,7 +848,7 @@ foreign import ccall "isl_aff_le_set" c_leSet :: Aff -> Aff -> IO Set
 
 
 leSet :: (Given Ctx) => Aff -> Aff -> Set
-leSet = \aff1' aff2' -> trace "leSet" $ 
+leSet = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -862,7 +861,7 @@ foreign import ccall "isl_aff_lt_set" c_ltSet :: Aff -> Aff -> IO Set
 
 
 ltSet :: (Given Ctx) => Aff -> Aff -> Set
-ltSet = \aff1' aff2' -> trace "ltSet" $ 
+ltSet = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -875,7 +874,7 @@ foreign import ccall "isl_aff_ne_set" c_neSet :: Aff -> Aff -> IO Set
 
 
 neSet :: (Given Ctx) => Aff -> Aff -> Set
-neSet = \aff1' aff2' -> trace "neSet" $ 
+neSet = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -888,7 +887,7 @@ foreign import ccall "isl_aff_get_constant_val" c_getConstantVal :: Aff -> IO Va
 
 
 getConstantVal :: (Given Ctx) => Aff -> Val
-getConstantVal = \aff' -> trace "getConstantVal" $ 
+getConstantVal = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -900,7 +899,7 @@ foreign import ccall "isl_aff_add" c_add :: Aff -> Aff -> IO Aff
 
 
 add :: (Given Ctx) => Aff -> Aff -> Aff
-add = \aff1' aff2' -> trace "add" $ 
+add = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -913,7 +912,7 @@ foreign import ccall "isl_aff_ceil" c_ceil :: Aff -> IO Aff
 
 
 ceil :: (Given Ctx) => Aff -> Aff
-ceil = \aff' -> trace "ceil" $ 
+ceil = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -925,7 +924,7 @@ foreign import ccall "isl_aff_div" c_div :: Aff -> Aff -> IO Aff
 
 
 div :: (Given Ctx) => Aff -> Aff -> Aff
-div = \aff1' aff2' -> trace "div" $ 
+div = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -938,7 +937,7 @@ foreign import ccall "isl_aff_domain_reverse" c_domainReverse :: Aff -> IO Aff
 
 
 domainReverse :: (Given Ctx) => Aff -> Aff
-domainReverse = \aff' -> trace "domainReverse" $ 
+domainReverse = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -950,7 +949,7 @@ foreign import ccall "isl_aff_floor" c_floor :: Aff -> IO Aff
 
 
 floor :: (Given Ctx) => Aff -> Aff
-floor = \aff' -> trace "floor" $ 
+floor = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -962,7 +961,7 @@ foreign import ccall "isl_aff_gist" c_gist :: Aff -> Set -> IO Aff
 
 
 gist :: (Given Ctx) => Aff -> Set -> Aff
-gist = \aff' context' -> trace "gist" $ 
+gist = \aff' context' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       context <- (return) context'
@@ -975,7 +974,7 @@ foreign import ccall "isl_aff_gist_params" c_gistParams :: Aff -> Set -> IO Aff
 
 
 gistParams :: (Given Ctx) => Aff -> Set -> Aff
-gistParams = \aff' context' -> trace "gistParams" $ 
+gistParams = \aff' context' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
       context <- (return) context'
@@ -988,7 +987,7 @@ foreign import ccall "isl_aff_mul" c_mul :: Aff -> Aff -> IO Aff
 
 
 mul :: (Given Ctx) => Aff -> Aff -> Aff
-mul = \aff1' aff2' -> trace "mul" $ 
+mul = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -1001,7 +1000,7 @@ foreign import ccall "isl_aff_neg" c_neg :: Aff -> IO Aff
 
 
 neg :: (Given Ctx) => Aff -> Aff
-neg = \aff' -> trace "neg" $ 
+neg = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -1013,7 +1012,7 @@ foreign import ccall "isl_aff_sub" c_sub :: Aff -> Aff -> IO Aff
 
 
 sub :: (Given Ctx) => Aff -> Aff -> Aff
-sub = \aff1' aff2' -> trace "sub" $ 
+sub = \aff1' aff2' -> 
     unsafePerformIO $ (return) =<< do
       aff1 <- (return) aff1'
       aff2 <- (return) aff2'
@@ -1026,7 +1025,7 @@ foreign import ccall "isl_aff_read_from_str" c_readFromStr :: Ctx -> C.CString -
 
 
 readFromStr :: (Given Ctx) => String -> Aff
-readFromStr = \str' -> trace "readFromStr" $ 
+readFromStr = \str' -> 
     unsafePerformIO $ (return) =<< do
       str <- (C.newCString) str'
 

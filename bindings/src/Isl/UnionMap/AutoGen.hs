@@ -7,7 +7,6 @@ module Isl.UnionMap.AutoGen where
 import Control.Monad
 import Data.Reflection
 import Isl.Types
-import Debug.Trace
 
 import Foreign.C as C
 import Foreign.C.String as C
@@ -22,7 +21,7 @@ foreign import ccall "isl_union_map_contains" c_contains :: UnionMap -> Space ->
 
 
 contains :: (Given Ctx) => UnionMap -> Space -> Int
-contains = \umap' space' -> trace "contains" $ 
+contains = \umap' space' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       umap <- (return) umap'
       space <- (return) space'
@@ -35,7 +34,7 @@ foreign import ccall "isl_union_map_find_dim_by_name" c_findDimByName :: UnionMa
 
 
 findDimByName :: (Given Ctx) => UnionMap -> DimType -> String -> Int
-findDimByName = \umap' typ' name' -> trace "findDimByName" $ 
+findDimByName = \umap' typ' name' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       umap <- (return) umap'
       typ <- (return) typ'
@@ -49,7 +48,7 @@ foreign import ccall "isl_union_map_involves_dims" c_involvesDims :: UnionMap ->
 
 
 involvesDims :: (Given Ctx) => UnionMap -> DimType -> Int -> Int -> Int
-involvesDims = \umap' typ' first' n' -> trace "involvesDims" $ 
+involvesDims = \umap' typ' first' n' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       umap <- (return) umap'
       typ <- (return) typ'
@@ -64,7 +63,7 @@ foreign import ccall "isl_union_map_get_ctx" c_getCtx :: UnionMap -> IO Ctx
 
 
 getCtx :: (Given Ctx) => UnionMap -> Ctx
-getCtx = \umap' -> trace "getCtx" $ 
+getCtx = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -76,7 +75,7 @@ foreign import ccall "isl_union_map_dump" c_dump :: UnionMap -> IO ()
 
 
 dump :: (Given Ctx) => UnionMap -> ()
-dump = \umap' -> trace "dump" $ 
+dump = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -88,7 +87,7 @@ foreign import ccall "isl_union_map_is_identity" c_isIdentity :: UnionMap -> IO 
 
 
 isIdentity :: (Given Ctx) => UnionMap -> Bool
-isIdentity = \umap' -> trace "isIdentity" $ 
+isIdentity = \umap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       umap <- (return) umap'
 
@@ -100,7 +99,7 @@ foreign import ccall "isl_union_map_plain_is_empty" c_plainIsEmpty :: UnionMap -
 
 
 plainIsEmpty :: (Given Ctx) => UnionMap -> Bool
-plainIsEmpty = \umap' -> trace "plainIsEmpty" $ 
+plainIsEmpty = \umap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       umap <- (return) umap'
 
@@ -112,7 +111,7 @@ foreign import ccall "isl_union_map_plain_is_injective" c_plainIsInjective :: Un
 
 
 plainIsInjective :: (Given Ctx) => UnionMap -> Bool
-plainIsInjective = \umap' -> trace "plainIsInjective" $ 
+plainIsInjective = \umap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       umap <- (return) umap'
 
@@ -124,7 +123,7 @@ foreign import ccall "isl_union_map_sample" c_sample :: UnionMap -> IO BasicMap
 
 
 sample :: (Given Ctx) => UnionMap -> BasicMap
-sample = \umap' -> trace "sample" $ 
+sample = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -136,7 +135,7 @@ foreign import ccall "isl_union_map_add_map" c_addMap :: UnionMap -> Map -> IO U
 
 
 addMap :: (Given Ctx) => UnionMap -> Map -> UnionMap
-addMap = \umap' map' -> trace "addMap" $ 
+addMap = \umap' map' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       map <- (return) map'
@@ -149,7 +148,7 @@ foreign import ccall "isl_union_map_align_params" c_alignParams :: UnionMap -> S
 
 
 alignParams :: (Given Ctx) => UnionMap -> Space -> UnionMap
-alignParams = \umap' model' -> trace "alignParams" $ 
+alignParams = \umap' model' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       model <- (return) model'
@@ -162,7 +161,7 @@ foreign import ccall "isl_union_map_copy" c_copy :: UnionMap -> IO UnionMap
 
 
 copy :: (Given Ctx) => UnionMap -> UnionMap
-copy = \umap' -> trace "copy" $ 
+copy = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -174,7 +173,7 @@ foreign import ccall "isl_union_map_deltas_map" c_deltasMap :: UnionMap -> IO Un
 
 
 deltasMap :: (Given Ctx) => UnionMap -> UnionMap
-deltasMap = \umap' -> trace "deltasMap" $ 
+deltasMap = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -186,7 +185,7 @@ foreign import ccall "isl_union_map_empty" c_empty :: Space -> IO UnionMap
 
 
 empty :: (Given Ctx) => Space -> UnionMap
-empty = \space' -> trace "empty" $ 
+empty = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -198,7 +197,7 @@ foreign import ccall "isl_union_map_empty_ctx" c_emptyCtx :: Ctx -> IO UnionMap
 
 
 emptyCtx :: (Given Ctx) => UnionMap
-emptyCtx =  trace "emptyCtx" $ 
+emptyCtx =  
     unsafePerformIO $ (return) =<< do
 
       let ctx = given :: Ctx
@@ -209,7 +208,7 @@ foreign import ccall "isl_union_map_empty_space" c_emptySpace :: Space -> IO Uni
 
 
 emptySpace :: (Given Ctx) => Space -> UnionMap
-emptySpace = \space' -> trace "emptySpace" $ 
+emptySpace = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -221,7 +220,7 @@ foreign import ccall "isl_union_map_fixed_power_val" c_fixedPowerVal :: UnionMap
 
 
 fixedPowerVal :: (Given Ctx) => UnionMap -> Val -> UnionMap
-fixedPowerVal = \umap' exp' -> trace "fixedPowerVal" $ 
+fixedPowerVal = \umap' exp' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       exp <- (return) exp'
@@ -234,7 +233,7 @@ foreign import ccall "isl_union_map_flat_domain_product" c_flatDomainProduct :: 
 
 
 flatDomainProduct :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-flatDomainProduct = \umap1' umap2' -> trace "flatDomainProduct" $ 
+flatDomainProduct = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -247,7 +246,7 @@ foreign import ccall "isl_union_map_flat_range_product" c_flatRangeProduct :: Un
 
 
 flatRangeProduct :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-flatRangeProduct = \umap1' umap2' -> trace "flatRangeProduct" $ 
+flatRangeProduct = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -260,7 +259,7 @@ foreign import ccall "isl_union_map_intersect_domain" c_intersectDomain :: Union
 
 
 intersectDomain :: (Given Ctx) => UnionMap -> UnionSet -> UnionMap
-intersectDomain = \umap' uset' -> trace "intersectDomain" $ 
+intersectDomain = \umap' uset' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       uset <- (return) uset'
@@ -273,7 +272,7 @@ foreign import ccall "isl_union_map_intersect_domain_space" c_intersectDomainSpa
 
 
 intersectDomainSpace :: (Given Ctx) => UnionMap -> Space -> UnionMap
-intersectDomainSpace = \umap' space' -> trace "intersectDomainSpace" $ 
+intersectDomainSpace = \umap' space' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       space <- (return) space'
@@ -286,7 +285,7 @@ foreign import ccall "isl_union_map_intersect_domain_union_set" c_intersectDomai
 
 
 intersectDomainUnionSet :: (Given Ctx) => UnionMap -> UnionSet -> UnionMap
-intersectDomainUnionSet = \umap' uset' -> trace "intersectDomainUnionSet" $ 
+intersectDomainUnionSet = \umap' uset' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       uset <- (return) uset'
@@ -299,7 +298,7 @@ foreign import ccall "isl_union_map_intersect_domain_wrapped_domain_union_set" c
 
 
 intersectDomainWrappedDomainUnionSet :: (Given Ctx) => UnionMap -> UnionSet -> UnionMap
-intersectDomainWrappedDomainUnionSet = \umap' domain' -> trace "intersectDomainWrappedDomainUnionSet" $ 
+intersectDomainWrappedDomainUnionSet = \umap' domain' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       domain <- (return) domain'
@@ -312,7 +311,7 @@ foreign import ccall "isl_union_map_intersect_range" c_intersectRange :: UnionMa
 
 
 intersectRange :: (Given Ctx) => UnionMap -> UnionSet -> UnionMap
-intersectRange = \umap' uset' -> trace "intersectRange" $ 
+intersectRange = \umap' uset' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       uset <- (return) uset'
@@ -325,7 +324,7 @@ foreign import ccall "isl_union_map_intersect_range_space" c_intersectRangeSpace
 
 
 intersectRangeSpace :: (Given Ctx) => UnionMap -> Space -> UnionMap
-intersectRangeSpace = \umap' space' -> trace "intersectRangeSpace" $ 
+intersectRangeSpace = \umap' space' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       space <- (return) space'
@@ -338,7 +337,7 @@ foreign import ccall "isl_union_map_intersect_range_union_set" c_intersectRangeU
 
 
 intersectRangeUnionSet :: (Given Ctx) => UnionMap -> UnionSet -> UnionMap
-intersectRangeUnionSet = \umap' uset' -> trace "intersectRangeUnionSet" $ 
+intersectRangeUnionSet = \umap' uset' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       uset <- (return) uset'
@@ -351,7 +350,7 @@ foreign import ccall "isl_union_map_intersect_range_wrapped_domain_union_set" c_
 
 
 intersectRangeWrappedDomainUnionSet :: (Given Ctx) => UnionMap -> UnionSet -> UnionMap
-intersectRangeWrappedDomainUnionSet = \umap' domain' -> trace "intersectRangeWrappedDomainUnionSet" $ 
+intersectRangeWrappedDomainUnionSet = \umap' domain' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       domain <- (return) domain'
@@ -364,7 +363,7 @@ foreign import ccall "isl_union_map_lex_ge_union_map" c_lexGeUnionMap :: UnionMa
 
 
 lexGeUnionMap :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-lexGeUnionMap = \umap1' umap2' -> trace "lexGeUnionMap" $ 
+lexGeUnionMap = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -377,7 +376,7 @@ foreign import ccall "isl_union_map_lex_gt_union_map" c_lexGtUnionMap :: UnionMa
 
 
 lexGtUnionMap :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-lexGtUnionMap = \umap1' umap2' -> trace "lexGtUnionMap" $ 
+lexGtUnionMap = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -390,7 +389,7 @@ foreign import ccall "isl_union_map_lex_le_union_map" c_lexLeUnionMap :: UnionMa
 
 
 lexLeUnionMap :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-lexLeUnionMap = \umap1' umap2' -> trace "lexLeUnionMap" $ 
+lexLeUnionMap = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -403,7 +402,7 @@ foreign import ccall "isl_union_map_lex_lt_union_map" c_lexLtUnionMap :: UnionMa
 
 
 lexLtUnionMap :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-lexLtUnionMap = \umap1' umap2' -> trace "lexLtUnionMap" $ 
+lexLtUnionMap = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -416,7 +415,7 @@ foreign import ccall "isl_union_map_project_out" c_projectOut :: UnionMap -> Dim
 
 
 projectOut :: (Given Ctx) => UnionMap -> DimType -> Int -> Int -> UnionMap
-projectOut = \umap' typ' first' n' -> trace "projectOut" $ 
+projectOut = \umap' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       typ <- (return) typ'
@@ -431,7 +430,7 @@ foreign import ccall "isl_union_map_project_out_param_id" c_projectOutParamId ::
 
 
 projectOutParamId :: (Given Ctx) => UnionMap -> Id -> UnionMap
-projectOutParamId = \umap' id' -> trace "projectOutParamId" $ 
+projectOutParamId = \umap' id' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       id <- (return) id'
@@ -444,7 +443,7 @@ foreign import ccall "isl_union_map_range_curry" c_rangeCurry :: UnionMap -> IO 
 
 
 rangeCurry :: (Given Ctx) => UnionMap -> UnionMap
-rangeCurry = \umap' -> trace "rangeCurry" $ 
+rangeCurry = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -456,7 +455,7 @@ foreign import ccall "isl_union_map_remove_divs" c_removeDivs :: UnionMap -> IO 
 
 
 removeDivs :: (Given Ctx) => UnionMap -> UnionMap
-removeDivs = \bmap' -> trace "removeDivs" $ 
+removeDivs = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -468,7 +467,7 @@ foreign import ccall "isl_union_map_remove_redundancies" c_removeRedundancies ::
 
 
 removeRedundancies :: (Given Ctx) => UnionMap -> UnionMap
-removeRedundancies = \umap' -> trace "removeRedundancies" $ 
+removeRedundancies = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -480,7 +479,7 @@ foreign import ccall "isl_union_map_reset_user" c_resetUser :: UnionMap -> IO Un
 
 
 resetUser :: (Given Ctx) => UnionMap -> UnionMap
-resetUser = \umap' -> trace "resetUser" $ 
+resetUser = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -492,7 +491,7 @@ foreign import ccall "isl_union_map_simple_hull" c_simpleHull :: UnionMap -> IO 
 
 
 simpleHull :: (Given Ctx) => UnionMap -> UnionMap
-simpleHull = \umap' -> trace "simpleHull" $ 
+simpleHull = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -504,7 +503,7 @@ foreign import ccall "isl_union_map_get_dim_id" c_getDimId :: UnionMap -> DimTyp
 
 
 getDimId :: (Given Ctx) => UnionMap -> DimType -> Int -> Id
-getDimId = \umap' typ' pos' -> trace "getDimId" $ 
+getDimId = \umap' typ' pos' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       typ <- (return) typ'
@@ -518,7 +517,7 @@ foreign import ccall "isl_union_map_to_str" c_toStr :: UnionMap -> IO C.CString
 
 
 toStr :: (Given Ctx) => UnionMap -> String
-toStr = \umap' -> trace "toStr" $ 
+toStr = \umap' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       umap <- (return) umap'
 
@@ -530,7 +529,7 @@ foreign import ccall "isl_union_map_isa_map" c_isaMap :: UnionMap -> IO C.CInt
 
 
 isaMap :: (Given Ctx) => UnionMap -> Int
-isaMap = \umap' -> trace "isaMap" $ 
+isaMap = \umap' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       umap <- (return) umap'
 
@@ -542,7 +541,7 @@ foreign import ccall "isl_union_map_is_bijective" c_isBijective :: UnionMap -> I
 
 
 isBijective :: (Given Ctx) => UnionMap -> Bool
-isBijective = \umap' -> trace "isBijective" $ 
+isBijective = \umap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       umap <- (return) umap'
 
@@ -554,7 +553,7 @@ foreign import ccall "isl_union_map_is_disjoint" c_isDisjoint :: UnionMap -> Uni
 
 
 isDisjoint :: (Given Ctx) => UnionMap -> UnionMap -> Bool
-isDisjoint = \umap1' umap2' -> trace "isDisjoint" $ 
+isDisjoint = \umap1' umap2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -567,7 +566,7 @@ foreign import ccall "isl_union_map_is_empty" c_isEmpty :: UnionMap -> IO C.CBoo
 
 
 isEmpty :: (Given Ctx) => UnionMap -> Bool
-isEmpty = \umap' -> trace "isEmpty" $ 
+isEmpty = \umap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       umap <- (return) umap'
 
@@ -579,7 +578,7 @@ foreign import ccall "isl_union_map_is_equal" c_isEqual :: UnionMap -> UnionMap 
 
 
 isEqual :: (Given Ctx) => UnionMap -> UnionMap -> Bool
-isEqual = \umap1' umap2' -> trace "isEqual" $ 
+isEqual = \umap1' umap2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -592,7 +591,7 @@ foreign import ccall "isl_union_map_is_injective" c_isInjective :: UnionMap -> I
 
 
 isInjective :: (Given Ctx) => UnionMap -> Bool
-isInjective = \umap' -> trace "isInjective" $ 
+isInjective = \umap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       umap <- (return) umap'
 
@@ -604,7 +603,7 @@ foreign import ccall "isl_union_map_is_single_valued" c_isSingleValued :: UnionM
 
 
 isSingleValued :: (Given Ctx) => UnionMap -> Bool
-isSingleValued = \umap' -> trace "isSingleValued" $ 
+isSingleValued = \umap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       umap <- (return) umap'
 
@@ -616,7 +615,7 @@ foreign import ccall "isl_union_map_is_strict_subset" c_isStrictSubset :: UnionM
 
 
 isStrictSubset :: (Given Ctx) => UnionMap -> UnionMap -> Bool
-isStrictSubset = \umap1' umap2' -> trace "isStrictSubset" $ 
+isStrictSubset = \umap1' umap2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -629,7 +628,7 @@ foreign import ccall "isl_union_map_is_subset" c_isSubset :: UnionMap -> UnionMa
 
 
 isSubset :: (Given Ctx) => UnionMap -> UnionMap -> Bool
-isSubset = \umap1' umap2' -> trace "isSubset" $ 
+isSubset = \umap1' umap2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -642,7 +641,7 @@ foreign import ccall "isl_union_map_params" c_params :: UnionMap -> IO Set
 
 
 params :: (Given Ctx) => UnionMap -> Set
-params = \umap' -> trace "params" $ 
+params = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -654,7 +653,7 @@ foreign import ccall "isl_union_map_get_space" c_getSpace :: UnionMap -> IO Spac
 
 
 getSpace :: (Given Ctx) => UnionMap -> Space
-getSpace = \umap' -> trace "getSpace" $ 
+getSpace = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -666,7 +665,7 @@ foreign import ccall "isl_union_map_as_map" c_asMap :: UnionMap -> IO Map
 
 
 asMap :: (Given Ctx) => UnionMap -> Map
-asMap = \umap' -> trace "asMap" $ 
+asMap = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -678,7 +677,7 @@ foreign import ccall "isl_union_map_extract_map" c_extractMap :: UnionMap -> Spa
 
 
 extractMap :: (Given Ctx) => UnionMap -> Space -> Map
-extractMap = \umap' space' -> trace "extractMap" $ 
+extractMap = \umap' space' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       space <- (return) space'
@@ -691,7 +690,7 @@ foreign import ccall "isl_union_map_affine_hull" c_affineHull :: UnionMap -> IO 
 
 
 affineHull :: (Given Ctx) => UnionMap -> UnionMap
-affineHull = \umap' -> trace "affineHull" $ 
+affineHull = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -703,7 +702,7 @@ foreign import ccall "isl_union_map_apply_domain" c_applyDomain :: UnionMap -> U
 
 
 applyDomain :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-applyDomain = \umap1' umap2' -> trace "applyDomain" $ 
+applyDomain = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -716,7 +715,7 @@ foreign import ccall "isl_union_map_apply_range" c_applyRange :: UnionMap -> Uni
 
 
 applyRange :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-applyRange = \umap1' umap2' -> trace "applyRange" $ 
+applyRange = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -729,7 +728,7 @@ foreign import ccall "isl_union_map_coalesce" c_coalesce :: UnionMap -> IO Union
 
 
 coalesce :: (Given Ctx) => UnionMap -> UnionMap
-coalesce = \umap' -> trace "coalesce" $ 
+coalesce = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -741,7 +740,7 @@ foreign import ccall "isl_union_map_compute_divs" c_computeDivs :: UnionMap -> I
 
 
 computeDivs :: (Given Ctx) => UnionMap -> UnionMap
-computeDivs = \umap' -> trace "computeDivs" $ 
+computeDivs = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -753,7 +752,7 @@ foreign import ccall "isl_union_map_curry" c_curry :: UnionMap -> IO UnionMap
 
 
 curry :: (Given Ctx) => UnionMap -> UnionMap
-curry = \umap' -> trace "curry" $ 
+curry = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -765,7 +764,7 @@ foreign import ccall "isl_union_map_detect_equalities" c_detectEqualities :: Uni
 
 
 detectEqualities :: (Given Ctx) => UnionMap -> UnionMap
-detectEqualities = \umap' -> trace "detectEqualities" $ 
+detectEqualities = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -777,7 +776,7 @@ foreign import ccall "isl_union_map_domain_factor_domain" c_domainFactorDomain :
 
 
 domainFactorDomain :: (Given Ctx) => UnionMap -> UnionMap
-domainFactorDomain = \umap' -> trace "domainFactorDomain" $ 
+domainFactorDomain = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -789,7 +788,7 @@ foreign import ccall "isl_union_map_domain_factor_range" c_domainFactorRange :: 
 
 
 domainFactorRange :: (Given Ctx) => UnionMap -> UnionMap
-domainFactorRange = \umap' -> trace "domainFactorRange" $ 
+domainFactorRange = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -801,7 +800,7 @@ foreign import ccall "isl_union_map_domain_map" c_domainMap :: UnionMap -> IO Un
 
 
 domainMap :: (Given Ctx) => UnionMap -> UnionMap
-domainMap = \umap' -> trace "domainMap" $ 
+domainMap = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -813,7 +812,7 @@ foreign import ccall "isl_union_map_domain_product" c_domainProduct :: UnionMap 
 
 
 domainProduct :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-domainProduct = \umap1' umap2' -> trace "domainProduct" $ 
+domainProduct = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -826,7 +825,7 @@ foreign import ccall "isl_union_map_domain_reverse" c_domainReverse :: UnionMap 
 
 
 domainReverse :: (Given Ctx) => UnionMap -> UnionMap
-domainReverse = \umap' -> trace "domainReverse" $ 
+domainReverse = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -838,7 +837,7 @@ foreign import ccall "isl_union_map_drop_unused_params" c_dropUnusedParams :: Un
 
 
 dropUnusedParams :: (Given Ctx) => UnionMap -> UnionMap
-dropUnusedParams = \umap' -> trace "dropUnusedParams" $ 
+dropUnusedParams = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -850,7 +849,7 @@ foreign import ccall "isl_union_map_factor_domain" c_factorDomain :: UnionMap ->
 
 
 factorDomain :: (Given Ctx) => UnionMap -> UnionMap
-factorDomain = \umap' -> trace "factorDomain" $ 
+factorDomain = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -862,7 +861,7 @@ foreign import ccall "isl_union_map_factor_range" c_factorRange :: UnionMap -> I
 
 
 factorRange :: (Given Ctx) => UnionMap -> UnionMap
-factorRange = \umap' -> trace "factorRange" $ 
+factorRange = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -874,7 +873,7 @@ foreign import ccall "isl_union_map_from_domain" c_fromDomain :: UnionSet -> IO 
 
 
 fromDomain :: (Given Ctx) => UnionSet -> UnionMap
-fromDomain = \uset' -> trace "fromDomain" $ 
+fromDomain = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -886,7 +885,7 @@ foreign import ccall "isl_union_map_from_domain_and_range" c_fromDomainAndRange 
 
 
 fromDomainAndRange :: (Given Ctx) => UnionSet -> UnionSet -> UnionMap
-fromDomainAndRange = \domain' range' -> trace "fromDomainAndRange" $ 
+fromDomainAndRange = \domain' range' -> 
     unsafePerformIO $ (return) =<< do
       domain <- (return) domain'
       range <- (return) range'
@@ -899,7 +898,7 @@ foreign import ccall "isl_union_map_from_range" c_fromRange :: UnionSet -> IO Un
 
 
 fromRange :: (Given Ctx) => UnionSet -> UnionMap
-fromRange = \uset' -> trace "fromRange" $ 
+fromRange = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -911,7 +910,7 @@ foreign import ccall "isl_union_map_gist" c_gist :: UnionMap -> UnionMap -> IO U
 
 
 gist :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-gist = \umap' context' -> trace "gist" $ 
+gist = \umap' context' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       context <- (return) context'
@@ -924,7 +923,7 @@ foreign import ccall "isl_union_map_gist_domain" c_gistDomain :: UnionMap -> Uni
 
 
 gistDomain :: (Given Ctx) => UnionMap -> UnionSet -> UnionMap
-gistDomain = \umap' uset' -> trace "gistDomain" $ 
+gistDomain = \umap' uset' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       uset <- (return) uset'
@@ -937,7 +936,7 @@ foreign import ccall "isl_union_map_gist_params" c_gistParams :: UnionMap -> Set
 
 
 gistParams :: (Given Ctx) => UnionMap -> Set -> UnionMap
-gistParams = \umap' set' -> trace "gistParams" $ 
+gistParams = \umap' set' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       set <- (return) set'
@@ -950,7 +949,7 @@ foreign import ccall "isl_union_map_gist_range" c_gistRange :: UnionMap -> Union
 
 
 gistRange :: (Given Ctx) => UnionMap -> UnionSet -> UnionMap
-gistRange = \umap' uset' -> trace "gistRange" $ 
+gistRange = \umap' uset' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       uset <- (return) uset'
@@ -963,7 +962,7 @@ foreign import ccall "isl_union_map_intersect" c_intersect :: UnionMap -> UnionM
 
 
 intersect :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-intersect = \umap1' umap2' -> trace "intersect" $ 
+intersect = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -976,7 +975,7 @@ foreign import ccall "isl_union_map_intersect_domain_factor_domain" c_intersectD
 
 
 intersectDomainFactorDomain :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-intersectDomainFactorDomain = \umap' factor' -> trace "intersectDomainFactorDomain" $ 
+intersectDomainFactorDomain = \umap' factor' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       factor <- (return) factor'
@@ -989,7 +988,7 @@ foreign import ccall "isl_union_map_intersect_domain_factor_range" c_intersectDo
 
 
 intersectDomainFactorRange :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-intersectDomainFactorRange = \umap' factor' -> trace "intersectDomainFactorRange" $ 
+intersectDomainFactorRange = \umap' factor' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       factor <- (return) factor'
@@ -1002,7 +1001,7 @@ foreign import ccall "isl_union_map_intersect_params" c_intersectParams :: Union
 
 
 intersectParams :: (Given Ctx) => UnionMap -> Set -> UnionMap
-intersectParams = \umap' set' -> trace "intersectParams" $ 
+intersectParams = \umap' set' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       set <- (return) set'
@@ -1015,7 +1014,7 @@ foreign import ccall "isl_union_map_intersect_range_factor_domain" c_intersectRa
 
 
 intersectRangeFactorDomain :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-intersectRangeFactorDomain = \umap' factor' -> trace "intersectRangeFactorDomain" $ 
+intersectRangeFactorDomain = \umap' factor' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       factor <- (return) factor'
@@ -1028,7 +1027,7 @@ foreign import ccall "isl_union_map_intersect_range_factor_range" c_intersectRan
 
 
 intersectRangeFactorRange :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-intersectRangeFactorRange = \umap' factor' -> trace "intersectRangeFactorRange" $ 
+intersectRangeFactorRange = \umap' factor' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       factor <- (return) factor'
@@ -1041,7 +1040,7 @@ foreign import ccall "isl_union_map_lexmax" c_lexmax :: UnionMap -> IO UnionMap
 
 
 lexmax :: (Given Ctx) => UnionMap -> UnionMap
-lexmax = \umap' -> trace "lexmax" $ 
+lexmax = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1053,7 +1052,7 @@ foreign import ccall "isl_union_map_lexmin" c_lexmin :: UnionMap -> IO UnionMap
 
 
 lexmin :: (Given Ctx) => UnionMap -> UnionMap
-lexmin = \umap' -> trace "lexmin" $ 
+lexmin = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1065,7 +1064,7 @@ foreign import ccall "isl_union_map_polyhedral_hull" c_polyhedralHull :: UnionMa
 
 
 polyhedralHull :: (Given Ctx) => UnionMap -> UnionMap
-polyhedralHull = \umap' -> trace "polyhedralHull" $ 
+polyhedralHull = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1077,7 +1076,7 @@ foreign import ccall "isl_union_map_product" c_product :: UnionMap -> UnionMap -
 
 
 product :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-product = \umap1' umap2' -> trace "product" $ 
+product = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -1090,7 +1089,7 @@ foreign import ccall "isl_union_map_project_out_all_params" c_projectOutAllParam
 
 
 projectOutAllParams :: (Given Ctx) => UnionMap -> UnionMap
-projectOutAllParams = \umap' -> trace "projectOutAllParams" $ 
+projectOutAllParams = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1102,7 +1101,7 @@ foreign import ccall "isl_union_map_range_factor_domain" c_rangeFactorDomain :: 
 
 
 rangeFactorDomain :: (Given Ctx) => UnionMap -> UnionMap
-rangeFactorDomain = \umap' -> trace "rangeFactorDomain" $ 
+rangeFactorDomain = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1114,7 +1113,7 @@ foreign import ccall "isl_union_map_range_factor_range" c_rangeFactorRange :: Un
 
 
 rangeFactorRange :: (Given Ctx) => UnionMap -> UnionMap
-rangeFactorRange = \umap' -> trace "rangeFactorRange" $ 
+rangeFactorRange = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1126,7 +1125,7 @@ foreign import ccall "isl_union_map_range_map" c_rangeMap :: UnionMap -> IO Unio
 
 
 rangeMap :: (Given Ctx) => UnionMap -> UnionMap
-rangeMap = \umap' -> trace "rangeMap" $ 
+rangeMap = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1138,7 +1137,7 @@ foreign import ccall "isl_union_map_range_product" c_rangeProduct :: UnionMap ->
 
 
 rangeProduct :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-rangeProduct = \umap1' umap2' -> trace "rangeProduct" $ 
+rangeProduct = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -1151,7 +1150,7 @@ foreign import ccall "isl_union_map_range_reverse" c_rangeReverse :: UnionMap ->
 
 
 rangeReverse :: (Given Ctx) => UnionMap -> UnionMap
-rangeReverse = \umap' -> trace "rangeReverse" $ 
+rangeReverse = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1163,7 +1162,7 @@ foreign import ccall "isl_union_map_reverse" c_reverse :: UnionMap -> IO UnionMa
 
 
 reverse :: (Given Ctx) => UnionMap -> UnionMap
-reverse = \umap' -> trace "reverse" $ 
+reverse = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1175,7 +1174,7 @@ foreign import ccall "isl_union_map_subtract" c_subtract :: UnionMap -> UnionMap
 
 
 subtract :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-subtract = \umap1' umap2' -> trace "subtract" $ 
+subtract = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -1188,7 +1187,7 @@ foreign import ccall "isl_union_map_subtract_domain" c_subtractDomain :: UnionMa
 
 
 subtractDomain :: (Given Ctx) => UnionMap -> UnionSet -> UnionMap
-subtractDomain = \umap' dom' -> trace "subtractDomain" $ 
+subtractDomain = \umap' dom' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       dom <- (return) dom'
@@ -1201,7 +1200,7 @@ foreign import ccall "isl_union_map_subtract_range" c_subtractRange :: UnionMap 
 
 
 subtractRange :: (Given Ctx) => UnionMap -> UnionSet -> UnionMap
-subtractRange = \umap' dom' -> trace "subtractRange" $ 
+subtractRange = \umap' dom' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
       dom <- (return) dom'
@@ -1214,7 +1213,7 @@ foreign import ccall "isl_union_map_uncurry" c_uncurry :: UnionMap -> IO UnionMa
 
 
 uncurry :: (Given Ctx) => UnionMap -> UnionMap
-uncurry = \umap' -> trace "uncurry" $ 
+uncurry = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1226,7 +1225,7 @@ foreign import ccall "isl_union_map_union" c_union :: UnionMap -> UnionMap -> IO
 
 
 union :: (Given Ctx) => UnionMap -> UnionMap -> UnionMap
-union = \umap1' umap2' -> trace "union" $ 
+union = \umap1' umap2' -> 
     unsafePerformIO $ (return) =<< do
       umap1 <- (return) umap1'
       umap2 <- (return) umap2'
@@ -1239,7 +1238,7 @@ foreign import ccall "isl_union_map_universe" c_universe :: UnionMap -> IO Union
 
 
 universe :: (Given Ctx) => UnionMap -> UnionMap
-universe = \umap' -> trace "universe" $ 
+universe = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1251,7 +1250,7 @@ foreign import ccall "isl_union_map_zip" c_zip :: UnionMap -> IO UnionMap
 
 
 zip :: (Given Ctx) => UnionMap -> UnionMap
-zip = \umap' -> trace "zip" $ 
+zip = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1263,7 +1262,7 @@ foreign import ccall "isl_union_map_deltas" c_deltas :: UnionMap -> IO UnionSet
 
 
 deltas :: (Given Ctx) => UnionMap -> UnionSet
-deltas = \umap' -> trace "deltas" $ 
+deltas = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1275,7 +1274,7 @@ foreign import ccall "isl_union_map_domain" c_domain :: UnionMap -> IO UnionSet
 
 
 domain :: (Given Ctx) => UnionMap -> UnionSet
-domain = \umap' -> trace "domain" $ 
+domain = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1287,7 +1286,7 @@ foreign import ccall "isl_union_map_range" c_range :: UnionMap -> IO UnionSet
 
 
 range :: (Given Ctx) => UnionMap -> UnionSet
-range = \umap' -> trace "range" $ 
+range = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1299,7 +1298,7 @@ foreign import ccall "isl_union_map_wrap" c_wrap :: UnionMap -> IO UnionSet
 
 
 wrap :: (Given Ctx) => UnionMap -> UnionSet
-wrap = \umap' -> trace "wrap" $ 
+wrap = \umap' -> 
     unsafePerformIO $ (return) =<< do
       umap <- (return) umap'
 
@@ -1311,7 +1310,7 @@ foreign import ccall "isl_union_map_from_basic_map" c_fromBasicMap :: BasicMap -
 
 
 fromBasicMap :: (Given Ctx) => BasicMap -> UnionMap
-fromBasicMap = \bmap' -> trace "fromBasicMap" $ 
+fromBasicMap = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -1323,7 +1322,7 @@ foreign import ccall "isl_union_map_from_map" c_fromMap :: Map -> IO UnionMap
 
 
 fromMap :: (Given Ctx) => Map -> UnionMap
-fromMap = \map' -> trace "fromMap" $ 
+fromMap = \map' -> 
     unsafePerformIO $ (return) =<< do
       map <- (return) map'
 
@@ -1335,7 +1334,7 @@ foreign import ccall "isl_union_map_read_from_str" c_readFromStr :: Ctx -> C.CSt
 
 
 readFromStr :: (Given Ctx) => String -> UnionMap
-readFromStr = \str' -> trace "readFromStr" $ 
+readFromStr = \str' -> 
     unsafePerformIO $ (return) =<< do
       str <- (C.newCString) str'
 

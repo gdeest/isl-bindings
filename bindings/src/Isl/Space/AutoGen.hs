@@ -7,7 +7,6 @@ module Isl.Space.AutoGen where
 import Control.Monad
 import Data.Reflection
 import Isl.Types
-import Debug.Trace
 
 import Foreign.C as C
 import Foreign.C.String as C
@@ -22,7 +21,7 @@ foreign import ccall "isl_space_find_dim_by_id" c_findDimById :: Space -> DimTyp
 
 
 findDimById :: (Given Ctx) => Space -> DimType -> Id -> Int
-findDimById = \space' typ' id' -> trace "findDimById" $ 
+findDimById = \space' typ' id' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -36,7 +35,7 @@ foreign import ccall "isl_space_find_dim_by_name" c_findDimByName :: Space -> Di
 
 
 findDimByName :: (Given Ctx) => Space -> DimType -> String -> Int
-findDimByName = \space' typ' name' -> trace "findDimByName" $ 
+findDimByName = \space' typ' name' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -50,7 +49,7 @@ foreign import ccall "isl_space_get_ctx" c_getCtx :: Space -> IO Ctx
 
 
 getCtx :: (Given Ctx) => Space -> Ctx
-getCtx = \space' -> trace "getCtx" $ 
+getCtx = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -62,7 +61,7 @@ foreign import ccall "isl_space_dump" c_dump :: Space -> IO ()
 
 
 dump :: (Given Ctx) => Space -> ()
-dump = \space' -> trace "dump" $ 
+dump = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -74,7 +73,7 @@ foreign import ccall "isl_space_can_curry" c_canCurry :: Space -> IO C.CBool
 
 
 canCurry :: (Given Ctx) => Space -> Bool
-canCurry = \space' -> trace "canCurry" $ 
+canCurry = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -86,7 +85,7 @@ foreign import ccall "isl_space_can_range_curry" c_canRangeCurry :: Space -> IO 
 
 
 canRangeCurry :: (Given Ctx) => Space -> Bool
-canRangeCurry = \space' -> trace "canRangeCurry" $ 
+canRangeCurry = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -98,7 +97,7 @@ foreign import ccall "isl_space_can_uncurry" c_canUncurry :: Space -> IO C.CBool
 
 
 canUncurry :: (Given Ctx) => Space -> Bool
-canUncurry = \space' -> trace "canUncurry" $ 
+canUncurry = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -110,7 +109,7 @@ foreign import ccall "isl_space_can_zip" c_canZip :: Space -> IO C.CBool
 
 
 canZip :: (Given Ctx) => Space -> Bool
-canZip = \space' -> trace "canZip" $ 
+canZip = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -122,7 +121,7 @@ foreign import ccall "isl_space_domain_is_wrapping" c_domainIsWrapping :: Space 
 
 
 domainIsWrapping :: (Given Ctx) => Space -> Bool
-domainIsWrapping = \space' -> trace "domainIsWrapping" $ 
+domainIsWrapping = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -134,7 +133,7 @@ foreign import ccall "isl_space_has_dim_id" c_hasDimId :: Space -> DimType -> C.
 
 
 hasDimId :: (Given Ctx) => Space -> DimType -> Int -> Bool
-hasDimId = \space' typ' pos' -> trace "hasDimId" $ 
+hasDimId = \space' typ' pos' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -148,7 +147,7 @@ foreign import ccall "isl_space_has_dim_name" c_hasDimName :: Space -> DimType -
 
 
 hasDimName :: (Given Ctx) => Space -> DimType -> Int -> Bool
-hasDimName = \space' typ' pos' -> trace "hasDimName" $ 
+hasDimName = \space' typ' pos' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -162,7 +161,7 @@ foreign import ccall "isl_space_has_equal_params" c_hasEqualParams :: Space -> S
 
 
 hasEqualParams :: (Given Ctx) => Space -> Space -> Bool
-hasEqualParams = \space1' space2' -> trace "hasEqualParams" $ 
+hasEqualParams = \space1' space2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space1 <- (return) space1'
       space2 <- (return) space2'
@@ -175,7 +174,7 @@ foreign import ccall "isl_space_has_equal_tuples" c_hasEqualTuples :: Space -> S
 
 
 hasEqualTuples :: (Given Ctx) => Space -> Space -> Bool
-hasEqualTuples = \space1' space2' -> trace "hasEqualTuples" $ 
+hasEqualTuples = \space1' space2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space1 <- (return) space1'
       space2 <- (return) space2'
@@ -188,7 +187,7 @@ foreign import ccall "isl_space_has_tuple_id" c_hasTupleId :: Space -> DimType -
 
 
 hasTupleId :: (Given Ctx) => Space -> DimType -> Bool
-hasTupleId = \space' typ' -> trace "hasTupleId" $ 
+hasTupleId = \space' typ' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -201,7 +200,7 @@ foreign import ccall "isl_space_has_tuple_name" c_hasTupleName :: Space -> DimTy
 
 
 hasTupleName :: (Given Ctx) => Space -> DimType -> Bool
-hasTupleName = \space' typ' -> trace "hasTupleName" $ 
+hasTupleName = \space' typ' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -214,7 +213,7 @@ foreign import ccall "isl_space_is_domain" c_isDomain :: Space -> Space -> IO C.
 
 
 isDomain :: (Given Ctx) => Space -> Space -> Bool
-isDomain = \space1' space2' -> trace "isDomain" $ 
+isDomain = \space1' space2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space1 <- (return) space1'
       space2 <- (return) space2'
@@ -227,7 +226,7 @@ foreign import ccall "isl_space_is_map" c_isMap :: Space -> IO C.CBool
 
 
 isMap :: (Given Ctx) => Space -> Bool
-isMap = \space' -> trace "isMap" $ 
+isMap = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -239,7 +238,7 @@ foreign import ccall "isl_space_is_params" c_isParams :: Space -> IO C.CBool
 
 
 isParams :: (Given Ctx) => Space -> Bool
-isParams = \space' -> trace "isParams" $ 
+isParams = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -251,7 +250,7 @@ foreign import ccall "isl_space_is_product" c_isProduct :: Space -> IO C.CBool
 
 
 isProduct :: (Given Ctx) => Space -> Bool
-isProduct = \space' -> trace "isProduct" $ 
+isProduct = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -263,7 +262,7 @@ foreign import ccall "isl_space_is_range" c_isRange :: Space -> Space -> IO C.CB
 
 
 isRange :: (Given Ctx) => Space -> Space -> Bool
-isRange = \space1' space2' -> trace "isRange" $ 
+isRange = \space1' space2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space1 <- (return) space1'
       space2 <- (return) space2'
@@ -276,7 +275,7 @@ foreign import ccall "isl_space_is_set" c_isSet :: Space -> IO C.CBool
 
 
 isSet :: (Given Ctx) => Space -> Bool
-isSet = \space' -> trace "isSet" $ 
+isSet = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -288,7 +287,7 @@ foreign import ccall "isl_space_range_is_wrapping" c_rangeIsWrapping :: Space ->
 
 
 rangeIsWrapping :: (Given Ctx) => Space -> Bool
-rangeIsWrapping = \space' -> trace "rangeIsWrapping" $ 
+rangeIsWrapping = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -300,7 +299,7 @@ foreign import ccall "isl_space_tuple_is_equal" c_tupleIsEqual :: Space -> DimTy
 
 
 tupleIsEqual :: (Given Ctx) => Space -> DimType -> Space -> DimType -> Bool
-tupleIsEqual = \space1' type1' space2' type2' -> trace "tupleIsEqual" $ 
+tupleIsEqual = \space1' type1' space2' type2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space1 <- (return) space1'
       type1 <- (return) type1'
@@ -315,7 +314,7 @@ foreign import ccall "isl_space_add_dims" c_addDims :: Space -> DimType -> C.CUI
 
 
 addDims :: (Given Ctx) => Space -> DimType -> Int -> Space
-addDims = \space' typ' n' -> trace "addDims" $ 
+addDims = \space' typ' n' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -329,7 +328,7 @@ foreign import ccall "isl_space_add_named_tuple_id_ui" c_addNamedTupleIdUi :: Sp
 
 
 addNamedTupleIdUi :: (Given Ctx) => Space -> Id -> Int -> Space
-addNamedTupleIdUi = \space' tuple_id' dim' -> trace "addNamedTupleIdUi" $ 
+addNamedTupleIdUi = \space' tuple_id' dim' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       tuple_id <- (return) tuple_id'
@@ -343,7 +342,7 @@ foreign import ccall "isl_space_add_param_id" c_addParamId :: Space -> Id -> IO 
 
 
 addParamId :: (Given Ctx) => Space -> Id -> Space
-addParamId = \space' id' -> trace "addParamId" $ 
+addParamId = \space' id' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       id <- (return) id'
@@ -356,7 +355,7 @@ foreign import ccall "isl_space_add_unnamed_tuple_ui" c_addUnnamedTupleUi :: Spa
 
 
 addUnnamedTupleUi :: (Given Ctx) => Space -> Int -> Space
-addUnnamedTupleUi = \space' dim' -> trace "addUnnamedTupleUi" $ 
+addUnnamedTupleUi = \space' dim' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       dim <- (return . fromIntegral) dim'
@@ -369,7 +368,7 @@ foreign import ccall "isl_space_align_params" c_alignParams :: Space -> Space ->
 
 
 alignParams :: (Given Ctx) => Space -> Space -> Space
-alignParams = \space1' space2' -> trace "alignParams" $ 
+alignParams = \space1' space2' -> 
     unsafePerformIO $ (return) =<< do
       space1 <- (return) space1'
       space2 <- (return) space2'
@@ -382,7 +381,7 @@ foreign import ccall "isl_space_alloc" c_alloc :: Ctx -> C.CUInt -> C.CUInt -> C
 
 
 alloc :: (Given Ctx) => Int -> Int -> Int -> Space
-alloc = \nparam' n_in' n_out' -> trace "alloc" $ 
+alloc = \nparam' n_in' n_out' -> 
     unsafePerformIO $ (return) =<< do
       nparam <- (return . fromIntegral) nparam'
       n_in <- (return . fromIntegral) n_in'
@@ -396,7 +395,7 @@ foreign import ccall "isl_space_copy" c_copy :: Space -> IO Space
 
 
 copy :: (Given Ctx) => Space -> Space
-copy = \space' -> trace "copy" $ 
+copy = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -408,7 +407,7 @@ foreign import ccall "isl_space_domain_factor_domain" c_domainFactorDomain :: Sp
 
 
 domainFactorDomain :: (Given Ctx) => Space -> Space
-domainFactorDomain = \space' -> trace "domainFactorDomain" $ 
+domainFactorDomain = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -420,7 +419,7 @@ foreign import ccall "isl_space_domain_factor_range" c_domainFactorRange :: Spac
 
 
 domainFactorRange :: (Given Ctx) => Space -> Space
-domainFactorRange = \space' -> trace "domainFactorRange" $ 
+domainFactorRange = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -432,7 +431,7 @@ foreign import ccall "isl_space_domain_map" c_domainMap :: Space -> IO Space
 
 
 domainMap :: (Given Ctx) => Space -> Space
-domainMap = \space' -> trace "domainMap" $ 
+domainMap = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -444,7 +443,7 @@ foreign import ccall "isl_space_domain_product" c_domainProduct :: Space -> Spac
 
 
 domainProduct :: (Given Ctx) => Space -> Space -> Space
-domainProduct = \left' right' -> trace "domainProduct" $ 
+domainProduct = \left' right' -> 
     unsafePerformIO $ (return) =<< do
       left <- (return) left'
       right <- (return) right'
@@ -457,7 +456,7 @@ foreign import ccall "isl_space_domain_wrapped_domain" c_domainWrappedDomain :: 
 
 
 domainWrappedDomain :: (Given Ctx) => Space -> Space
-domainWrappedDomain = \space' -> trace "domainWrappedDomain" $ 
+domainWrappedDomain = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -469,7 +468,7 @@ foreign import ccall "isl_space_domain_wrapped_range" c_domainWrappedRange :: Sp
 
 
 domainWrappedRange :: (Given Ctx) => Space -> Space
-domainWrappedRange = \space' -> trace "domainWrappedRange" $ 
+domainWrappedRange = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -481,7 +480,7 @@ foreign import ccall "isl_space_drop_dims" c_dropDims :: Space -> DimType -> C.C
 
 
 dropDims :: (Given Ctx) => Space -> DimType -> Int -> Int -> Space
-dropDims = \space' typ' first' num' -> trace "dropDims" $ 
+dropDims = \space' typ' first' num' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -496,7 +495,7 @@ foreign import ccall "isl_space_factor_domain" c_factorDomain :: Space -> IO Spa
 
 
 factorDomain :: (Given Ctx) => Space -> Space
-factorDomain = \space' -> trace "factorDomain" $ 
+factorDomain = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -508,7 +507,7 @@ foreign import ccall "isl_space_factor_range" c_factorRange :: Space -> IO Space
 
 
 factorRange :: (Given Ctx) => Space -> Space
-factorRange = \space' -> trace "factorRange" $ 
+factorRange = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -520,7 +519,7 @@ foreign import ccall "isl_space_from_domain" c_fromDomain :: Space -> IO Space
 
 
 fromDomain :: (Given Ctx) => Space -> Space
-fromDomain = \space' -> trace "fromDomain" $ 
+fromDomain = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -532,7 +531,7 @@ foreign import ccall "isl_space_from_range" c_fromRange :: Space -> IO Space
 
 
 fromRange :: (Given Ctx) => Space -> Space
-fromRange = \space' -> trace "fromRange" $ 
+fromRange = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -544,7 +543,7 @@ foreign import ccall "isl_space_insert_dims" c_insertDims :: Space -> DimType ->
 
 
 insertDims :: (Given Ctx) => Space -> DimType -> Int -> Int -> Space
-insertDims = \space' typ' pos' n' -> trace "insertDims" $ 
+insertDims = \space' typ' pos' n' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -559,7 +558,7 @@ foreign import ccall "isl_space_join" c_join :: Space -> Space -> IO Space
 
 
 join :: (Given Ctx) => Space -> Space -> Space
-join = \left' right' -> trace "join" $ 
+join = \left' right' -> 
     unsafePerformIO $ (return) =<< do
       left <- (return) left'
       right <- (return) right'
@@ -572,7 +571,7 @@ foreign import ccall "isl_space_map_from_domain_and_range" c_mapFromDomainAndRan
 
 
 mapFromDomainAndRange :: (Given Ctx) => Space -> Space -> Space
-mapFromDomainAndRange = \domain' range' -> trace "mapFromDomainAndRange" $ 
+mapFromDomainAndRange = \domain' range' -> 
     unsafePerformIO $ (return) =<< do
       domain <- (return) domain'
       range <- (return) range'
@@ -585,7 +584,7 @@ foreign import ccall "isl_space_move_dims" c_moveDims :: Space -> DimType -> C.C
 
 
 moveDims :: (Given Ctx) => Space -> DimType -> Int -> DimType -> Int -> Int -> Space
-moveDims = \space' dst_type' dst_pos' src_type' src_pos' n' -> trace "moveDims" $ 
+moveDims = \space' dst_type' dst_pos' src_type' src_pos' n' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       dst_type <- (return) dst_type'
@@ -602,7 +601,7 @@ foreign import ccall "isl_space_params_alloc" c_paramsAlloc :: Ctx -> C.CUInt ->
 
 
 paramsAlloc :: (Given Ctx) => Int -> Space
-paramsAlloc = \nparam' -> trace "paramsAlloc" $ 
+paramsAlloc = \nparam' -> 
     unsafePerformIO $ (return) =<< do
       nparam <- (return . fromIntegral) nparam'
 
@@ -614,7 +613,7 @@ foreign import ccall "isl_space_range_curry" c_rangeCurry :: Space -> IO Space
 
 
 rangeCurry :: (Given Ctx) => Space -> Space
-rangeCurry = \space' -> trace "rangeCurry" $ 
+rangeCurry = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -626,7 +625,7 @@ foreign import ccall "isl_space_range_factor_domain" c_rangeFactorDomain :: Spac
 
 
 rangeFactorDomain :: (Given Ctx) => Space -> Space
-rangeFactorDomain = \space' -> trace "rangeFactorDomain" $ 
+rangeFactorDomain = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -638,7 +637,7 @@ foreign import ccall "isl_space_range_factor_range" c_rangeFactorRange :: Space 
 
 
 rangeFactorRange :: (Given Ctx) => Space -> Space
-rangeFactorRange = \space' -> trace "rangeFactorRange" $ 
+rangeFactorRange = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -650,7 +649,7 @@ foreign import ccall "isl_space_range_map" c_rangeMap :: Space -> IO Space
 
 
 rangeMap :: (Given Ctx) => Space -> Space
-rangeMap = \space' -> trace "rangeMap" $ 
+rangeMap = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -662,7 +661,7 @@ foreign import ccall "isl_space_range_product" c_rangeProduct :: Space -> Space 
 
 
 rangeProduct :: (Given Ctx) => Space -> Space -> Space
-rangeProduct = \left' right' -> trace "rangeProduct" $ 
+rangeProduct = \left' right' -> 
     unsafePerformIO $ (return) =<< do
       left <- (return) left'
       right <- (return) right'
@@ -675,7 +674,7 @@ foreign import ccall "isl_space_range_wrapped_domain" c_rangeWrappedDomain :: Sp
 
 
 rangeWrappedDomain :: (Given Ctx) => Space -> Space
-rangeWrappedDomain = \space' -> trace "rangeWrappedDomain" $ 
+rangeWrappedDomain = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -687,7 +686,7 @@ foreign import ccall "isl_space_range_wrapped_range" c_rangeWrappedRange :: Spac
 
 
 rangeWrappedRange :: (Given Ctx) => Space -> Space
-rangeWrappedRange = \space' -> trace "rangeWrappedRange" $ 
+rangeWrappedRange = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -699,7 +698,7 @@ foreign import ccall "isl_space_reset_tuple_id" c_resetTupleId :: Space -> DimTy
 
 
 resetTupleId :: (Given Ctx) => Space -> DimType -> Space
-resetTupleId = \space' typ' -> trace "resetTupleId" $ 
+resetTupleId = \space' typ' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -712,7 +711,7 @@ foreign import ccall "isl_space_reset_user" c_resetUser :: Space -> IO Space
 
 
 resetUser :: (Given Ctx) => Space -> Space
-resetUser = \space' -> trace "resetUser" $ 
+resetUser = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -724,7 +723,7 @@ foreign import ccall "isl_space_set_alloc" c_setAlloc :: Ctx -> C.CUInt -> C.CUI
 
 
 setAlloc :: (Given Ctx) => Int -> Int -> Space
-setAlloc = \nparam' dim' -> trace "setAlloc" $ 
+setAlloc = \nparam' dim' -> 
     unsafePerformIO $ (return) =<< do
       nparam <- (return . fromIntegral) nparam'
       dim <- (return . fromIntegral) dim'
@@ -737,7 +736,7 @@ foreign import ccall "isl_space_set_dim_id" c_setDimId :: Space -> DimType -> C.
 
 
 setDimId :: (Given Ctx) => Space -> DimType -> Int -> Id -> Space
-setDimId = \space' typ' pos' id' -> trace "setDimId" $ 
+setDimId = \space' typ' pos' id' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -752,7 +751,7 @@ foreign import ccall "isl_space_set_dim_name" c_setDimName :: Space -> DimType -
 
 
 setDimName :: (Given Ctx) => Space -> DimType -> Int -> String -> Space
-setDimName = \space' typ' pos' name' -> trace "setDimName" $ 
+setDimName = \space' typ' pos' name' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -767,7 +766,7 @@ foreign import ccall "isl_space_set_domain_tuple_id" c_setDomainTupleId :: Space
 
 
 setDomainTupleId :: (Given Ctx) => Space -> Id -> Space
-setDomainTupleId = \space' id' -> trace "setDomainTupleId" $ 
+setDomainTupleId = \space' id' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       id <- (return) id'
@@ -780,7 +779,7 @@ foreign import ccall "isl_space_set_from_params" c_setFromParams :: Space -> IO 
 
 
 setFromParams :: (Given Ctx) => Space -> Space
-setFromParams = \space' -> trace "setFromParams" $ 
+setFromParams = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -792,7 +791,7 @@ foreign import ccall "isl_space_set_range_tuple_id" c_setRangeTupleId :: Space -
 
 
 setRangeTupleId :: (Given Ctx) => Space -> Id -> Space
-setRangeTupleId = \space' id' -> trace "setRangeTupleId" $ 
+setRangeTupleId = \space' id' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       id <- (return) id'
@@ -805,7 +804,7 @@ foreign import ccall "isl_space_set_tuple_id" c_setTupleId :: Space -> DimType -
 
 
 setTupleId :: (Given Ctx) => Space -> DimType -> Id -> Space
-setTupleId = \space' typ' id' -> trace "setTupleId" $ 
+setTupleId = \space' typ' id' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -819,7 +818,7 @@ foreign import ccall "isl_space_set_tuple_name" c_setTupleName :: Space -> DimTy
 
 
 setTupleName :: (Given Ctx) => Space -> DimType -> String -> Space
-setTupleName = \space' typ' s' -> trace "setTupleName" $ 
+setTupleName = \space' typ' s' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -833,7 +832,7 @@ foreign import ccall "isl_space_zip" c_zip :: Space -> IO Space
 
 
 zip :: (Given Ctx) => Space -> Space
-zip = \space' -> trace "zip" $ 
+zip = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -845,7 +844,7 @@ foreign import ccall "isl_space_param_aff_on_domain_id" c_paramAffOnDomainId :: 
 
 
 paramAffOnDomainId :: (Given Ctx) => Space -> Id -> Aff
-paramAffOnDomainId = \space' id' -> trace "paramAffOnDomainId" $ 
+paramAffOnDomainId = \space' id' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       id <- (return) id'
@@ -858,7 +857,7 @@ foreign import ccall "isl_space_get_dim_id" c_getDimId :: Space -> DimType -> C.
 
 
 getDimId :: (Given Ctx) => Space -> DimType -> Int -> Id
-getDimId = \space' typ' pos' -> trace "getDimId" $ 
+getDimId = \space' typ' pos' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -872,7 +871,7 @@ foreign import ccall "isl_space_get_tuple_id" c_getTupleId :: Space -> DimType -
 
 
 getTupleId :: (Given Ctx) => Space -> DimType -> Id
-getTupleId = \space' typ' -> trace "getTupleId" $ 
+getTupleId = \space' typ' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -885,7 +884,7 @@ foreign import ccall "isl_space_to_str" c_toStr :: Space -> IO C.CString
 
 
 toStr :: (Given Ctx) => Space -> String
-toStr = \space' -> trace "toStr" $ 
+toStr = \space' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       space <- (return) space'
 
@@ -897,7 +896,7 @@ foreign import ccall "isl_space_get_dim_name" c_getDimName :: Space -> DimType -
 
 
 getDimName :: (Given Ctx) => Space -> DimType -> Int -> String
-getDimName = \space' typ' pos' -> trace "getDimName" $ 
+getDimName = \space' typ' pos' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -911,7 +910,7 @@ foreign import ccall "isl_space_get_tuple_name" c_getTupleName :: Space -> DimTy
 
 
 getTupleName :: (Given Ctx) => Space -> DimType -> String
-getTupleName = \space' typ' -> trace "getTupleName" $ 
+getTupleName = \space' typ' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       space <- (return) space'
       typ <- (return) typ'
@@ -924,7 +923,7 @@ foreign import ccall "isl_space_has_domain_tuple_id" c_hasDomainTupleId :: Space
 
 
 hasDomainTupleId :: (Given Ctx) => Space -> Bool
-hasDomainTupleId = \space' -> trace "hasDomainTupleId" $ 
+hasDomainTupleId = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -936,7 +935,7 @@ foreign import ccall "isl_space_has_range_tuple_id" c_hasRangeTupleId :: Space -
 
 
 hasRangeTupleId :: (Given Ctx) => Space -> Bool
-hasRangeTupleId = \space' -> trace "hasRangeTupleId" $ 
+hasRangeTupleId = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -948,7 +947,7 @@ foreign import ccall "isl_space_is_equal" c_isEqual :: Space -> Space -> IO C.CB
 
 
 isEqual :: (Given Ctx) => Space -> Space -> Bool
-isEqual = \space1' space2' -> trace "isEqual" $ 
+isEqual = \space1' space2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space1 <- (return) space1'
       space2 <- (return) space2'
@@ -961,7 +960,7 @@ foreign import ccall "isl_space_is_wrapping" c_isWrapping :: Space -> IO C.CBool
 
 
 isWrapping :: (Given Ctx) => Space -> Bool
-isWrapping = \space' -> trace "isWrapping" $ 
+isWrapping = \space' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       space <- (return) space'
 
@@ -973,7 +972,7 @@ foreign import ccall "isl_space_universe_set" c_universeSet :: Space -> IO Set
 
 
 universeSet :: (Given Ctx) => Space -> Set
-universeSet = \space' -> trace "universeSet" $ 
+universeSet = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -985,7 +984,7 @@ foreign import ccall "isl_space_curry" c_curry :: Space -> IO Space
 
 
 curry :: (Given Ctx) => Space -> Space
-curry = \space' -> trace "curry" $ 
+curry = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -997,7 +996,7 @@ foreign import ccall "isl_space_domain" c_domain :: Space -> IO Space
 
 
 domain :: (Given Ctx) => Space -> Space
-domain = \space' -> trace "domain" $ 
+domain = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1009,7 +1008,7 @@ foreign import ccall "isl_space_domain_reverse" c_domainReverse :: Space -> IO S
 
 
 domainReverse :: (Given Ctx) => Space -> Space
-domainReverse = \space' -> trace "domainReverse" $ 
+domainReverse = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1021,7 +1020,7 @@ foreign import ccall "isl_space_drop_all_params" c_dropAllParams :: Space -> IO 
 
 
 dropAllParams :: (Given Ctx) => Space -> Space
-dropAllParams = \space' -> trace "dropAllParams" $ 
+dropAllParams = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1033,7 +1032,7 @@ foreign import ccall "isl_space_flatten_domain" c_flattenDomain :: Space -> IO S
 
 
 flattenDomain :: (Given Ctx) => Space -> Space
-flattenDomain = \space' -> trace "flattenDomain" $ 
+flattenDomain = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1045,7 +1044,7 @@ foreign import ccall "isl_space_flatten_range" c_flattenRange :: Space -> IO Spa
 
 
 flattenRange :: (Given Ctx) => Space -> Space
-flattenRange = \space' -> trace "flattenRange" $ 
+flattenRange = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1057,7 +1056,7 @@ foreign import ccall "isl_space_map_from_set" c_mapFromSet :: Space -> IO Space
 
 
 mapFromSet :: (Given Ctx) => Space -> Space
-mapFromSet = \space' -> trace "mapFromSet" $ 
+mapFromSet = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1069,7 +1068,7 @@ foreign import ccall "isl_space_params" c_params :: Space -> IO Space
 
 
 params :: (Given Ctx) => Space -> Space
-params = \space' -> trace "params" $ 
+params = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1081,7 +1080,7 @@ foreign import ccall "isl_space_product" c_product :: Space -> Space -> IO Space
 
 
 product :: (Given Ctx) => Space -> Space -> Space
-product = \left' right' -> trace "product" $ 
+product = \left' right' -> 
     unsafePerformIO $ (return) =<< do
       left <- (return) left'
       right <- (return) right'
@@ -1094,7 +1093,7 @@ foreign import ccall "isl_space_range" c_range :: Space -> IO Space
 
 
 range :: (Given Ctx) => Space -> Space
-range = \space' -> trace "range" $ 
+range = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1106,7 +1105,7 @@ foreign import ccall "isl_space_range_reverse" c_rangeReverse :: Space -> IO Spa
 
 
 rangeReverse :: (Given Ctx) => Space -> Space
-rangeReverse = \space' -> trace "rangeReverse" $ 
+rangeReverse = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1118,7 +1117,7 @@ foreign import ccall "isl_space_reverse" c_reverse :: Space -> IO Space
 
 
 reverse :: (Given Ctx) => Space -> Space
-reverse = \space' -> trace "reverse" $ 
+reverse = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1130,7 +1129,7 @@ foreign import ccall "isl_space_uncurry" c_uncurry :: Space -> IO Space
 
 
 uncurry :: (Given Ctx) => Space -> Space
-uncurry = \space' -> trace "uncurry" $ 
+uncurry = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1142,7 +1141,7 @@ foreign import ccall "isl_space_unit" c_unit :: Ctx -> IO Space
 
 
 unit :: (Given Ctx) => Space
-unit =  trace "unit" $ 
+unit =  
     unsafePerformIO $ (return) =<< do
 
       let ctx = given :: Ctx
@@ -1153,7 +1152,7 @@ foreign import ccall "isl_space_unwrap" c_unwrap :: Space -> IO Space
 
 
 unwrap :: (Given Ctx) => Space -> Space
-unwrap = \space' -> trace "unwrap" $ 
+unwrap = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1165,7 +1164,7 @@ foreign import ccall "isl_space_wrap" c_wrap :: Space -> IO Space
 
 
 wrap :: (Given Ctx) => Space -> Space
-wrap = \space' -> trace "wrap" $ 
+wrap = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1177,7 +1176,7 @@ foreign import ccall "isl_space_wrapped_reverse" c_wrappedReverse :: Space -> IO
 
 
 wrappedReverse :: (Given Ctx) => Space -> Space
-wrappedReverse = \space' -> trace "wrappedReverse" $ 
+wrappedReverse = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1189,7 +1188,7 @@ foreign import ccall "isl_space_universe_map" c_universeMap :: Space -> IO Map
 
 
 universeMap :: (Given Ctx) => Space -> Map
-universeMap = \space' -> trace "universeMap" $ 
+universeMap = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1201,7 +1200,7 @@ foreign import ccall "isl_space_zero_aff_on_domain" c_zeroAffOnDomain :: Space -
 
 
 zeroAffOnDomain :: (Given Ctx) => Space -> Aff
-zeroAffOnDomain = \space' -> trace "zeroAffOnDomain" $ 
+zeroAffOnDomain = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1213,7 +1212,7 @@ foreign import ccall "isl_space_get_domain_tuple_id" c_getDomainTupleId :: Space
 
 
 getDomainTupleId :: (Given Ctx) => Space -> Id
-getDomainTupleId = \space' -> trace "getDomainTupleId" $ 
+getDomainTupleId = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1225,7 +1224,7 @@ foreign import ccall "isl_space_get_range_tuple_id" c_getRangeTupleId :: Space -
 
 
 getRangeTupleId :: (Given Ctx) => Space -> Id
-getRangeTupleId = \space' -> trace "getRangeTupleId" $ 
+getRangeTupleId = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -1237,7 +1236,7 @@ foreign import ccall "isl_space_read_from_str" c_readFromStr :: Ctx -> C.CString
 
 
 readFromStr :: (Given Ctx) => String -> Space
-readFromStr = \str' -> trace "readFromStr" $ 
+readFromStr = \str' -> 
     unsafePerformIO $ (return) =<< do
       str <- (C.newCString) str'
 

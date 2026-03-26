@@ -7,7 +7,6 @@ module Isl.BasicMap.AutoGen where
 import Control.Monad
 import Data.Reflection
 import Isl.Types
-import Debug.Trace
 
 import Foreign.C as C
 import Foreign.C.String as C
@@ -22,7 +21,7 @@ foreign import ccall "isl_basic_map_find_dim_by_name" c_findDimByName :: BasicMa
 
 
 findDimByName :: (Given Ctx) => BasicMap -> DimType -> String -> Int
-findDimByName = \bmap' typ' name' -> trace "findDimByName" $ 
+findDimByName = \bmap' typ' name' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -36,7 +35,7 @@ foreign import ccall "isl_basic_map_involves_dims" c_involvesDims :: BasicMap ->
 
 
 involvesDims :: (Given Ctx) => BasicMap -> DimType -> Int -> Int -> Int
-involvesDims = \bmap' typ' first' n' -> trace "involvesDims" $ 
+involvesDims = \bmap' typ' first' n' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -51,7 +50,7 @@ foreign import ccall "isl_basic_map_get_ctx" c_getCtx :: BasicMap -> IO Ctx
 
 
 getCtx :: (Given Ctx) => BasicMap -> Ctx
-getCtx = \bmap' -> trace "getCtx" $ 
+getCtx = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -63,7 +62,7 @@ foreign import ccall "isl_basic_map_dump" c_dump :: BasicMap -> IO ()
 
 
 dump :: (Given Ctx) => BasicMap -> ()
-dump = \bmap' -> trace "dump" $ 
+dump = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -75,7 +74,7 @@ foreign import ccall "isl_basic_map_get_dim_name" c_getDimName :: BasicMap -> Di
 
 
 getDimName :: (Given Ctx) => BasicMap -> DimType -> Int -> String
-getDimName = \bmap' typ' pos' -> trace "getDimName" $ 
+getDimName = \bmap' typ' pos' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -89,7 +88,7 @@ foreign import ccall "isl_basic_map_get_tuple_name" c_getTupleName :: BasicMap -
 
 
 getTupleName :: (Given Ctx) => BasicMap -> DimType -> String
-getTupleName = \bmap' typ' -> trace "getTupleName" $ 
+getTupleName = \bmap' typ' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -102,7 +101,7 @@ foreign import ccall "isl_basic_map_can_curry" c_canCurry :: BasicMap -> IO C.CB
 
 
 canCurry :: (Given Ctx) => BasicMap -> Bool
-canCurry = \bmap' -> trace "canCurry" $ 
+canCurry = \bmap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap <- (return) bmap'
 
@@ -114,7 +113,7 @@ foreign import ccall "isl_basic_map_can_uncurry" c_canUncurry :: BasicMap -> IO 
 
 
 canUncurry :: (Given Ctx) => BasicMap -> Bool
-canUncurry = \bmap' -> trace "canUncurry" $ 
+canUncurry = \bmap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap <- (return) bmap'
 
@@ -126,7 +125,7 @@ foreign import ccall "isl_basic_map_can_zip" c_canZip :: BasicMap -> IO C.CBool
 
 
 canZip :: (Given Ctx) => BasicMap -> Bool
-canZip = \bmap' -> trace "canZip" $ 
+canZip = \bmap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap <- (return) bmap'
 
@@ -138,7 +137,7 @@ foreign import ccall "isl_basic_map_has_dim_id" c_hasDimId :: BasicMap -> DimTyp
 
 
 hasDimId :: (Given Ctx) => BasicMap -> DimType -> Int -> Bool
-hasDimId = \bmap' typ' pos' -> trace "hasDimId" $ 
+hasDimId = \bmap' typ' pos' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -152,7 +151,7 @@ foreign import ccall "isl_basic_map_image_is_bounded" c_imageIsBounded :: BasicM
 
 
 imageIsBounded :: (Given Ctx) => BasicMap -> Bool
-imageIsBounded = \bmap' -> trace "imageIsBounded" $ 
+imageIsBounded = \bmap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap <- (return) bmap'
 
@@ -164,7 +163,7 @@ foreign import ccall "isl_basic_map_is_disjoint" c_isDisjoint :: BasicMap -> Bas
 
 
 isDisjoint :: (Given Ctx) => BasicMap -> BasicMap -> Bool
-isDisjoint = \bmap1' bmap2' -> trace "isDisjoint" $ 
+isDisjoint = \bmap1' bmap2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -177,7 +176,7 @@ foreign import ccall "isl_basic_map_is_rational" c_isRational :: BasicMap -> IO 
 
 
 isRational :: (Given Ctx) => BasicMap -> Bool
-isRational = \bmap' -> trace "isRational" $ 
+isRational = \bmap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap <- (return) bmap'
 
@@ -189,7 +188,7 @@ foreign import ccall "isl_basic_map_is_single_valued" c_isSingleValued :: BasicM
 
 
 isSingleValued :: (Given Ctx) => BasicMap -> Bool
-isSingleValued = \bmap' -> trace "isSingleValued" $ 
+isSingleValued = \bmap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap <- (return) bmap'
 
@@ -201,7 +200,7 @@ foreign import ccall "isl_basic_map_is_strict_subset" c_isStrictSubset :: BasicM
 
 
 isStrictSubset :: (Given Ctx) => BasicMap -> BasicMap -> Bool
-isStrictSubset = \bmap1' bmap2' -> trace "isStrictSubset" $ 
+isStrictSubset = \bmap1' bmap2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -214,7 +213,7 @@ foreign import ccall "isl_basic_map_is_universe" c_isUniverse :: BasicMap -> IO 
 
 
 isUniverse :: (Given Ctx) => BasicMap -> Bool
-isUniverse = \bmap' -> trace "isUniverse" $ 
+isUniverse = \bmap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap <- (return) bmap'
 
@@ -226,7 +225,7 @@ foreign import ccall "isl_basic_map_plain_is_empty" c_plainIsEmpty :: BasicMap -
 
 
 plainIsEmpty :: (Given Ctx) => BasicMap -> Bool
-plainIsEmpty = \bmap' -> trace "plainIsEmpty" $ 
+plainIsEmpty = \bmap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap <- (return) bmap'
 
@@ -238,7 +237,7 @@ foreign import ccall "isl_basic_map_plain_is_universe" c_plainIsUniverse :: Basi
 
 
 plainIsUniverse :: (Given Ctx) => BasicMap -> Bool
-plainIsUniverse = \bmap' -> trace "plainIsUniverse" $ 
+plainIsUniverse = \bmap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap <- (return) bmap'
 
@@ -250,7 +249,7 @@ foreign import ccall "isl_basic_map_get_space" c_getSpace :: BasicMap -> IO Spac
 
 
 getSpace :: (Given Ctx) => BasicMap -> Space
-getSpace = \bmap' -> trace "getSpace" $ 
+getSpace = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -262,7 +261,7 @@ foreign import ccall "isl_basic_map_compute_divs" c_computeDivs :: BasicMap -> I
 
 
 computeDivs :: (Given Ctx) => BasicMap -> Map
-computeDivs = \bmap' -> trace "computeDivs" $ 
+computeDivs = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -274,7 +273,7 @@ foreign import ccall "isl_basic_map_add_constraint" c_addConstraint :: BasicMap 
 
 
 addConstraint :: (Given Ctx) => BasicMap -> Constraint -> BasicMap
-addConstraint = \bmap' constraint' -> trace "addConstraint" $ 
+addConstraint = \bmap' constraint' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       constraint <- (return) constraint'
@@ -287,7 +286,7 @@ foreign import ccall "isl_basic_map_add_dims" c_addDims :: BasicMap -> DimType -
 
 
 addDims :: (Given Ctx) => BasicMap -> DimType -> Int -> BasicMap
-addDims = \bmap' typ' n' -> trace "addDims" $ 
+addDims = \bmap' typ' n' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -301,7 +300,7 @@ foreign import ccall "isl_basic_map_align_params" c_alignParams :: BasicMap -> S
 
 
 alignParams :: (Given Ctx) => BasicMap -> Space -> BasicMap
-alignParams = \bmap' model' -> trace "alignParams" $ 
+alignParams = \bmap' model' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       model <- (return) model'
@@ -314,7 +313,7 @@ foreign import ccall "isl_basic_map_copy" c_copy :: BasicMap -> IO BasicMap
 
 
 copy :: (Given Ctx) => BasicMap -> BasicMap
-copy = \bmap' -> trace "copy" $ 
+copy = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -326,7 +325,7 @@ foreign import ccall "isl_basic_map_curry" c_curry :: BasicMap -> IO BasicMap
 
 
 curry :: (Given Ctx) => BasicMap -> BasicMap
-curry = \bmap' -> trace "curry" $ 
+curry = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -338,7 +337,7 @@ foreign import ccall "isl_basic_map_deltas_map" c_deltasMap :: BasicMap -> IO Ba
 
 
 deltasMap :: (Given Ctx) => BasicMap -> BasicMap
-deltasMap = \bmap' -> trace "deltasMap" $ 
+deltasMap = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -350,7 +349,7 @@ foreign import ccall "isl_basic_map_domain_map" c_domainMap :: BasicMap -> IO Ba
 
 
 domainMap :: (Given Ctx) => BasicMap -> BasicMap
-domainMap = \bmap' -> trace "domainMap" $ 
+domainMap = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -362,7 +361,7 @@ foreign import ccall "isl_basic_map_domain_product" c_domainProduct :: BasicMap 
 
 
 domainProduct :: (Given Ctx) => BasicMap -> BasicMap -> BasicMap
-domainProduct = \bmap1' bmap2' -> trace "domainProduct" $ 
+domainProduct = \bmap1' bmap2' -> 
     unsafePerformIO $ (return) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -375,7 +374,7 @@ foreign import ccall "isl_basic_map_drop_constraints_involving_dims" c_dropConst
 
 
 dropConstraintsInvolvingDims :: (Given Ctx) => BasicMap -> DimType -> Int -> Int -> BasicMap
-dropConstraintsInvolvingDims = \bmap' typ' first' n' -> trace "dropConstraintsInvolvingDims" $ 
+dropConstraintsInvolvingDims = \bmap' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -390,7 +389,7 @@ foreign import ccall "isl_basic_map_drop_constraints_not_involving_dims" c_dropC
 
 
 dropConstraintsNotInvolvingDims :: (Given Ctx) => BasicMap -> DimType -> Int -> Int -> BasicMap
-dropConstraintsNotInvolvingDims = \bmap' typ' first' n' -> trace "dropConstraintsNotInvolvingDims" $ 
+dropConstraintsNotInvolvingDims = \bmap' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -405,7 +404,7 @@ foreign import ccall "isl_basic_map_drop_unused_params" c_dropUnusedParams :: Ba
 
 
 dropUnusedParams :: (Given Ctx) => BasicMap -> BasicMap
-dropUnusedParams = \bmap' -> trace "dropUnusedParams" $ 
+dropUnusedParams = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -417,7 +416,7 @@ foreign import ccall "isl_basic_map_eliminate" c_eliminate :: BasicMap -> DimTyp
 
 
 eliminate :: (Given Ctx) => BasicMap -> DimType -> Int -> Int -> BasicMap
-eliminate = \bmap' typ' first' n' -> trace "eliminate" $ 
+eliminate = \bmap' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -432,7 +431,7 @@ foreign import ccall "isl_basic_map_empty" c_empty :: Space -> IO BasicMap
 
 
 empty :: (Given Ctx) => Space -> BasicMap
-empty = \space' -> trace "empty" $ 
+empty = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -444,7 +443,7 @@ foreign import ccall "isl_basic_map_equal" c_equal :: Space -> C.CUInt -> IO Bas
 
 
 equal :: (Given Ctx) => Space -> Int -> BasicMap
-equal = \space' n_equal' -> trace "equal" $ 
+equal = \space' n_equal' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       n_equal <- (return . fromIntegral) n_equal'
@@ -457,7 +456,7 @@ foreign import ccall "isl_basic_map_equate" c_equate :: BasicMap -> DimType -> C
 
 
 equate :: (Given Ctx) => BasicMap -> DimType -> Int -> DimType -> Int -> BasicMap
-equate = \bmap' type1' pos1' type2' pos2' -> trace "equate" $ 
+equate = \bmap' type1' pos1' type2' pos2' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       type1 <- (return) type1'
@@ -473,7 +472,7 @@ foreign import ccall "isl_basic_map_fix_si" c_fixSi :: BasicMap -> DimType -> C.
 
 
 fixSi :: (Given Ctx) => BasicMap -> DimType -> Int -> Int -> BasicMap
-fixSi = \bmap' typ' pos' value' -> trace "fixSi" $ 
+fixSi = \bmap' typ' pos' value' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -488,7 +487,7 @@ foreign import ccall "isl_basic_map_fix_val" c_fixVal :: BasicMap -> DimType -> 
 
 
 fixVal :: (Given Ctx) => BasicMap -> DimType -> Int -> Val -> BasicMap
-fixVal = \bmap' typ' pos' v' -> trace "fixVal" $ 
+fixVal = \bmap' typ' pos' v' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -503,7 +502,7 @@ foreign import ccall "isl_basic_map_flat_product" c_flatProduct :: BasicMap -> B
 
 
 flatProduct :: (Given Ctx) => BasicMap -> BasicMap -> BasicMap
-flatProduct = \bmap1' bmap2' -> trace "flatProduct" $ 
+flatProduct = \bmap1' bmap2' -> 
     unsafePerformIO $ (return) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -516,7 +515,7 @@ foreign import ccall "isl_basic_map_flat_range_product" c_flatRangeProduct :: Ba
 
 
 flatRangeProduct :: (Given Ctx) => BasicMap -> BasicMap -> BasicMap
-flatRangeProduct = \bmap1' bmap2' -> trace "flatRangeProduct" $ 
+flatRangeProduct = \bmap1' bmap2' -> 
     unsafePerformIO $ (return) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -529,7 +528,7 @@ foreign import ccall "isl_basic_map_from_aff" c_fromAff :: Aff -> IO BasicMap
 
 
 fromAff :: (Given Ctx) => Aff -> BasicMap
-fromAff = \aff' -> trace "fromAff" $ 
+fromAff = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -541,7 +540,7 @@ foreign import ccall "isl_basic_map_from_constraint" c_fromConstraint :: Constra
 
 
 fromConstraint :: (Given Ctx) => Constraint -> BasicMap
-fromConstraint = \constraint' -> trace "fromConstraint" $ 
+fromConstraint = \constraint' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
 
@@ -553,7 +552,7 @@ foreign import ccall "isl_basic_map_from_domain" c_fromDomain :: BasicSet -> IO 
 
 
 fromDomain :: (Given Ctx) => BasicSet -> BasicMap
-fromDomain = \bset' -> trace "fromDomain" $ 
+fromDomain = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -565,7 +564,7 @@ foreign import ccall "isl_basic_map_from_domain_and_range" c_fromDomainAndRange 
 
 
 fromDomainAndRange :: (Given Ctx) => BasicSet -> BasicSet -> BasicMap
-fromDomainAndRange = \domain' range' -> trace "fromDomainAndRange" $ 
+fromDomainAndRange = \domain' range' -> 
     unsafePerformIO $ (return) =<< do
       domain <- (return) domain'
       range <- (return) range'
@@ -578,7 +577,7 @@ foreign import ccall "isl_basic_map_from_range" c_fromRange :: BasicSet -> IO Ba
 
 
 fromRange :: (Given Ctx) => BasicSet -> BasicMap
-fromRange = \bset' -> trace "fromRange" $ 
+fromRange = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -590,7 +589,7 @@ foreign import ccall "isl_basic_map_gist_domain" c_gistDomain :: BasicMap -> Bas
 
 
 gistDomain :: (Given Ctx) => BasicMap -> BasicSet -> BasicMap
-gistDomain = \bmap' context' -> trace "gistDomain" $ 
+gistDomain = \bmap' context' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       context <- (return) context'
@@ -603,7 +602,7 @@ foreign import ccall "isl_basic_map_identity" c_identity :: Space -> IO BasicMap
 
 
 identity :: (Given Ctx) => Space -> BasicMap
-identity = \space' -> trace "identity" $ 
+identity = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -615,7 +614,7 @@ foreign import ccall "isl_basic_map_insert_dims" c_insertDims :: BasicMap -> Dim
 
 
 insertDims :: (Given Ctx) => BasicMap -> DimType -> Int -> Int -> BasicMap
-insertDims = \bmap' typ' pos' n' -> trace "insertDims" $ 
+insertDims = \bmap' typ' pos' n' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -630,7 +629,7 @@ foreign import ccall "isl_basic_map_less_at" c_lessAt :: Space -> C.CUInt -> IO 
 
 
 lessAt :: (Given Ctx) => Space -> Int -> BasicMap
-lessAt = \space' pos' -> trace "lessAt" $ 
+lessAt = \space' pos' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       pos <- (return . fromIntegral) pos'
@@ -643,7 +642,7 @@ foreign import ccall "isl_basic_map_lower_bound_si" c_lowerBoundSi :: BasicMap -
 
 
 lowerBoundSi :: (Given Ctx) => BasicMap -> DimType -> Int -> Int -> BasicMap
-lowerBoundSi = \bmap' typ' pos' value' -> trace "lowerBoundSi" $ 
+lowerBoundSi = \bmap' typ' pos' value' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -658,7 +657,7 @@ foreign import ccall "isl_basic_map_more_at" c_moreAt :: Space -> C.CUInt -> IO 
 
 
 moreAt :: (Given Ctx) => Space -> Int -> BasicMap
-moreAt = \space' pos' -> trace "moreAt" $ 
+moreAt = \space' pos' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
       pos <- (return . fromIntegral) pos'
@@ -671,7 +670,7 @@ foreign import ccall "isl_basic_map_move_dims" c_moveDims :: BasicMap -> DimType
 
 
 moveDims :: (Given Ctx) => BasicMap -> DimType -> Int -> DimType -> Int -> Int -> BasicMap
-moveDims = \bmap' dst_type' dst_pos' src_type' src_pos' n' -> trace "moveDims" $ 
+moveDims = \bmap' dst_type' dst_pos' src_type' src_pos' n' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       dst_type <- (return) dst_type'
@@ -688,7 +687,7 @@ foreign import ccall "isl_basic_map_nat_universe" c_natUniverse :: Space -> IO B
 
 
 natUniverse :: (Given Ctx) => Space -> BasicMap
-natUniverse = \space' -> trace "natUniverse" $ 
+natUniverse = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -700,7 +699,7 @@ foreign import ccall "isl_basic_map_neg" c_neg :: BasicMap -> IO BasicMap
 
 
 neg :: (Given Ctx) => BasicMap -> BasicMap
-neg = \bmap' -> trace "neg" $ 
+neg = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -712,7 +711,7 @@ foreign import ccall "isl_basic_map_order_ge" c_orderGe :: BasicMap -> DimType -
 
 
 orderGe :: (Given Ctx) => BasicMap -> DimType -> Int -> DimType -> Int -> BasicMap
-orderGe = \bmap' type1' pos1' type2' pos2' -> trace "orderGe" $ 
+orderGe = \bmap' type1' pos1' type2' pos2' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       type1 <- (return) type1'
@@ -728,7 +727,7 @@ foreign import ccall "isl_basic_map_order_gt" c_orderGt :: BasicMap -> DimType -
 
 
 orderGt :: (Given Ctx) => BasicMap -> DimType -> Int -> DimType -> Int -> BasicMap
-orderGt = \bmap' type1' pos1' type2' pos2' -> trace "orderGt" $ 
+orderGt = \bmap' type1' pos1' type2' pos2' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       type1 <- (return) type1'
@@ -744,7 +743,7 @@ foreign import ccall "isl_basic_map_product" c_product :: BasicMap -> BasicMap -
 
 
 product :: (Given Ctx) => BasicMap -> BasicMap -> BasicMap
-product = \bmap1' bmap2' -> trace "product" $ 
+product = \bmap1' bmap2' -> 
     unsafePerformIO $ (return) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -757,7 +756,7 @@ foreign import ccall "isl_basic_map_project_out" c_projectOut :: BasicMap -> Dim
 
 
 projectOut :: (Given Ctx) => BasicMap -> DimType -> Int -> Int -> BasicMap
-projectOut = \bmap' typ' first' n' -> trace "projectOut" $ 
+projectOut = \bmap' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -772,7 +771,7 @@ foreign import ccall "isl_basic_map_range_map" c_rangeMap :: BasicMap -> IO Basi
 
 
 rangeMap :: (Given Ctx) => BasicMap -> BasicMap
-rangeMap = \bmap' -> trace "rangeMap" $ 
+rangeMap = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -784,7 +783,7 @@ foreign import ccall "isl_basic_map_range_product" c_rangeProduct :: BasicMap ->
 
 
 rangeProduct :: (Given Ctx) => BasicMap -> BasicMap -> BasicMap
-rangeProduct = \bmap1' bmap2' -> trace "rangeProduct" $ 
+rangeProduct = \bmap1' bmap2' -> 
     unsafePerformIO $ (return) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -797,7 +796,7 @@ foreign import ccall "isl_basic_map_remove_dims" c_removeDims :: BasicMap -> Dim
 
 
 removeDims :: (Given Ctx) => BasicMap -> DimType -> Int -> Int -> BasicMap
-removeDims = \bmap' typ' first' n' -> trace "removeDims" $ 
+removeDims = \bmap' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -812,7 +811,7 @@ foreign import ccall "isl_basic_map_remove_divs" c_removeDivs :: BasicMap -> IO 
 
 
 removeDivs :: (Given Ctx) => BasicMap -> BasicMap
-removeDivs = \bmap' -> trace "removeDivs" $ 
+removeDivs = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -824,7 +823,7 @@ foreign import ccall "isl_basic_map_remove_divs_involving_dims" c_removeDivsInvo
 
 
 removeDivsInvolvingDims :: (Given Ctx) => BasicMap -> DimType -> Int -> Int -> BasicMap
-removeDivsInvolvingDims = \bmap' typ' first' n' -> trace "removeDivsInvolvingDims" $ 
+removeDivsInvolvingDims = \bmap' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -839,7 +838,7 @@ foreign import ccall "isl_basic_map_remove_redundancies" c_removeRedundancies ::
 
 
 removeRedundancies :: (Given Ctx) => BasicMap -> BasicMap
-removeRedundancies = \bmap' -> trace "removeRedundancies" $ 
+removeRedundancies = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -851,7 +850,7 @@ foreign import ccall "isl_basic_map_set_dim_name" c_setDimName :: BasicMap -> Di
 
 
 setDimName :: (Given Ctx) => BasicMap -> DimType -> Int -> String -> BasicMap
-setDimName = \bmap' typ' pos' s' -> trace "setDimName" $ 
+setDimName = \bmap' typ' pos' s' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -866,7 +865,7 @@ foreign import ccall "isl_basic_map_set_tuple_id" c_setTupleId :: BasicMap -> Di
 
 
 setTupleId :: (Given Ctx) => BasicMap -> DimType -> Id -> BasicMap
-setTupleId = \bmap' typ' id' -> trace "setTupleId" $ 
+setTupleId = \bmap' typ' id' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -880,7 +879,7 @@ foreign import ccall "isl_basic_map_set_tuple_name" c_setTupleName :: BasicMap -
 
 
 setTupleName :: (Given Ctx) => BasicMap -> DimType -> String -> BasicMap
-setTupleName = \bmap' typ' s' -> trace "setTupleName" $ 
+setTupleName = \bmap' typ' s' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -894,7 +893,7 @@ foreign import ccall "isl_basic_map_sum" c_sum :: BasicMap -> BasicMap -> IO Bas
 
 
 sum :: (Given Ctx) => BasicMap -> BasicMap -> BasicMap
-sum = \bmap1' bmap2' -> trace "sum" $ 
+sum = \bmap1' bmap2' -> 
     unsafePerformIO $ (return) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -907,7 +906,7 @@ foreign import ccall "isl_basic_map_uncurry" c_uncurry :: BasicMap -> IO BasicMa
 
 
 uncurry :: (Given Ctx) => BasicMap -> BasicMap
-uncurry = \bmap' -> trace "uncurry" $ 
+uncurry = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -919,7 +918,7 @@ foreign import ccall "isl_basic_map_universe" c_universe :: Space -> IO BasicMap
 
 
 universe :: (Given Ctx) => Space -> BasicMap
-universe = \space' -> trace "universe" $ 
+universe = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -931,7 +930,7 @@ foreign import ccall "isl_basic_map_upper_bound_si" c_upperBoundSi :: BasicMap -
 
 
 upperBoundSi :: (Given Ctx) => BasicMap -> DimType -> Int -> Int -> BasicMap
-upperBoundSi = \bmap' typ' pos' value' -> trace "upperBoundSi" $ 
+upperBoundSi = \bmap' typ' pos' value' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -946,7 +945,7 @@ foreign import ccall "isl_basic_map_zip" c_zip :: BasicMap -> IO BasicMap
 
 
 zip :: (Given Ctx) => BasicMap -> BasicMap
-zip = \bmap' -> trace "zip" $ 
+zip = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -958,7 +957,7 @@ foreign import ccall "isl_basic_map_domain" c_domain :: BasicMap -> IO BasicSet
 
 
 domain :: (Given Ctx) => BasicMap -> BasicSet
-domain = \bmap' -> trace "domain" $ 
+domain = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -970,7 +969,7 @@ foreign import ccall "isl_basic_map_range" c_range :: BasicMap -> IO BasicSet
 
 
 range :: (Given Ctx) => BasicMap -> BasicSet
-range = \bmap' -> trace "range" $ 
+range = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -982,7 +981,7 @@ foreign import ccall "isl_basic_map_wrap" c_wrap :: BasicMap -> IO BasicSet
 
 
 wrap :: (Given Ctx) => BasicMap -> BasicSet
-wrap = \bmap' -> trace "wrap" $ 
+wrap = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -994,7 +993,7 @@ foreign import ccall "isl_basic_map_plain_get_val_if_fixed" c_plainGetValIfFixed
 
 
 plainGetValIfFixed :: (Given Ctx) => BasicMap -> DimType -> Int -> Val
-plainGetValIfFixed = \bmap' typ' pos' -> trace "plainGetValIfFixed" $ 
+plainGetValIfFixed = \bmap' typ' pos' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       typ <- (return) typ'
@@ -1008,7 +1007,7 @@ foreign import ccall "isl_basic_map_get_div" c_getDiv :: BasicMap -> C.CInt -> I
 
 
 getDiv :: (Given Ctx) => BasicMap -> Int -> Aff
-getDiv = \bmap' pos' -> trace "getDiv" $ 
+getDiv = \bmap' pos' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       pos <- (return . fromIntegral) pos'
@@ -1021,7 +1020,7 @@ foreign import ccall "isl_basic_map_to_str" c_toStr :: BasicMap -> IO C.CString
 
 
 toStr :: (Given Ctx) => BasicMap -> String
-toStr = \bmap' -> trace "toStr" $ 
+toStr = \bmap' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       bmap <- (return) bmap'
 
@@ -1033,7 +1032,7 @@ foreign import ccall "isl_basic_map_get_local_space" c_getLocalSpace :: BasicMap
 
 
 getLocalSpace :: (Given Ctx) => BasicMap -> LocalSpace
-getLocalSpace = \bmap' -> trace "getLocalSpace" $ 
+getLocalSpace = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -1045,7 +1044,7 @@ foreign import ccall "isl_basic_map_is_empty" c_isEmpty :: BasicMap -> IO C.CBoo
 
 
 isEmpty :: (Given Ctx) => BasicMap -> Bool
-isEmpty = \bmap' -> trace "isEmpty" $ 
+isEmpty = \bmap' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap <- (return) bmap'
 
@@ -1057,7 +1056,7 @@ foreign import ccall "isl_basic_map_is_equal" c_isEqual :: BasicMap -> BasicMap 
 
 
 isEqual :: (Given Ctx) => BasicMap -> BasicMap -> Bool
-isEqual = \bmap1' bmap2' -> trace "isEqual" $ 
+isEqual = \bmap1' bmap2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -1070,7 +1069,7 @@ foreign import ccall "isl_basic_map_is_subset" c_isSubset :: BasicMap -> BasicMa
 
 
 isSubset :: (Given Ctx) => BasicMap -> BasicMap -> Bool
-isSubset = \bmap1' bmap2' -> trace "isSubset" $ 
+isSubset = \bmap1' bmap2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -1083,7 +1082,7 @@ foreign import ccall "isl_basic_map_lexmax" c_lexmax :: BasicMap -> IO Map
 
 
 lexmax :: (Given Ctx) => BasicMap -> Map
-lexmax = \bmap' -> trace "lexmax" $ 
+lexmax = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -1095,7 +1094,7 @@ foreign import ccall "isl_basic_map_lexmin" c_lexmin :: BasicMap -> IO Map
 
 
 lexmin :: (Given Ctx) => BasicMap -> Map
-lexmin = \bmap' -> trace "lexmin" $ 
+lexmin = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -1107,7 +1106,7 @@ foreign import ccall "isl_basic_map_union" c_union :: BasicMap -> BasicMap -> IO
 
 
 union :: (Given Ctx) => BasicMap -> BasicMap -> Map
-union = \bmap1' bmap2' -> trace "union" $ 
+union = \bmap1' bmap2' -> 
     unsafePerformIO $ (return) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -1120,7 +1119,7 @@ foreign import ccall "isl_basic_map_affine_hull" c_affineHull :: BasicMap -> IO 
 
 
 affineHull :: (Given Ctx) => BasicMap -> BasicMap
-affineHull = \bmap' -> trace "affineHull" $ 
+affineHull = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -1132,7 +1131,7 @@ foreign import ccall "isl_basic_map_apply_domain" c_applyDomain :: BasicMap -> B
 
 
 applyDomain :: (Given Ctx) => BasicMap -> BasicMap -> BasicMap
-applyDomain = \bmap1' bmap2' -> trace "applyDomain" $ 
+applyDomain = \bmap1' bmap2' -> 
     unsafePerformIO $ (return) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -1145,7 +1144,7 @@ foreign import ccall "isl_basic_map_apply_range" c_applyRange :: BasicMap -> Bas
 
 
 applyRange :: (Given Ctx) => BasicMap -> BasicMap -> BasicMap
-applyRange = \bmap1' bmap2' -> trace "applyRange" $ 
+applyRange = \bmap1' bmap2' -> 
     unsafePerformIO $ (return) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -1158,7 +1157,7 @@ foreign import ccall "isl_basic_map_detect_equalities" c_detectEqualities :: Bas
 
 
 detectEqualities :: (Given Ctx) => BasicMap -> BasicMap
-detectEqualities = \bmap' -> trace "detectEqualities" $ 
+detectEqualities = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -1170,7 +1169,7 @@ foreign import ccall "isl_basic_map_flatten" c_flatten :: BasicMap -> IO BasicMa
 
 
 flatten :: (Given Ctx) => BasicMap -> BasicMap
-flatten = \bmap' -> trace "flatten" $ 
+flatten = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -1182,7 +1181,7 @@ foreign import ccall "isl_basic_map_flatten_domain" c_flattenDomain :: BasicMap 
 
 
 flattenDomain :: (Given Ctx) => BasicMap -> BasicMap
-flattenDomain = \bmap' -> trace "flattenDomain" $ 
+flattenDomain = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -1194,7 +1193,7 @@ foreign import ccall "isl_basic_map_flatten_range" c_flattenRange :: BasicMap ->
 
 
 flattenRange :: (Given Ctx) => BasicMap -> BasicMap
-flattenRange = \bmap' -> trace "flattenRange" $ 
+flattenRange = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -1206,7 +1205,7 @@ foreign import ccall "isl_basic_map_gist" c_gist :: BasicMap -> BasicMap -> IO B
 
 
 gist :: (Given Ctx) => BasicMap -> BasicMap -> BasicMap
-gist = \bmap' context' -> trace "gist" $ 
+gist = \bmap' context' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       context <- (return) context'
@@ -1219,7 +1218,7 @@ foreign import ccall "isl_basic_map_intersect" c_intersect :: BasicMap -> BasicM
 
 
 intersect :: (Given Ctx) => BasicMap -> BasicMap -> BasicMap
-intersect = \bmap1' bmap2' -> trace "intersect" $ 
+intersect = \bmap1' bmap2' -> 
     unsafePerformIO $ (return) =<< do
       bmap1 <- (return) bmap1'
       bmap2 <- (return) bmap2'
@@ -1232,7 +1231,7 @@ foreign import ccall "isl_basic_map_intersect_domain" c_intersectDomain :: Basic
 
 
 intersectDomain :: (Given Ctx) => BasicMap -> BasicSet -> BasicMap
-intersectDomain = \bmap' bset' -> trace "intersectDomain" $ 
+intersectDomain = \bmap' bset' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       bset <- (return) bset'
@@ -1245,7 +1244,7 @@ foreign import ccall "isl_basic_map_intersect_params" c_intersectParams :: Basic
 
 
 intersectParams :: (Given Ctx) => BasicMap -> BasicSet -> BasicMap
-intersectParams = \bmap' bset' -> trace "intersectParams" $ 
+intersectParams = \bmap' bset' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       bset <- (return) bset'
@@ -1258,7 +1257,7 @@ foreign import ccall "isl_basic_map_intersect_range" c_intersectRange :: BasicMa
 
 
 intersectRange :: (Given Ctx) => BasicMap -> BasicSet -> BasicMap
-intersectRange = \bmap' bset' -> trace "intersectRange" $ 
+intersectRange = \bmap' bset' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
       bset <- (return) bset'
@@ -1271,7 +1270,7 @@ foreign import ccall "isl_basic_map_reverse" c_reverse :: BasicMap -> IO BasicMa
 
 
 reverse :: (Given Ctx) => BasicMap -> BasicMap
-reverse = \bmap' -> trace "reverse" $ 
+reverse = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -1283,7 +1282,7 @@ foreign import ccall "isl_basic_map_sample" c_sample :: BasicMap -> IO BasicMap
 
 
 sample :: (Given Ctx) => BasicMap -> BasicMap
-sample = \bmap' -> trace "sample" $ 
+sample = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -1295,7 +1294,7 @@ foreign import ccall "isl_basic_map_deltas" c_deltas :: BasicMap -> IO BasicSet
 
 
 deltas :: (Given Ctx) => BasicMap -> BasicSet
-deltas = \bmap' -> trace "deltas" $ 
+deltas = \bmap' -> 
     unsafePerformIO $ (return) =<< do
       bmap <- (return) bmap'
 
@@ -1307,7 +1306,7 @@ foreign import ccall "isl_basic_map_read_from_str" c_readFromStr :: Ctx -> C.CSt
 
 
 readFromStr :: (Given Ctx) => String -> BasicMap
-readFromStr = \str' -> trace "readFromStr" $ 
+readFromStr = \str' -> 
     unsafePerformIO $ (return) =<< do
       str <- (C.newCString) str'
 

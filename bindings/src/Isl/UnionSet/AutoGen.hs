@@ -7,7 +7,6 @@ module Isl.UnionSet.AutoGen where
 import Control.Monad
 import Data.Reflection
 import Isl.Types
-import Debug.Trace
 
 import Foreign.C as C
 import Foreign.C.String as C
@@ -22,7 +21,7 @@ foreign import ccall "isl_union_set_contains" c_contains :: UnionSet -> Space ->
 
 
 contains :: (Given Ctx) => UnionSet -> Space -> Int
-contains = \uset' space' -> trace "contains" $ 
+contains = \uset' space' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       uset <- (return) uset'
       space <- (return) space'
@@ -35,7 +34,7 @@ foreign import ccall "isl_union_set_get_ctx" c_getCtx :: UnionSet -> IO Ctx
 
 
 getCtx :: (Given Ctx) => UnionSet -> Ctx
-getCtx = \uset' -> trace "getCtx" $ 
+getCtx = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -47,7 +46,7 @@ foreign import ccall "isl_union_set_dump" c_dump :: UnionSet -> IO ()
 
 
 dump :: (Given Ctx) => UnionSet -> ()
-dump = \uset' -> trace "dump" $ 
+dump = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -59,7 +58,7 @@ foreign import ccall "isl_union_set_is_params" c_isParams :: UnionSet -> IO C.CB
 
 
 isParams :: (Given Ctx) => UnionSet -> Bool
-isParams = \uset' -> trace "isParams" $ 
+isParams = \uset' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       uset <- (return) uset'
 
@@ -71,7 +70,7 @@ foreign import ccall "isl_union_set_lex_ge_union_set" c_lexGeUnionSet :: UnionSe
 
 
 lexGeUnionSet :: (Given Ctx) => UnionSet -> UnionSet -> UnionMap
-lexGeUnionSet = \uset1' uset2' -> trace "lexGeUnionSet" $ 
+lexGeUnionSet = \uset1' uset2' -> 
     unsafePerformIO $ (return) =<< do
       uset1 <- (return) uset1'
       uset2 <- (return) uset2'
@@ -84,7 +83,7 @@ foreign import ccall "isl_union_set_lex_gt_union_set" c_lexGtUnionSet :: UnionSe
 
 
 lexGtUnionSet :: (Given Ctx) => UnionSet -> UnionSet -> UnionMap
-lexGtUnionSet = \uset1' uset2' -> trace "lexGtUnionSet" $ 
+lexGtUnionSet = \uset1' uset2' -> 
     unsafePerformIO $ (return) =<< do
       uset1 <- (return) uset1'
       uset2 <- (return) uset2'
@@ -97,7 +96,7 @@ foreign import ccall "isl_union_set_lex_le_union_set" c_lexLeUnionSet :: UnionSe
 
 
 lexLeUnionSet :: (Given Ctx) => UnionSet -> UnionSet -> UnionMap
-lexLeUnionSet = \uset1' uset2' -> trace "lexLeUnionSet" $ 
+lexLeUnionSet = \uset1' uset2' -> 
     unsafePerformIO $ (return) =<< do
       uset1 <- (return) uset1'
       uset2 <- (return) uset2'
@@ -110,7 +109,7 @@ foreign import ccall "isl_union_set_lex_lt_union_set" c_lexLtUnionSet :: UnionSe
 
 
 lexLtUnionSet :: (Given Ctx) => UnionSet -> UnionSet -> UnionMap
-lexLtUnionSet = \uset1' uset2' -> trace "lexLtUnionSet" $ 
+lexLtUnionSet = \uset1' uset2' -> 
     unsafePerformIO $ (return) =<< do
       uset1 <- (return) uset1'
       uset2 <- (return) uset2'
@@ -123,7 +122,7 @@ foreign import ccall "isl_union_set_wrapped_domain_map" c_wrappedDomainMap :: Un
 
 
 wrappedDomainMap :: (Given Ctx) => UnionSet -> UnionMap
-wrappedDomainMap = \uset' -> trace "wrappedDomainMap" $ 
+wrappedDomainMap = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -135,7 +134,7 @@ foreign import ccall "isl_union_set_sample" c_sample :: UnionSet -> IO BasicSet
 
 
 sample :: (Given Ctx) => UnionSet -> BasicSet
-sample = \uset' -> trace "sample" $ 
+sample = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -147,7 +146,7 @@ foreign import ccall "isl_union_set_add_set" c_addSet :: UnionSet -> Set -> IO U
 
 
 addSet :: (Given Ctx) => UnionSet -> Set -> UnionSet
-addSet = \uset' set' -> trace "addSet" $ 
+addSet = \uset' set' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
       set <- (return) set'
@@ -160,7 +159,7 @@ foreign import ccall "isl_union_set_align_params" c_alignParams :: UnionSet -> S
 
 
 alignParams :: (Given Ctx) => UnionSet -> Space -> UnionSet
-alignParams = \uset' model' -> trace "alignParams" $ 
+alignParams = \uset' model' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
       model <- (return) model'
@@ -173,7 +172,7 @@ foreign import ccall "isl_union_set_coefficients" c_coefficients :: UnionSet -> 
 
 
 coefficients :: (Given Ctx) => UnionSet -> UnionSet
-coefficients = \bset' -> trace "coefficients" $ 
+coefficients = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -185,7 +184,7 @@ foreign import ccall "isl_union_set_copy" c_copy :: UnionSet -> IO UnionSet
 
 
 copy :: (Given Ctx) => UnionSet -> UnionSet
-copy = \uset' -> trace "copy" $ 
+copy = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -197,7 +196,7 @@ foreign import ccall "isl_union_set_empty" c_empty :: Space -> IO UnionSet
 
 
 empty :: (Given Ctx) => Space -> UnionSet
-empty = \space' -> trace "empty" $ 
+empty = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -209,7 +208,7 @@ foreign import ccall "isl_union_set_empty_ctx" c_emptyCtx :: Ctx -> IO UnionSet
 
 
 emptyCtx :: (Given Ctx) => UnionSet
-emptyCtx =  trace "emptyCtx" $ 
+emptyCtx =  
     unsafePerformIO $ (return) =<< do
 
       let ctx = given :: Ctx
@@ -220,7 +219,7 @@ foreign import ccall "isl_union_set_empty_space" c_emptySpace :: Space -> IO Uni
 
 
 emptySpace :: (Given Ctx) => Space -> UnionSet
-emptySpace = \space' -> trace "emptySpace" $ 
+emptySpace = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -232,7 +231,7 @@ foreign import ccall "isl_union_set_lift" c_lift :: UnionSet -> IO UnionSet
 
 
 lift :: (Given Ctx) => UnionSet -> UnionSet
-lift = \uset' -> trace "lift" $ 
+lift = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -244,7 +243,7 @@ foreign import ccall "isl_union_set_product" c_product :: UnionSet -> UnionSet -
 
 
 product :: (Given Ctx) => UnionSet -> UnionSet -> UnionSet
-product = \uset1' uset2' -> trace "product" $ 
+product = \uset1' uset2' -> 
     unsafePerformIO $ (return) =<< do
       uset1 <- (return) uset1'
       uset2 <- (return) uset2'
@@ -257,7 +256,7 @@ foreign import ccall "isl_union_set_project_out" c_projectOut :: UnionSet -> Dim
 
 
 projectOut :: (Given Ctx) => UnionSet -> DimType -> Int -> Int -> UnionSet
-projectOut = \uset' typ' first' n' -> trace "projectOut" $ 
+projectOut = \uset' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
       typ <- (return) typ'
@@ -272,7 +271,7 @@ foreign import ccall "isl_union_set_remove_divs" c_removeDivs :: UnionSet -> IO 
 
 
 removeDivs :: (Given Ctx) => UnionSet -> UnionSet
-removeDivs = \bset' -> trace "removeDivs" $ 
+removeDivs = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -284,7 +283,7 @@ foreign import ccall "isl_union_set_remove_redundancies" c_removeRedundancies ::
 
 
 removeRedundancies :: (Given Ctx) => UnionSet -> UnionSet
-removeRedundancies = \uset' -> trace "removeRedundancies" $ 
+removeRedundancies = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -296,7 +295,7 @@ foreign import ccall "isl_union_set_reset_user" c_resetUser :: UnionSet -> IO Un
 
 
 resetUser :: (Given Ctx) => UnionSet -> UnionSet
-resetUser = \uset' -> trace "resetUser" $ 
+resetUser = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -308,7 +307,7 @@ foreign import ccall "isl_union_set_simple_hull" c_simpleHull :: UnionSet -> IO 
 
 
 simpleHull :: (Given Ctx) => UnionSet -> UnionSet
-simpleHull = \uset' -> trace "simpleHull" $ 
+simpleHull = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -320,7 +319,7 @@ foreign import ccall "isl_union_set_solutions" c_solutions :: UnionSet -> IO Uni
 
 
 solutions :: (Given Ctx) => UnionSet -> UnionSet
-solutions = \bset' -> trace "solutions" $ 
+solutions = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -332,7 +331,7 @@ foreign import ccall "isl_union_set_to_str" c_toStr :: UnionSet -> IO C.CString
 
 
 toStr :: (Given Ctx) => UnionSet -> String
-toStr = \uset' -> trace "toStr" $ 
+toStr = \uset' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       uset <- (return) uset'
 
@@ -344,7 +343,7 @@ foreign import ccall "isl_union_set_isa_set" c_isaSet :: UnionSet -> IO C.CInt
 
 
 isaSet :: (Given Ctx) => UnionSet -> Int
-isaSet = \uset' -> trace "isaSet" $ 
+isaSet = \uset' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       uset <- (return) uset'
 
@@ -356,7 +355,7 @@ foreign import ccall "isl_union_set_is_disjoint" c_isDisjoint :: UnionSet -> Uni
 
 
 isDisjoint :: (Given Ctx) => UnionSet -> UnionSet -> Bool
-isDisjoint = \uset1' uset2' -> trace "isDisjoint" $ 
+isDisjoint = \uset1' uset2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       uset1 <- (return) uset1'
       uset2 <- (return) uset2'
@@ -369,7 +368,7 @@ foreign import ccall "isl_union_set_is_empty" c_isEmpty :: UnionSet -> IO C.CBoo
 
 
 isEmpty :: (Given Ctx) => UnionSet -> Bool
-isEmpty = \uset' -> trace "isEmpty" $ 
+isEmpty = \uset' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       uset <- (return) uset'
 
@@ -381,7 +380,7 @@ foreign import ccall "isl_union_set_is_equal" c_isEqual :: UnionSet -> UnionSet 
 
 
 isEqual :: (Given Ctx) => UnionSet -> UnionSet -> Bool
-isEqual = \uset1' uset2' -> trace "isEqual" $ 
+isEqual = \uset1' uset2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       uset1 <- (return) uset1'
       uset2 <- (return) uset2'
@@ -394,7 +393,7 @@ foreign import ccall "isl_union_set_is_strict_subset" c_isStrictSubset :: UnionS
 
 
 isStrictSubset :: (Given Ctx) => UnionSet -> UnionSet -> Bool
-isStrictSubset = \uset1' uset2' -> trace "isStrictSubset" $ 
+isStrictSubset = \uset1' uset2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       uset1 <- (return) uset1'
       uset2 <- (return) uset2'
@@ -407,7 +406,7 @@ foreign import ccall "isl_union_set_is_subset" c_isSubset :: UnionSet -> UnionSe
 
 
 isSubset :: (Given Ctx) => UnionSet -> UnionSet -> Bool
-isSubset = \uset1' uset2' -> trace "isSubset" $ 
+isSubset = \uset1' uset2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       uset1 <- (return) uset1'
       uset2 <- (return) uset2'
@@ -420,7 +419,7 @@ foreign import ccall "isl_union_set_as_set" c_asSet :: UnionSet -> IO Set
 
 
 asSet :: (Given Ctx) => UnionSet -> Set
-asSet = \uset' -> trace "asSet" $ 
+asSet = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -432,7 +431,7 @@ foreign import ccall "isl_union_set_extract_set" c_extractSet :: UnionSet -> Spa
 
 
 extractSet :: (Given Ctx) => UnionSet -> Space -> Set
-extractSet = \uset' space' -> trace "extractSet" $ 
+extractSet = \uset' space' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
       space <- (return) space'
@@ -445,7 +444,7 @@ foreign import ccall "isl_union_set_params" c_params :: UnionSet -> IO Set
 
 
 params :: (Given Ctx) => UnionSet -> Set
-params = \uset' -> trace "params" $ 
+params = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -457,7 +456,7 @@ foreign import ccall "isl_union_set_get_space" c_getSpace :: UnionSet -> IO Spac
 
 
 getSpace :: (Given Ctx) => UnionSet -> Space
-getSpace = \uset' -> trace "getSpace" $ 
+getSpace = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -469,7 +468,7 @@ foreign import ccall "isl_union_set_identity" c_identity :: UnionSet -> IO Union
 
 
 identity :: (Given Ctx) => UnionSet -> UnionMap
-identity = \uset' -> trace "identity" $ 
+identity = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -481,7 +480,7 @@ foreign import ccall "isl_union_set_unwrap" c_unwrap :: UnionSet -> IO UnionMap
 
 
 unwrap :: (Given Ctx) => UnionSet -> UnionMap
-unwrap = \uset' -> trace "unwrap" $ 
+unwrap = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -493,7 +492,7 @@ foreign import ccall "isl_union_set_affine_hull" c_affineHull :: UnionSet -> IO 
 
 
 affineHull :: (Given Ctx) => UnionSet -> UnionSet
-affineHull = \uset' -> trace "affineHull" $ 
+affineHull = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -505,7 +504,7 @@ foreign import ccall "isl_union_set_apply" c_apply :: UnionSet -> UnionMap -> IO
 
 
 apply :: (Given Ctx) => UnionSet -> UnionMap -> UnionSet
-apply = \uset' umap' -> trace "apply" $ 
+apply = \uset' umap' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
       umap <- (return) umap'
@@ -518,7 +517,7 @@ foreign import ccall "isl_union_set_coalesce" c_coalesce :: UnionSet -> IO Union
 
 
 coalesce :: (Given Ctx) => UnionSet -> UnionSet
-coalesce = \uset' -> trace "coalesce" $ 
+coalesce = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -530,7 +529,7 @@ foreign import ccall "isl_union_set_compute_divs" c_computeDivs :: UnionSet -> I
 
 
 computeDivs :: (Given Ctx) => UnionSet -> UnionSet
-computeDivs = \uset' -> trace "computeDivs" $ 
+computeDivs = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -542,7 +541,7 @@ foreign import ccall "isl_union_set_detect_equalities" c_detectEqualities :: Uni
 
 
 detectEqualities :: (Given Ctx) => UnionSet -> UnionSet
-detectEqualities = \uset' -> trace "detectEqualities" $ 
+detectEqualities = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -554,7 +553,7 @@ foreign import ccall "isl_union_set_drop_unused_params" c_dropUnusedParams :: Un
 
 
 dropUnusedParams :: (Given Ctx) => UnionSet -> UnionSet
-dropUnusedParams = \uset' -> trace "dropUnusedParams" $ 
+dropUnusedParams = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -566,7 +565,7 @@ foreign import ccall "isl_union_set_gist" c_gist :: UnionSet -> UnionSet -> IO U
 
 
 gist :: (Given Ctx) => UnionSet -> UnionSet -> UnionSet
-gist = \uset' context' -> trace "gist" $ 
+gist = \uset' context' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
       context <- (return) context'
@@ -579,7 +578,7 @@ foreign import ccall "isl_union_set_gist_params" c_gistParams :: UnionSet -> Set
 
 
 gistParams :: (Given Ctx) => UnionSet -> Set -> UnionSet
-gistParams = \uset' set' -> trace "gistParams" $ 
+gistParams = \uset' set' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
       set <- (return) set'
@@ -592,7 +591,7 @@ foreign import ccall "isl_union_set_intersect" c_intersect :: UnionSet -> UnionS
 
 
 intersect :: (Given Ctx) => UnionSet -> UnionSet -> UnionSet
-intersect = \uset1' uset2' -> trace "intersect" $ 
+intersect = \uset1' uset2' -> 
     unsafePerformIO $ (return) =<< do
       uset1 <- (return) uset1'
       uset2 <- (return) uset2'
@@ -605,7 +604,7 @@ foreign import ccall "isl_union_set_intersect_params" c_intersectParams :: Union
 
 
 intersectParams :: (Given Ctx) => UnionSet -> Set -> UnionSet
-intersectParams = \uset' set' -> trace "intersectParams" $ 
+intersectParams = \uset' set' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
       set <- (return) set'
@@ -618,7 +617,7 @@ foreign import ccall "isl_union_set_lexmax" c_lexmax :: UnionSet -> IO UnionSet
 
 
 lexmax :: (Given Ctx) => UnionSet -> UnionSet
-lexmax = \uset' -> trace "lexmax" $ 
+lexmax = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -630,7 +629,7 @@ foreign import ccall "isl_union_set_lexmin" c_lexmin :: UnionSet -> IO UnionSet
 
 
 lexmin :: (Given Ctx) => UnionSet -> UnionSet
-lexmin = \uset' -> trace "lexmin" $ 
+lexmin = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -642,7 +641,7 @@ foreign import ccall "isl_union_set_polyhedral_hull" c_polyhedralHull :: UnionSe
 
 
 polyhedralHull :: (Given Ctx) => UnionSet -> UnionSet
-polyhedralHull = \uset' -> trace "polyhedralHull" $ 
+polyhedralHull = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -654,7 +653,7 @@ foreign import ccall "isl_union_set_project_out_all_params" c_projectOutAllParam
 
 
 projectOutAllParams :: (Given Ctx) => UnionSet -> UnionSet
-projectOutAllParams = \uset' -> trace "projectOutAllParams" $ 
+projectOutAllParams = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -666,7 +665,7 @@ foreign import ccall "isl_union_set_subtract" c_subtract :: UnionSet -> UnionSet
 
 
 subtract :: (Given Ctx) => UnionSet -> UnionSet -> UnionSet
-subtract = \uset1' uset2' -> trace "subtract" $ 
+subtract = \uset1' uset2' -> 
     unsafePerformIO $ (return) =<< do
       uset1 <- (return) uset1'
       uset2 <- (return) uset2'
@@ -679,7 +678,7 @@ foreign import ccall "isl_union_set_union" c_union :: UnionSet -> UnionSet -> IO
 
 
 union :: (Given Ctx) => UnionSet -> UnionSet -> UnionSet
-union = \uset1' uset2' -> trace "union" $ 
+union = \uset1' uset2' -> 
     unsafePerformIO $ (return) =<< do
       uset1 <- (return) uset1'
       uset2 <- (return) uset2'
@@ -692,7 +691,7 @@ foreign import ccall "isl_union_set_universe" c_universe :: UnionSet -> IO Union
 
 
 universe :: (Given Ctx) => UnionSet -> UnionSet
-universe = \uset' -> trace "universe" $ 
+universe = \uset' -> 
     unsafePerformIO $ (return) =<< do
       uset <- (return) uset'
 
@@ -704,7 +703,7 @@ foreign import ccall "isl_union_set_from_basic_set" c_fromBasicSet :: BasicSet -
 
 
 fromBasicSet :: (Given Ctx) => BasicSet -> UnionSet
-fromBasicSet = \bset' -> trace "fromBasicSet" $ 
+fromBasicSet = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -716,7 +715,7 @@ foreign import ccall "isl_union_set_from_set" c_fromSet :: Set -> IO UnionSet
 
 
 fromSet :: (Given Ctx) => Set -> UnionSet
-fromSet = \set' -> trace "fromSet" $ 
+fromSet = \set' -> 
     unsafePerformIO $ (return) =<< do
       set <- (return) set'
 
@@ -728,7 +727,7 @@ foreign import ccall "isl_union_set_read_from_str" c_readFromStr :: Ctx -> C.CSt
 
 
 readFromStr :: (Given Ctx) => String -> UnionSet
-readFromStr = \str' -> trace "readFromStr" $ 
+readFromStr = \str' -> 
     unsafePerformIO $ (return) =<< do
       str <- (C.newCString) str'
 

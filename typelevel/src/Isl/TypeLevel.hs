@@ -1,54 +1,71 @@
--- | Type-level polyhedral constraints for ISL.
+-- | Type-level polyhedral DSL for ISL.
 --
--- This module re-exports everything needed to define polyhedra at the type
--- level and express proof obligations that the isl-plugin can solve at
--- compile time.
+-- Define polyhedra at the type level, verify properties at compile time
+-- via the isl-plugin, and evaluate to ISL objects at runtime via singletons.
 --
 -- = Quick start
 --
 -- @
 -- {\-# OPTIONS_GHC -fplugin=Isl.Plugin #-\}
 --
--- type Triangle = 'TBasicSet' '["N"] 2
---   '[ 'TDim' 0  '>=.' 'TConst' (''Pos' 0)
---    , 'TDim' 0  '<=.' 'TParam' "N"
---    , 'TDim' 1  '>=.' 'TConst' (''Pos' 0)
---    , 'TDim' 1  '<=.' 'TDim' 0
+-- type Triangle =
+--   '[ 'TDim (D 0)  '>=.' 'TConst ('Pos 0)
+--    , 'TDim (D 0)  '<=.' 'TParam (P "N")
+--    , 'TDim (D 1)  '>=.' 'TConst ('Pos 0)
+--    , 'TDim (D 1)  '<=.' 'TDim (D 0)
 --    ]
 --
+-- instance ParamIndex "N" where paramIndex = 0
+--
 -- -- The plugin proves this at compile time:
--- proof :: 'IslNonEmpty' '["N"] 2 (Constraints Triangle) => ()
--- proof = ()
+-- _ :: 'IslSubset' '["N"] 2 Triangle Rectangle => ()
+-- _ = ()
+--
+-- -- Singleton-carrying value, auto-derived:
+-- triangle :: 'SBasicSet' '["N"] 2 Triangle
+-- triangle = 'sBasicSet'
+--
+-- -- Evaluate to ISL object:
+-- main = runIslT $ do
+--   s <- 'evalSBasicSet' triangle
+--   ...
 -- @
 module Isl.TypeLevel
   ( -- * Type-level signed integers
     Z(..)
-    -- * Type-level expressions
+    -- * Bounded indices
+  , Idx(..), PIdx(..)
+  , D, P
+    -- * Type-level expressions (space-indexed)
   , TExpr(..)
   , type (+.), type (-.), type (*.)
-    -- * Type-level constraints
+    -- * Type-level constraints (space-indexed)
   , TConstraint(..)
   , type (>=.), type (<=.), type (==.)
     -- * Validation
-  , ValidExpr, ValidConstraint, AllValid, AllValidCSS
-  , CheckDim, CheckParam
-    -- * Type-level polyhedra (validated)
-  , TBasicSet(..)
-  , TSet(..)
-  , TBasicMap(..)
-    -- * Proof obligations (solved by isl-plugin)
-  , IslSubset
-  , IslNonEmpty
-  , IslEqual
-  , IslDomainOf
-    -- * Reification (type-level → value-level)
-  , KnownZ(..)
-  , ParamIndex(..)
-  , ReifyExpr(..)
-  , ReifyTConstraint(..)
-  , ReifyTConstraints(..)
-  , reifyBasicSet
-  , reifyBasicMap
+  , ValidExpr, AllValid, AllValidCSS, ValidConstraint
+    -- * Type-level polyhedra
+  , TBasicSet(..), TSet(..), TBasicMap(..), TMap(..)
+    -- * Set proof obligations (plugin-solved)
+  , IslSubset, IslNonEmpty, IslEqual, IslDomainOf
+    -- * Map proof obligations (plugin-solved)
+  , IslMapSubset, IslMapEqual, IslRangeOf, IslImageSubset
+    -- * Type-level computations (plugin-rewritten)
+  , IslIntersectSet, IslComplementSet, IslDifferenceSet
+  , IslApply, IslDomainTF, IslRangeTF
+  , IslCompose, IslReverseMap
+  , IslProjectOut, IslFromString
+  , IslToString, IslMapToString
+    -- * Singletons
+  , STExpr(..), STConstraint(..), STConstraints(..)
+    -- * Auto-derivation
+  , KnownZ(..), ParamIndex(..)
+  , KnownExpr(..), KnownConstraint(..), KnownConstraints(..)
+    -- * Singleton-carrying polyhedra
+  , SBasicSet(..), sBasicSet
+  , SBasicMap(..), sBasicMap
+    -- * Evaluation
+  , evalSBasicSet, evalSBasicMap
   ) where
 
 import Isl.TypeLevel.Expr

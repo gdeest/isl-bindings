@@ -6,35 +6,83 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 
--- | Singletons for reifying type-level polyhedral constraints to values.
+-- | Singleton-based type-level polyhedral DSL.
 --
--- These let you go from @'TBasicSet' ps n cs@ to a value-level
--- @PConjunction ps n@ that can be handed to ISL.
+-- = Architecture
+--
+-- 1. __Singletons__ ('STExpr', 'STConstraint', 'STConstraints') are value-level
+--    witnesses of type-level data.  They carry both the type index (visible to
+--    GHC for compile-time reasoning) and runtime evidence (for reification to
+--    ISL objects).
+--
+-- 2. __Auto-derivation__ ('KnownExpr', 'KnownConstraint', 'KnownConstraints')
+--    produces singletons from type-level info automatically — no manual
+--    construction needed.
+--
+-- 3. __Singleton-carrying polyhedra__ ('SBasicSet', 'SBasicMap') pair visible
+--    type-level constraints with their runtime singleton.  The smart
+--    constructors 'sBasicSet' and 'sBasicMap' build these from type-level info.
+--
+-- 4. __Evaluation__ ('evalSBasicSet', 'evalSBasicMap') reifies singleton-carrying
+--    polyhedra to ISL objects within 'IslT'.
+--
+-- = Usage
+--
+-- @
+-- type Triangle = '[ 'TDim (D 0) >=. 'TConst ('Pos 0), ... ]
+--
+-- triangle :: SBasicSet '["N"] 2 Triangle
+-- triangle = sBasicSet
+--
+-- main = runIslT $ do
+--   s <- evalSBasicSet triangle   -- ISL Set, ready to use
+--   ...
+-- @
 module Isl.TypeLevel.Sing
-  ( -- * Reification of type-level integers
-    KnownZ(..)
+  ( -- * Type-level integers
+    KnownZ(..), zValOf
     -- * Parameter name → index mapping
-  , ParamIndex(..)
-    -- * Reification of type-level expressions
-  , ReifyExpr(..)
-    -- * Reification of type-level constraints
-  , ReifyTConstraint(..)
-  , ReifyTConstraints(..)
-    -- * Full reification to ISL-ready types
-  , reifyBasicSet
-  , reifyBasicMap
+  , ParamIndex(..), paramIndexOf
+    -- * Singletons
+  , STExpr(..)
+  , STConstraint(..)
+  , STConstraints(..)
+    -- * Auto-derivation: type-level → singleton
+  , KnownExpr(..)
+  , KnownConstraint(..)
+  , KnownConstraints(..)
+    -- * Singleton-carrying polyhedra
+  , SBasicSet(..), sBasicSet
+  , SBasicMap(..), sBasicMap
+    -- * Evaluation: singleton → ISL object
+  , evalSBasicSet
+  , evalSBasicMap
+    -- * Singleton reification (internal, used by evaluation)
+  , reifySTConstraintsSet
+  , reifySTConstraintsMap
   ) where
 
+import Data.Kind (Type)
+import Control.Monad.IO.Class (MonadIO)
 import Data.Proxy (Proxy(..))
-import GHC.TypeLits (Nat, KnownNat, natVal, Symbol, KnownSymbol, symbolVal, type (+))
+import GHC.TypeLits (Nat, KnownNat, natVal, Symbol, KnownSymbol, type (+))
 
 import Isl.TypeLevel.Expr
 import Isl.TypeLevel.Constraint (TConstraint(..), AllValid)
 import Isl.HighLevel.Constraints (Expr(..), Constraint(..), Conjunction(..), SetIx(..), MapIx(..))
-import Isl.HighLevel.Pure (PConjunction(..), PMapConjunction(..))
-import Isl.HighLevel.Params (KnownSymbols, symbolVals)
+import Isl.HighLevel.Params (KnownSymbols, Length)
+import Isl.HighLevel.Set (Set)
+import Isl.HighLevel.Map (Map)
+import Isl.Monad (IslT)
+import qualified Isl.HighLevel.BasicSet as BS
+import qualified Isl.HighLevel.Set as SetOp
+import qualified Isl.HighLevel.BasicMap as BM
+import qualified Isl.HighLevel.Map as MapOp
 
--- * Signed integer reification
+
+-- =========================================================================
+-- Type-level integer reification
+-- =========================================================================
 
 class KnownZ (z :: Z) where
   zVal :: Integer
@@ -45,93 +93,219 @@ instance KnownNat n => KnownZ ('Pos n) where
 instance KnownNat n => KnownZ ('Neg n) where
   zVal = negate (fromIntegral (natVal (Proxy @n)))
 
+zValOf :: forall z. KnownZ z => Proxy z -> Integer
+zValOf _ = zVal @z
 
--- * Expression reification (generic over the index type)
 
--- | Reify a type-level expression to a value-level 'Expr'.
---
--- The @ix@ parameter determines what kind of index variables we produce
--- ('SetIx' for sets, 'MapIx' for maps).
-class ReifyExpr (e :: TExpr) ix where
-  reifyExpr :: Expr ix
-
--- Dimension → SetDim for sets
-instance KnownNat d => ReifyExpr ('TDim d) SetIx where
-  reifyExpr = Ix (SetDim (fromIntegral (natVal (Proxy @d))))
-
--- Dimension → InDim for maps (dimensions are input dims by default;
--- output dims need explicit shifting, handled separately)
-instance KnownNat d => ReifyExpr ('TDim d) MapIx where
-  reifyExpr = Ix (InDim (fromIntegral (natVal (Proxy @d))))
-
--- Parameter by name → for reification we need the parameter's positional
--- index within the parameter list. This is resolved externally (by the
--- plugin or by the caller providing the right context). For now, we
--- provide instances that work with a 'ParamIndex' class that maps
--- Symbol → Nat position.
+-- =========================================================================
+-- Parameter name → index mapping
+-- =========================================================================
 
 -- | Maps a parameter name to its positional index in a parameter list.
--- Users can derive this from 'KnownSymbols', or the plugin can solve it.
+-- Users must provide instances for each parameter name they use.
+--
+-- @
+-- instance ParamIndex "N" where paramIndex = 0
+-- instance ParamIndex "M" where paramIndex = 1
+-- @
 class ParamIndex (s :: Symbol) where
   paramIndex :: Int
 
-instance ParamIndex s => ReifyExpr ('TParam s) SetIx where
-  reifyExpr = Ix (SetParam (paramIndex @s))
-
-instance ParamIndex s => ReifyExpr ('TParam s) MapIx where
-  reifyExpr = Ix (MapParam (paramIndex @s))
-
-instance KnownZ z => ReifyExpr ('TConst z) ix where
-  reifyExpr = Constant (zVal @z)
-
-instance (ReifyExpr a ix, ReifyExpr b ix) => ReifyExpr ('TAdd a b) ix where
-  reifyExpr = Add (reifyExpr @a @ix) (reifyExpr @b @ix)
-
-instance (KnownZ k, ReifyExpr a ix) => ReifyExpr ('TMul k a) ix where
-  reifyExpr = Mul (zVal @k) (reifyExpr @a @ix)
+paramIndexOf :: forall s. ParamIndex s => Proxy s -> Int
+paramIndexOf _ = paramIndex @s
 
 
--- * Constraint reification
+-- =========================================================================
+-- Singletons
+-- =========================================================================
 
-class ReifyTConstraint (c :: TConstraint) ix where
-  reifyTConstraint :: Constraint ix
+-- | Singleton for a type-level expression @e :: TExpr ps n@.
+data STExpr (ps :: [Symbol]) (n :: Nat) (e :: TExpr ps n) where
+  STDim   :: KnownNat d
+          => Proxy d -> STExpr ps n ('TDim ('MkIdx d))
+  STParam :: (KnownSymbol s, ParamIndex s)
+          => Proxy s -> STExpr ps n ('TParam ('MkPIdx s))
+  STConst :: KnownZ z
+          => Proxy z -> STExpr ps n ('TConst z)
+  STAdd   :: STExpr ps n a -> STExpr ps n b
+          -> STExpr ps n ('TAdd a b)
+  STMul   :: KnownZ k
+          => Proxy k -> STExpr ps n a -> STExpr ps n ('TMul k a)
+  STFloorDiv :: KnownZ d
+             => STExpr ps n a -> Proxy d -> STExpr ps n ('TFloorDiv a d)
 
-instance ReifyExpr e ix => ReifyTConstraint ('TEq e) ix where
-  reifyTConstraint = EqualityConstraint (reifyExpr @e @ix)
+-- | Singleton for a type-level constraint.
+data STConstraint (ps :: [Symbol]) (n :: Nat) (c :: TConstraint ps n) where
+  STEq :: STExpr ps n e -> STConstraint ps n ('TEq e)
+  STGe :: STExpr ps n e -> STConstraint ps n ('TGe e)
 
-instance ReifyExpr e ix => ReifyTConstraint ('TGe e) ix where
-  reifyTConstraint = InequalityConstraint (reifyExpr @e @ix)
-
-
--- * Constraint list reification
-
-class ReifyTConstraints (cs :: [TConstraint]) ix where
-  reifyTConstraints :: [Constraint ix]
-
-instance ReifyTConstraints '[] ix where
-  reifyTConstraints = []
-
-instance (ReifyTConstraint c ix, ReifyTConstraints cs ix) =>
-         ReifyTConstraints (c ': cs) ix where
-  reifyTConstraints = reifyTConstraint @c @ix : reifyTConstraints @cs @ix
+-- | Singleton for a type-level constraint list.
+data STConstraints (ps :: [Symbol]) (n :: Nat) (cs :: [TConstraint ps n]) where
+  STNil  :: STConstraints ps n '[]
+  STCons :: STConstraint ps n c -> STConstraints ps n cs
+         -> STConstraints ps n (c ': cs)
 
 
--- * Full reification
+-- =========================================================================
+-- Auto-derivation: produce singletons from type-level info
+-- =========================================================================
 
--- | Reify a type-level basic set to a value-level 'PConjunction'.
+-- | Automatically produce a singleton for a type-level expression.
+class KnownExpr (ps :: [Symbol]) (n :: Nat) (e :: TExpr ps n) where
+  knownExpr :: STExpr ps n e
+
+instance KnownNat d => KnownExpr ps n ('TDim ('MkIdx d)) where
+  knownExpr = STDim Proxy
+
+instance (KnownSymbol s, ParamIndex s) => KnownExpr ps n ('TParam ('MkPIdx s)) where
+  knownExpr = STParam Proxy
+
+instance KnownZ z => KnownExpr ps n ('TConst z) where
+  knownExpr = STConst Proxy
+
+instance (KnownExpr ps n a, KnownExpr ps n b) => KnownExpr ps n ('TAdd a b) where
+  knownExpr = STAdd knownExpr knownExpr
+
+instance (KnownZ k, KnownExpr ps n a) => KnownExpr ps n ('TMul k a) where
+  knownExpr = STMul Proxy knownExpr
+
+instance (KnownExpr ps n a, KnownZ d) => KnownExpr ps n ('TFloorDiv a d) where
+  knownExpr = STFloorDiv knownExpr Proxy
+
+-- | Automatically produce a singleton for a type-level constraint.
+class KnownConstraint (ps :: [Symbol]) (n :: Nat) (c :: TConstraint ps n) where
+  knownConstraint :: STConstraint ps n c
+
+instance KnownExpr ps n e => KnownConstraint ps n ('TEq e) where
+  knownConstraint = STEq knownExpr
+
+instance KnownExpr ps n e => KnownConstraint ps n ('TGe e) where
+  knownConstraint = STGe knownExpr
+
+-- | Automatically produce a singleton for a type-level constraint list.
+class KnownConstraints (ps :: [Symbol]) (n :: Nat) (cs :: [TConstraint ps n]) where
+  knownConstraints :: STConstraints ps n cs
+
+instance KnownConstraints ps n '[] where
+  knownConstraints = STNil
+
+instance (KnownConstraint ps n c, KnownConstraints ps n cs) =>
+         KnownConstraints ps n (c ': cs) where
+  knownConstraints = STCons knownConstraint knownConstraints
+
+
+-- =========================================================================
+-- Singleton-carrying polyhedra
+-- =========================================================================
+
+-- | A basic set whose type-level constraints @cs@ are visible to GHC
+-- (enabling compile-time proof obligations like 'IslSubset') and whose
+-- runtime singleton enables reification to ISL objects.
+data SBasicSet (ps :: [Symbol]) (n :: Nat) (cs :: [TConstraint ps n]) where
+  MkSBasicSet :: STConstraints ps n cs -> SBasicSet ps n cs
+
+-- | Build an 'SBasicSet' from type-level info.  The singleton is
+-- auto-derived; 'AllValid' ensures constraint well-formedness.
 --
 -- @
--- type MySet = TBasicSet '["N"] 2 '[...]
--- mySet :: PConjunction '["N"] 2
--- mySet = reifyBasicSet @'["N"] @2 @'[...]
+-- type Triangle = '[ 'TDim (D 0) >=. 'TConst ('Pos 0), ... ]
+-- triangle :: SBasicSet '["N"] 2 Triangle
+-- triangle = sBasicSet
 -- @
-reifyBasicSet
-  :: forall ps n cs. (AllValid ps n cs, ReifyTConstraints cs SetIx)
-  => PConjunction ps n
-reifyBasicSet = PConjunction (Conjunction (reifyTConstraints @cs @SetIx))
+sBasicSet :: forall ps n cs.
+  (AllValid ps n cs, KnownConstraints ps n cs)
+  => SBasicSet ps n cs
+sBasicSet = MkSBasicSet knownConstraints
 
--- | Reify a type-level basic map to a value-level 'PMapConjunction'.
-reifyBasicMap
-  :: forall ps ni no cs. (AllValid ps (ni + no) cs, ReifyTConstraints cs MapIx)
-  => PMapConjunction ps ni no
-reifyBasicMap = PMapConjunction (Conjunction (reifyTConstraints @cs @MapIx))
+-- | A basic map whose type-level constraints are visible and singleton-backed.
+type SBasicMap :: forall (ps :: [Symbol]) -> forall (ni :: Nat) -> forall (no :: Nat) -> [TConstraint ps (ni + no)] -> Type
+data SBasicMap ps ni no cs where
+  MkSBasicMap :: STConstraints ps (ni + no) cs -> SBasicMap ps ni no cs
+
+-- | Build an 'SBasicMap' from type-level info.
+sBasicMap :: forall ps ni no cs.
+  (AllValid ps (ni + no) cs, KnownConstraints ps (ni + no) cs)
+  => SBasicMap ps ni no cs
+sBasicMap = MkSBasicMap knownConstraints
+
+
+-- =========================================================================
+-- Evaluation: singleton-carrying polyhedra → ISL objects
+-- =========================================================================
+
+-- | Evaluate a singleton-carrying basic set to an ISL 'Set'.
+evalSBasicSet :: forall ps n cs m.
+  (MonadIO m, KnownNat n, KnownSymbols ps, KnownNat (Length ps))
+  => SBasicSet ps n cs -> IslT m (Set ps n)
+evalSBasicSet (MkSBasicSet sing) = do
+  let conj = Conjunction (reifySTConstraintsSet sing)
+  bs <- BS.toBasicSet @ps @n conj
+  SetOp.fromBasicSet bs
+
+-- | Evaluate a singleton-carrying basic map to an ISL 'Map'.
+evalSBasicMap :: forall ps ni no cs m.
+  (MonadIO m, KnownNat ni, KnownNat no, KnownSymbols ps, KnownNat (Length ps))
+  => SBasicMap ps ni no cs -> IslT m (Map ps ni no)
+evalSBasicMap (MkSBasicMap sing) = do
+  let nIn = fromIntegral (natVal (Proxy @ni))
+      conj = Conjunction (reifySTConstraintsMapSplit nIn sing)
+  bm <- BM.toBasicMap @ps @_ @ni @no conj
+  MapOp.fromBasicMap bm
+
+
+-- =========================================================================
+-- Singleton reification (internal)
+-- =========================================================================
+
+reifySTExprSet :: STExpr ps n e -> Expr SetIx
+reifySTExprSet (STDim p)        = Ix (SetDim (fromIntegral (natVal p)))
+reifySTExprSet (STParam p)      = Ix (SetParam (paramIndexOf p))
+reifySTExprSet (STConst p)      = Constant (zValOf p)
+reifySTExprSet (STAdd a b)      = Add (reifySTExprSet a) (reifySTExprSet b)
+reifySTExprSet (STMul p a)      = Mul (zValOf p) (reifySTExprSet a)
+reifySTExprSet (STFloorDiv a p) = FloorDiv (reifySTExprSet a) (zValOf p)
+
+reifySTExprMap :: STExpr ps n e -> Expr MapIx
+reifySTExprMap (STDim p)        = Ix (InDim (fromIntegral (natVal p)))
+reifySTExprMap (STParam p)      = Ix (MapParam (paramIndexOf p))
+reifySTExprMap (STConst p)      = Constant (zValOf p)
+reifySTExprMap (STAdd a b)      = Add (reifySTExprMap a) (reifySTExprMap b)
+reifySTExprMap (STMul p a)      = Mul (zValOf p) (reifySTExprMap a)
+reifySTExprMap (STFloorDiv a p) = FloorDiv (reifySTExprMap a) (zValOf p)
+
+reifySTConstraintsSet :: STConstraints ps n cs -> [Constraint SetIx]
+reifySTConstraintsSet STNil = []
+reifySTConstraintsSet (STCons (STEq e) cs) =
+  EqualityConstraint (reifySTExprSet e) : reifySTConstraintsSet cs
+reifySTConstraintsSet (STCons (STGe e) cs) =
+  InequalityConstraint (reifySTExprSet e) : reifySTConstraintsSet cs
+
+reifySTConstraintsMap :: STConstraints ps n cs -> [Constraint MapIx]
+reifySTConstraintsMap STNil = []
+reifySTConstraintsMap (STCons (STEq e) cs) =
+  EqualityConstraint (reifySTExprMap e) : reifySTConstraintsMap cs
+reifySTConstraintsMap (STCons (STGe e) cs) =
+  InequalityConstraint (reifySTExprMap e) : reifySTConstraintsMap cs
+
+-- | Reify constraints for a map, splitting dims at @nIn@:
+-- dims 0..nIn-1 → InDim, nIn.. → OutDim.
+reifySTConstraintsMapSplit :: Int -> STConstraints ps n cs -> [Constraint MapIx]
+reifySTConstraintsMapSplit _   STNil = []
+reifySTConstraintsMapSplit nIn (STCons (STEq e) cs) =
+  EqualityConstraint (reifySTExprMapSplit nIn e) : reifySTConstraintsMapSplit nIn cs
+reifySTConstraintsMapSplit nIn (STCons (STGe e) cs) =
+  InequalityConstraint (reifySTExprMapSplit nIn e) : reifySTConstraintsMapSplit nIn cs
+
+-- | Reify an expression for a map space, splitting dim indices at @nIn@.
+reifySTExprMapSplit :: Int -> STExpr ps n e -> Expr MapIx
+reifySTExprMapSplit nIn (STDim p) =
+  let d = fromIntegral (natVal p)
+  in Ix $ if d < nIn then InDim d else OutDim (d - nIn)
+reifySTExprMapSplit _   (STParam p) = Ix (MapParam (paramIndexOf p))
+reifySTExprMapSplit _   (STConst p) = Constant (zValOf p)
+reifySTExprMapSplit nIn (STAdd a b) =
+  Add (reifySTExprMapSplit nIn a) (reifySTExprMapSplit nIn b)
+reifySTExprMapSplit nIn (STMul p a) =
+  Mul (zValOf p) (reifySTExprMapSplit nIn a)
+reifySTExprMapSplit nIn (STFloorDiv a p) =
+  FloorDiv (reifySTExprMapSplit nIn a) (zValOf p)

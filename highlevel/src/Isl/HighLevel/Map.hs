@@ -30,6 +30,7 @@ import Isl.Instances ()
 import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, withCtx, freeM)
 import qualified Isl.Foreach as Foreach
 import qualified Isl.Map.AutoGen as M
+import qualified Isl.Set.AutoGen as S
 
 -- | Owned, parameter- and dimension-indexed Map.
 -- Linear — must be consumed exactly once.
@@ -101,6 +102,100 @@ coalesce = unsafeCoerce go
   where
     go :: Map ps ni no -> IslT m (Map ps ni no)
     go (Map m) = Map <$> withCtx (M.coalesce m)
+
+-- Reverse
+
+reverse :: forall m ps ni no. MonadIO m => Map ps ni no %1 -> IslT m (Map ps no ni)
+reverse = unsafeCoerce go
+  where
+    go :: Map ps ni no -> IslT m (Map ps no ni)
+    go (Map m) = Map <$> withCtx (M.reverse m)
+
+-- Complement
+
+complement :: forall m ps ni no. MonadIO m => Map ps ni no %1 -> IslT m (Map ps ni no)
+complement = unsafeCoerce go
+  where
+    go :: Map ps ni no -> IslT m (Map ps ni no)
+    go (Map m) = Map <$> withCtx (M.complement m)
+
+-- Apply (set through map)
+
+apply :: forall m ps ni no. MonadIO m
+  => Map ps ni no %1 -> Set ps ni %1 -> IslT m (Set ps no)
+apply = unsafeCoerce go
+  where
+    go :: Map ps ni no -> Set ps ni -> IslT m (Set ps no)
+    go (Map m) (Set s) = Set <$> withCtx (S.apply s m)
+
+-- Composition
+
+applyRange :: forall m ps ni k no. MonadIO m
+  => Map ps ni k %1 -> Map ps k no %1 -> IslT m (Map ps ni no)
+applyRange = unsafeCoerce go
+  where
+    go :: Map ps ni k -> Map ps k no -> IslT m (Map ps ni no)
+    go (Map m1) (Map m2) = Map <$> withCtx (M.applyRange m1 m2)
+
+applyDomain :: forall m ps ni k no. MonadIO m
+  => Map ps ni k %1 -> Map ps no ni %1 -> IslT m (Map ps no k)
+applyDomain = unsafeCoerce go
+  where
+    go :: Map ps ni k -> Map ps no ni -> IslT m (Map ps no k)
+    go (Map m1) (Map m2) = Map <$> withCtx (M.applyDomain m1 m2)
+
+-- Domain/range restriction
+
+intersectDomain :: forall m ps ni no. MonadIO m
+  => Map ps ni no %1 -> Set ps ni %1 -> IslT m (Map ps ni no)
+intersectDomain = unsafeCoerce go
+  where
+    go :: Map ps ni no -> Set ps ni -> IslT m (Map ps ni no)
+    go (Map m) (Set s) = Map <$> withCtx (M.intersectDomain m s)
+
+intersectRange :: forall m ps ni no. MonadIO m
+  => Map ps ni no %1 -> Set ps no %1 -> IslT m (Map ps ni no)
+intersectRange = unsafeCoerce go
+  where
+    go :: Map ps ni no -> Set ps no -> IslT m (Map ps ni no)
+    go (Map m) (Set s) = Map <$> withCtx (M.intersectRange m s)
+
+subtractDomain :: forall m ps ni no. MonadIO m
+  => Map ps ni no %1 -> Set ps ni %1 -> IslT m (Map ps ni no)
+subtractDomain = unsafeCoerce go
+  where
+    go :: Map ps ni no -> Set ps ni -> IslT m (Map ps ni no)
+    go (Map m) (Set s) = Map <$> withCtx (M.subtractDomain m s)
+
+subtractRange :: forall m ps ni no. MonadIO m
+  => Map ps ni no %1 -> Set ps no %1 -> IslT m (Map ps ni no)
+subtractRange = unsafeCoerce go
+  where
+    go :: Map ps ni no -> Set ps no -> IslT m (Map ps ni no)
+    go (Map m) (Set s) = Map <$> withCtx (M.subtractRange m s)
+
+-- Products
+
+flatProduct :: forall m ps ni1 no1 ni2 no2. MonadIO m
+  => Map ps ni1 no1 %1 -> Map ps ni2 no2 %1 -> IslT m (Map ps (ni1 + ni2) (no1 + no2))
+flatProduct = unsafeCoerce go
+  where
+    go :: Map ps ni1 no1 -> Map ps ni2 no2 -> IslT m (Map ps (ni1 + ni2) (no1 + no2))
+    go (Map m1) (Map m2) = Map <$> withCtx (M.flatProduct m1 m2)
+
+flatRangeProduct :: forall m ps ni no1 no2. MonadIO m
+  => Map ps ni no1 %1 -> Map ps ni no2 %1 -> IslT m (Map ps ni (no1 + no2))
+flatRangeProduct = unsafeCoerce go
+  where
+    go :: Map ps ni no1 -> Map ps ni no2 -> IslT m (Map ps ni (no1 + no2))
+    go (Map m1) (Map m2) = Map <$> withCtx (M.flatRangeProduct m1 m2)
+
+flatDomainProduct :: forall m ps ni1 ni2 no. MonadIO m
+  => Map ps ni1 no %1 -> Map ps ni2 no %1 -> IslT m (Map ps (ni1 + ni2) no)
+flatDomainProduct = unsafeCoerce go
+  where
+    go :: Map ps ni1 no -> Map ps ni2 no -> IslT m (Map ps (ni1 + ni2) no)
+    go (Map m1) (Map m2) = Map <$> withCtx (M.flatDomainProduct m1 m2)
 
 -- Predicates (borrowing)
 

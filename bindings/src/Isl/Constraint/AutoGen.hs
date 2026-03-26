@@ -7,7 +7,6 @@ module Isl.Constraint.AutoGen where
 import Control.Monad
 import Data.Reflection
 import Isl.Types
-import Debug.Trace
 
 import Foreign.C as C
 import Foreign.C.String as C
@@ -22,7 +21,7 @@ foreign import ccall "isl_constraint_cmp_last_non_zero" c_cmpLastNonZero :: Cons
 
 
 cmpLastNonZero :: (Given Ctx) => Constraint -> Constraint -> Int
-cmpLastNonZero = \c1' c2' -> trace "cmpLastNonZero" $ 
+cmpLastNonZero = \c1' c2' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       c1 <- (return) c1'
       c2 <- (return) c2'
@@ -35,7 +34,7 @@ foreign import ccall "isl_constraint_involves_dims" c_involvesDims :: Constraint
 
 
 involvesDims :: (Given Ctx) => Constraint -> DimType -> Int -> Int -> Int
-involvesDims = \constraint' typ' first' n' -> trace "involvesDims" $ 
+involvesDims = \constraint' typ' first' n' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       constraint <- (return) constraint'
       typ <- (return) typ'
@@ -50,7 +49,7 @@ foreign import ccall "isl_constraint_plain_cmp" c_plainCmp :: Constraint -> Cons
 
 
 plainCmp :: (Given Ctx) => Constraint -> Constraint -> Int
-plainCmp = \c1' c2' -> trace "plainCmp" $ 
+plainCmp = \c1' c2' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       c1 <- (return) c1'
       c2 <- (return) c2'
@@ -63,7 +62,7 @@ foreign import ccall "isl_constraint_get_ctx" c_getCtx :: Constraint -> IO Ctx
 
 
 getCtx :: (Given Ctx) => Constraint -> Ctx
-getCtx = \c' -> trace "getCtx" $ 
+getCtx = \c' -> 
     unsafePerformIO $ (return) =<< do
       c <- (return) c'
 
@@ -75,7 +74,7 @@ foreign import ccall "isl_constraint_dump" c_dump :: Constraint -> IO ()
 
 
 dump :: (Given Ctx) => Constraint -> ()
-dump = \c' -> trace "dump" $ 
+dump = \c' -> 
     unsafePerformIO $ (return) =<< do
       c <- (return) c'
 
@@ -87,7 +86,7 @@ foreign import ccall "isl_constraint_get_dim_name" c_getDimName :: Constraint ->
 
 
 getDimName :: (Given Ctx) => Constraint -> DimType -> Int -> String
-getDimName = \constraint' typ' pos' -> trace "getDimName" $ 
+getDimName = \constraint' typ' pos' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       constraint <- (return) constraint'
       typ <- (return) typ'
@@ -101,7 +100,7 @@ foreign import ccall "isl_constraint_is_div_constraint" c_isDivConstraint :: Con
 
 
 isDivConstraint :: (Given Ctx) => Constraint -> Bool
-isDivConstraint = \constraint' -> trace "isDivConstraint" $ 
+isDivConstraint = \constraint' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       constraint <- (return) constraint'
 
@@ -113,7 +112,7 @@ foreign import ccall "isl_constraint_is_equal" c_isEqual :: Constraint -> Constr
 
 
 isEqual :: (Given Ctx) => Constraint -> Constraint -> Bool
-isEqual = \constraint1' constraint2' -> trace "isEqual" $ 
+isEqual = \constraint1' constraint2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       constraint1 <- (return) constraint1'
       constraint2 <- (return) constraint2'
@@ -126,7 +125,7 @@ foreign import ccall "isl_constraint_is_equality" c_isEquality :: Constraint -> 
 
 
 isEquality :: (Given Ctx) => Constraint -> Bool
-isEquality = \constraint' -> trace "isEquality" $ 
+isEquality = \constraint' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       constraint <- (return) constraint'
 
@@ -138,7 +137,7 @@ foreign import ccall "isl_constraint_is_lower_bound" c_isLowerBound :: Constrain
 
 
 isLowerBound :: (Given Ctx) => Constraint -> DimType -> Int -> Bool
-isLowerBound = \constraint' typ' pos' -> trace "isLowerBound" $ 
+isLowerBound = \constraint' typ' pos' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       constraint <- (return) constraint'
       typ <- (return) typ'
@@ -152,7 +151,7 @@ foreign import ccall "isl_constraint_is_upper_bound" c_isUpperBound :: Constrain
 
 
 isUpperBound :: (Given Ctx) => Constraint -> DimType -> Int -> Bool
-isUpperBound = \constraint' typ' pos' -> trace "isUpperBound" $ 
+isUpperBound = \constraint' typ' pos' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       constraint <- (return) constraint'
       typ <- (return) typ'
@@ -166,7 +165,7 @@ foreign import ccall "isl_constraint_get_space" c_getSpace :: Constraint -> IO S
 
 
 getSpace :: (Given Ctx) => Constraint -> Space
-getSpace = \constraint' -> trace "getSpace" $ 
+getSpace = \constraint' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
 
@@ -178,7 +177,7 @@ foreign import ccall "isl_constraint_get_coefficient_val" c_getCoefficientVal ::
 
 
 getCoefficientVal :: (Given Ctx) => Constraint -> DimType -> Int -> Val
-getCoefficientVal = \constraint' typ' pos' -> trace "getCoefficientVal" $ 
+getCoefficientVal = \constraint' typ' pos' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
       typ <- (return) typ'
@@ -192,7 +191,7 @@ foreign import ccall "isl_constraint_get_constant_val" c_getConstantVal :: Const
 
 
 getConstantVal :: (Given Ctx) => Constraint -> Val
-getConstantVal = \constraint' -> trace "getConstantVal" $ 
+getConstantVal = \constraint' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
 
@@ -204,7 +203,7 @@ foreign import ccall "isl_constraint_get_aff" c_getAff :: Constraint -> IO Aff
 
 
 getAff :: (Given Ctx) => Constraint -> Aff
-getAff = \constraint' -> trace "getAff" $ 
+getAff = \constraint' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
 
@@ -216,7 +215,7 @@ foreign import ccall "isl_constraint_get_bound" c_getBound :: Constraint -> DimT
 
 
 getBound :: (Given Ctx) => Constraint -> DimType -> Int -> Aff
-getBound = \constraint' typ' pos' -> trace "getBound" $ 
+getBound = \constraint' typ' pos' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
       typ <- (return) typ'
@@ -230,7 +229,7 @@ foreign import ccall "isl_constraint_get_div" c_getDiv :: Constraint -> C.CInt -
 
 
 getDiv :: (Given Ctx) => Constraint -> Int -> Aff
-getDiv = \constraint' pos' -> trace "getDiv" $ 
+getDiv = \constraint' pos' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
       pos <- (return . fromIntegral) pos'
@@ -243,7 +242,7 @@ foreign import ccall "isl_constraint_get_local_space" c_getLocalSpace :: Constra
 
 
 getLocalSpace :: (Given Ctx) => Constraint -> LocalSpace
-getLocalSpace = \constraint' -> trace "getLocalSpace" $ 
+getLocalSpace = \constraint' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
 
@@ -255,7 +254,7 @@ foreign import ccall "isl_constraint_alloc_equality" c_allocEquality :: LocalSpa
 
 
 allocEquality :: (Given Ctx) => LocalSpace -> Constraint
-allocEquality = \ls' -> trace "allocEquality" $ 
+allocEquality = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -267,7 +266,7 @@ foreign import ccall "isl_constraint_alloc_inequality" c_allocInequality :: Loca
 
 
 allocInequality :: (Given Ctx) => LocalSpace -> Constraint
-allocInequality = \ls' -> trace "allocInequality" $ 
+allocInequality = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -279,7 +278,7 @@ foreign import ccall "isl_constraint_copy" c_copy :: Constraint -> IO Constraint
 
 
 copy :: (Given Ctx) => Constraint -> Constraint
-copy = \c' -> trace "copy" $ 
+copy = \c' -> 
     unsafePerformIO $ (return) =<< do
       c <- (return) c'
 
@@ -291,7 +290,7 @@ foreign import ccall "isl_constraint_negate" c_negate :: Constraint -> IO Constr
 
 
 negate :: (Given Ctx) => Constraint -> Constraint
-negate = \constraint' -> trace "negate" $ 
+negate = \constraint' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
 
@@ -303,7 +302,7 @@ foreign import ccall "isl_constraint_set_coefficient_si" c_setCoefficientSi :: C
 
 
 setCoefficientSi :: (Given Ctx) => Constraint -> DimType -> Int -> Int -> Constraint
-setCoefficientSi = \constraint' typ' pos' v' -> trace "setCoefficientSi" $ 
+setCoefficientSi = \constraint' typ' pos' v' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
       typ <- (return) typ'
@@ -318,7 +317,7 @@ foreign import ccall "isl_constraint_set_coefficient_val" c_setCoefficientVal ::
 
 
 setCoefficientVal :: (Given Ctx) => Constraint -> DimType -> Int -> Val -> Constraint
-setCoefficientVal = \constraint' typ' pos' v' -> trace "setCoefficientVal" $ 
+setCoefficientVal = \constraint' typ' pos' v' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
       typ <- (return) typ'
@@ -333,7 +332,7 @@ foreign import ccall "isl_constraint_set_constant_si" c_setConstantSi :: Constra
 
 
 setConstantSi :: (Given Ctx) => Constraint -> Int -> Constraint
-setConstantSi = \constraint' v' -> trace "setConstantSi" $ 
+setConstantSi = \constraint' v' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
       v <- (return . fromIntegral) v'
@@ -346,7 +345,7 @@ foreign import ccall "isl_constraint_set_constant_val" c_setConstantVal :: Const
 
 
 setConstantVal :: (Given Ctx) => Constraint -> Val -> Constraint
-setConstantVal = \constraint' v' -> trace "setConstantVal" $ 
+setConstantVal = \constraint' v' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
       v <- (return) v'
@@ -359,7 +358,7 @@ foreign import ccall "isl_equality_alloc" c_equalityAlloc :: LocalSpace -> IO Co
 
 
 equalityAlloc :: (Given Ctx) => LocalSpace -> Constraint
-equalityAlloc = \ls' -> trace "equalityAlloc" $ 
+equalityAlloc = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -371,7 +370,7 @@ foreign import ccall "isl_equality_from_aff" c_equalityFromAff :: Aff -> IO Cons
 
 
 equalityFromAff :: (Given Ctx) => Aff -> Constraint
-equalityFromAff = \aff' -> trace "equalityFromAff" $ 
+equalityFromAff = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 
@@ -383,7 +382,7 @@ foreign import ccall "isl_inequality_alloc" c_inequalityAlloc :: LocalSpace -> I
 
 
 inequalityAlloc :: (Given Ctx) => LocalSpace -> Constraint
-inequalityAlloc = \ls' -> trace "inequalityAlloc" $ 
+inequalityAlloc = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -395,7 +394,7 @@ foreign import ccall "isl_inequality_from_aff" c_inequalityFromAff :: Aff -> IO 
 
 
 inequalityFromAff :: (Given Ctx) => Aff -> Constraint
-inequalityFromAff = \aff' -> trace "inequalityFromAff" $ 
+inequalityFromAff = \aff' -> 
     unsafePerformIO $ (return) =<< do
       aff <- (return) aff'
 

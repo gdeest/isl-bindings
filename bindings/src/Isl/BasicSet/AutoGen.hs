@@ -7,7 +7,6 @@ module Isl.BasicSet.AutoGen where
 import Control.Monad
 import Data.Reflection
 import Isl.Types
-import Debug.Trace
 
 import Foreign.C as C
 import Foreign.C.String as C
@@ -22,7 +21,7 @@ foreign import ccall "isl_basic_set_compare_at" c_compareAt :: BasicSet -> Basic
 
 
 compareAt :: (Given Ctx) => BasicSet -> BasicSet -> Int -> Int
-compareAt = \bset1' bset2' pos' -> trace "compareAt" $ 
+compareAt = \bset1' bset2' pos' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       bset1 <- (return) bset1'
       bset2 <- (return) bset2'
@@ -36,7 +35,7 @@ foreign import ccall "isl_basic_set_involves_dims" c_involvesDims :: BasicSet ->
 
 
 involvesDims :: (Given Ctx) => BasicSet -> DimType -> Int -> Int -> Int
-involvesDims = \bset' typ' first' n' -> trace "involvesDims" $ 
+involvesDims = \bset' typ' first' n' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -51,7 +50,7 @@ foreign import ccall "isl_basic_set_get_ctx" c_getCtx :: BasicSet -> IO Ctx
 
 
 getCtx :: (Given Ctx) => BasicSet -> Ctx
-getCtx = \bset' -> trace "getCtx" $ 
+getCtx = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -63,7 +62,7 @@ foreign import ccall "isl_basic_set_dump" c_dump :: BasicSet -> IO ()
 
 
 dump :: (Given Ctx) => BasicSet -> ()
-dump = \bset' -> trace "dump" $ 
+dump = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -75,7 +74,7 @@ foreign import ccall "isl_basic_set_get_dim_name" c_getDimName :: BasicSet -> Di
 
 
 getDimName :: (Given Ctx) => BasicSet -> DimType -> Int -> String
-getDimName = \bset' typ' pos' -> trace "getDimName" $ 
+getDimName = \bset' typ' pos' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -89,7 +88,7 @@ foreign import ccall "isl_basic_set_get_tuple_name" c_getTupleName :: BasicSet -
 
 
 getTupleName :: (Given Ctx) => BasicSet -> String
-getTupleName = \bset' -> trace "getTupleName" $ 
+getTupleName = \bset' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       bset <- (return) bset'
 
@@ -101,7 +100,7 @@ foreign import ccall "isl_basic_set_is_bounded" c_isBounded :: BasicSet -> IO C.
 
 
 isBounded :: (Given Ctx) => BasicSet -> Bool
-isBounded = \bset' -> trace "isBounded" $ 
+isBounded = \bset' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bset <- (return) bset'
 
@@ -113,7 +112,7 @@ foreign import ccall "isl_basic_set_is_disjoint" c_isDisjoint :: BasicSet -> Bas
 
 
 isDisjoint :: (Given Ctx) => BasicSet -> BasicSet -> Bool
-isDisjoint = \bset1' bset2' -> trace "isDisjoint" $ 
+isDisjoint = \bset1' bset2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bset1 <- (return) bset1'
       bset2 <- (return) bset2'
@@ -126,7 +125,7 @@ foreign import ccall "isl_basic_set_is_rational" c_isRational :: BasicSet -> IO 
 
 
 isRational :: (Given Ctx) => BasicSet -> Bool
-isRational = \bset' -> trace "isRational" $ 
+isRational = \bset' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bset <- (return) bset'
 
@@ -138,7 +137,7 @@ foreign import ccall "isl_basic_set_is_universe" c_isUniverse :: BasicSet -> IO 
 
 
 isUniverse :: (Given Ctx) => BasicSet -> Bool
-isUniverse = \bset' -> trace "isUniverse" $ 
+isUniverse = \bset' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bset <- (return) bset'
 
@@ -150,7 +149,7 @@ foreign import ccall "isl_basic_set_plain_is_empty" c_plainIsEmpty :: BasicSet -
 
 
 plainIsEmpty :: (Given Ctx) => BasicSet -> Bool
-plainIsEmpty = \bset' -> trace "plainIsEmpty" $ 
+plainIsEmpty = \bset' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bset <- (return) bset'
 
@@ -162,7 +161,7 @@ foreign import ccall "isl_basic_set_plain_is_equal" c_plainIsEqual :: BasicSet -
 
 
 plainIsEqual :: (Given Ctx) => BasicSet -> BasicSet -> Bool
-plainIsEqual = \bset1' bset2' -> trace "plainIsEqual" $ 
+plainIsEqual = \bset1' bset2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bset1 <- (return) bset1'
       bset2 <- (return) bset2'
@@ -175,7 +174,7 @@ foreign import ccall "isl_basic_set_plain_is_universe" c_plainIsUniverse :: Basi
 
 
 plainIsUniverse :: (Given Ctx) => BasicSet -> Bool
-plainIsUniverse = \bset' -> trace "plainIsUniverse" $ 
+plainIsUniverse = \bset' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bset <- (return) bset'
 
@@ -187,7 +186,7 @@ foreign import ccall "isl_basic_set_compute_divs" c_computeDivs :: BasicSet -> I
 
 
 computeDivs :: (Given Ctx) => BasicSet -> Set
-computeDivs = \bset' -> trace "computeDivs" $ 
+computeDivs = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -199,7 +198,7 @@ foreign import ccall "isl_basic_set_get_space" c_getSpace :: BasicSet -> IO Spac
 
 
 getSpace :: (Given Ctx) => BasicSet -> Space
-getSpace = \bset' -> trace "getSpace" $ 
+getSpace = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -211,7 +210,7 @@ foreign import ccall "isl_basic_set_unwrap" c_unwrap :: BasicSet -> IO BasicMap
 
 
 unwrap :: (Given Ctx) => BasicSet -> BasicMap
-unwrap = \bset' -> trace "unwrap" $ 
+unwrap = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -223,7 +222,7 @@ foreign import ccall "isl_basic_set_add_constraint" c_addConstraint :: BasicSet 
 
 
 addConstraint :: (Given Ctx) => BasicSet -> Constraint -> BasicSet
-addConstraint = \bset' constraint' -> trace "addConstraint" $ 
+addConstraint = \bset' constraint' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       constraint <- (return) constraint'
@@ -236,7 +235,7 @@ foreign import ccall "isl_basic_set_add_dims" c_addDims :: BasicSet -> DimType -
 
 
 addDims :: (Given Ctx) => BasicSet -> DimType -> Int -> BasicSet
-addDims = \bset' typ' n' -> trace "addDims" $ 
+addDims = \bset' typ' n' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -250,7 +249,7 @@ foreign import ccall "isl_basic_set_align_params" c_alignParams :: BasicSet -> S
 
 
 alignParams :: (Given Ctx) => BasicSet -> Space -> BasicSet
-alignParams = \bset' model' -> trace "alignParams" $ 
+alignParams = \bset' model' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       model <- (return) model'
@@ -263,7 +262,7 @@ foreign import ccall "isl_basic_set_coefficients" c_coefficients :: BasicSet -> 
 
 
 coefficients :: (Given Ctx) => BasicSet -> BasicSet
-coefficients = \bset' -> trace "coefficients" $ 
+coefficients = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -275,7 +274,7 @@ foreign import ccall "isl_basic_set_copy" c_copy :: BasicSet -> IO BasicSet
 
 
 copy :: (Given Ctx) => BasicSet -> BasicSet
-copy = \bset' -> trace "copy" $ 
+copy = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -287,7 +286,7 @@ foreign import ccall "isl_basic_set_drop_constraints_involving_dims" c_dropConst
 
 
 dropConstraintsInvolvingDims :: (Given Ctx) => BasicSet -> DimType -> Int -> Int -> BasicSet
-dropConstraintsInvolvingDims = \bset' typ' first' n' -> trace "dropConstraintsInvolvingDims" $ 
+dropConstraintsInvolvingDims = \bset' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -302,7 +301,7 @@ foreign import ccall "isl_basic_set_drop_constraints_not_involving_dims" c_dropC
 
 
 dropConstraintsNotInvolvingDims :: (Given Ctx) => BasicSet -> DimType -> Int -> Int -> BasicSet
-dropConstraintsNotInvolvingDims = \bset' typ' first' n' -> trace "dropConstraintsNotInvolvingDims" $ 
+dropConstraintsNotInvolvingDims = \bset' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -317,7 +316,7 @@ foreign import ccall "isl_basic_set_drop_unused_params" c_dropUnusedParams :: Ba
 
 
 dropUnusedParams :: (Given Ctx) => BasicSet -> BasicSet
-dropUnusedParams = \bset' -> trace "dropUnusedParams" $ 
+dropUnusedParams = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -329,7 +328,7 @@ foreign import ccall "isl_basic_set_eliminate" c_eliminate :: BasicSet -> DimTyp
 
 
 eliminate :: (Given Ctx) => BasicSet -> DimType -> Int -> Int -> BasicSet
-eliminate = \bset' typ' first' n' -> trace "eliminate" $ 
+eliminate = \bset' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -344,7 +343,7 @@ foreign import ccall "isl_basic_set_empty" c_empty :: Space -> IO BasicSet
 
 
 empty :: (Given Ctx) => Space -> BasicSet
-empty = \space' -> trace "empty" $ 
+empty = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -356,7 +355,7 @@ foreign import ccall "isl_basic_set_fix_si" c_fixSi :: BasicSet -> DimType -> C.
 
 
 fixSi :: (Given Ctx) => BasicSet -> DimType -> Int -> Int -> BasicSet
-fixSi = \bset' typ' pos' value' -> trace "fixSi" $ 
+fixSi = \bset' typ' pos' value' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -371,7 +370,7 @@ foreign import ccall "isl_basic_set_fix_val" c_fixVal :: BasicSet -> DimType -> 
 
 
 fixVal :: (Given Ctx) => BasicSet -> DimType -> Int -> Val -> BasicSet
-fixVal = \bset' typ' pos' v' -> trace "fixVal" $ 
+fixVal = \bset' typ' pos' v' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -386,7 +385,7 @@ foreign import ccall "isl_basic_set_flat_product" c_flatProduct :: BasicSet -> B
 
 
 flatProduct :: (Given Ctx) => BasicSet -> BasicSet -> BasicSet
-flatProduct = \bset1' bset2' -> trace "flatProduct" $ 
+flatProduct = \bset1' bset2' -> 
     unsafePerformIO $ (return) =<< do
       bset1 <- (return) bset1'
       bset2 <- (return) bset2'
@@ -399,7 +398,7 @@ foreign import ccall "isl_basic_set_from_constraint" c_fromConstraint :: Constra
 
 
 fromConstraint :: (Given Ctx) => Constraint -> BasicSet
-fromConstraint = \constraint' -> trace "fromConstraint" $ 
+fromConstraint = \constraint' -> 
     unsafePerformIO $ (return) =<< do
       constraint <- (return) constraint'
 
@@ -411,7 +410,7 @@ foreign import ccall "isl_basic_set_from_params" c_fromParams :: BasicSet -> IO 
 
 
 fromParams :: (Given Ctx) => BasicSet -> BasicSet
-fromParams = \bset' -> trace "fromParams" $ 
+fromParams = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -423,7 +422,7 @@ foreign import ccall "isl_basic_set_insert_dims" c_insertDims :: BasicSet -> Dim
 
 
 insertDims :: (Given Ctx) => BasicSet -> DimType -> Int -> Int -> BasicSet
-insertDims = \bset' typ' pos' n' -> trace "insertDims" $ 
+insertDims = \bset' typ' pos' n' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -438,7 +437,7 @@ foreign import ccall "isl_basic_set_lift" c_lift :: BasicSet -> IO BasicSet
 
 
 lift :: (Given Ctx) => BasicSet -> BasicSet
-lift = \bset' -> trace "lift" $ 
+lift = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -450,7 +449,7 @@ foreign import ccall "isl_basic_set_lower_bound_val" c_lowerBoundVal :: BasicSet
 
 
 lowerBoundVal :: (Given Ctx) => BasicSet -> DimType -> Int -> Val -> BasicSet
-lowerBoundVal = \bset' typ' pos' value' -> trace "lowerBoundVal" $ 
+lowerBoundVal = \bset' typ' pos' value' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -465,7 +464,7 @@ foreign import ccall "isl_basic_set_move_dims" c_moveDims :: BasicSet -> DimType
 
 
 moveDims :: (Given Ctx) => BasicSet -> DimType -> Int -> DimType -> Int -> Int -> BasicSet
-moveDims = \bset' dst_type' dst_pos' src_type' src_pos' n' -> trace "moveDims" $ 
+moveDims = \bset' dst_type' dst_pos' src_type' src_pos' n' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       dst_type <- (return) dst_type'
@@ -482,7 +481,7 @@ foreign import ccall "isl_basic_set_nat_universe" c_natUniverse :: Space -> IO B
 
 
 natUniverse :: (Given Ctx) => Space -> BasicSet
-natUniverse = \space' -> trace "natUniverse" $ 
+natUniverse = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -494,7 +493,7 @@ foreign import ccall "isl_basic_set_neg" c_neg :: BasicSet -> IO BasicSet
 
 
 neg :: (Given Ctx) => BasicSet -> BasicSet
-neg = \bset' -> trace "neg" $ 
+neg = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -506,7 +505,7 @@ foreign import ccall "isl_basic_set_positive_orthant" c_positiveOrthant :: Space
 
 
 positiveOrthant :: (Given Ctx) => Space -> BasicSet
-positiveOrthant = \space' -> trace "positiveOrthant" $ 
+positiveOrthant = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -518,7 +517,7 @@ foreign import ccall "isl_basic_set_project_out" c_projectOut :: BasicSet -> Dim
 
 
 projectOut :: (Given Ctx) => BasicSet -> DimType -> Int -> Int -> BasicSet
-projectOut = \bset' typ' first' n' -> trace "projectOut" $ 
+projectOut = \bset' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -533,7 +532,7 @@ foreign import ccall "isl_basic_set_remove_dims" c_removeDims :: BasicSet -> Dim
 
 
 removeDims :: (Given Ctx) => BasicSet -> DimType -> Int -> Int -> BasicSet
-removeDims = \bset' typ' first' n' -> trace "removeDims" $ 
+removeDims = \bset' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -548,7 +547,7 @@ foreign import ccall "isl_basic_set_remove_divs" c_removeDivs :: BasicSet -> IO 
 
 
 removeDivs :: (Given Ctx) => BasicSet -> BasicSet
-removeDivs = \bset' -> trace "removeDivs" $ 
+removeDivs = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -560,7 +559,7 @@ foreign import ccall "isl_basic_set_remove_divs_involving_dims" c_removeDivsInvo
 
 
 removeDivsInvolvingDims :: (Given Ctx) => BasicSet -> DimType -> Int -> Int -> BasicSet
-removeDivsInvolvingDims = \bset' typ' first' n' -> trace "removeDivsInvolvingDims" $ 
+removeDivsInvolvingDims = \bset' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -575,7 +574,7 @@ foreign import ccall "isl_basic_set_remove_redundancies" c_removeRedundancies ::
 
 
 removeRedundancies :: (Given Ctx) => BasicSet -> BasicSet
-removeRedundancies = \bset' -> trace "removeRedundancies" $ 
+removeRedundancies = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -587,7 +586,7 @@ foreign import ccall "isl_basic_set_remove_unknown_divs" c_removeUnknownDivs :: 
 
 
 removeUnknownDivs :: (Given Ctx) => BasicSet -> BasicSet
-removeUnknownDivs = \bset' -> trace "removeUnknownDivs" $ 
+removeUnknownDivs = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -599,7 +598,7 @@ foreign import ccall "isl_basic_set_set_dim_name" c_setDimName :: BasicSet -> Di
 
 
 setDimName :: (Given Ctx) => BasicSet -> DimType -> Int -> String -> BasicSet
-setDimName = \bset' typ' pos' s' -> trace "setDimName" $ 
+setDimName = \bset' typ' pos' s' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -614,7 +613,7 @@ foreign import ccall "isl_basic_set_set_tuple_id" c_setTupleId :: BasicSet -> Id
 
 
 setTupleId :: (Given Ctx) => BasicSet -> Id -> BasicSet
-setTupleId = \bset' id' -> trace "setTupleId" $ 
+setTupleId = \bset' id' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       id <- (return) id'
@@ -627,7 +626,7 @@ foreign import ccall "isl_basic_set_set_tuple_name" c_setTupleName :: BasicSet -
 
 
 setTupleName :: (Given Ctx) => BasicSet -> String -> BasicSet
-setTupleName = \set' s' -> trace "setTupleName" $ 
+setTupleName = \set' s' -> 
     unsafePerformIO $ (return) =<< do
       set <- (return) set'
       s <- (C.newCString) s'
@@ -640,7 +639,7 @@ foreign import ccall "isl_basic_set_solutions" c_solutions :: BasicSet -> IO Bas
 
 
 solutions :: (Given Ctx) => BasicSet -> BasicSet
-solutions = \bset' -> trace "solutions" $ 
+solutions = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -652,7 +651,7 @@ foreign import ccall "isl_basic_set_universe" c_universe :: Space -> IO BasicSet
 
 
 universe :: (Given Ctx) => Space -> BasicSet
-universe = \space' -> trace "universe" $ 
+universe = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -664,7 +663,7 @@ foreign import ccall "isl_basic_set_upper_bound_val" c_upperBoundVal :: BasicSet
 
 
 upperBoundVal :: (Given Ctx) => BasicSet -> DimType -> Int -> Val -> BasicSet
-upperBoundVal = \bset' typ' pos' value' -> trace "upperBoundVal" $ 
+upperBoundVal = \bset' typ' pos' value' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -679,7 +678,7 @@ foreign import ccall "isl_basic_set_max_val" c_maxVal :: BasicSet -> Aff -> IO V
 
 
 maxVal :: (Given Ctx) => BasicSet -> Aff -> Val
-maxVal = \bset' obj' -> trace "maxVal" $ 
+maxVal = \bset' obj' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       obj <- (return) obj'
@@ -692,7 +691,7 @@ foreign import ccall "isl_basic_set_get_div" c_getDiv :: BasicSet -> C.CInt -> I
 
 
 getDiv :: (Given Ctx) => BasicSet -> Int -> Aff
-getDiv = \bset' pos' -> trace "getDiv" $ 
+getDiv = \bset' pos' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       pos <- (return . fromIntegral) pos'
@@ -705,7 +704,7 @@ foreign import ccall "isl_basic_set_get_dim_id" c_getDimId :: BasicSet -> DimTyp
 
 
 getDimId :: (Given Ctx) => BasicSet -> DimType -> Int -> Id
-getDimId = \bset' typ' pos' -> trace "getDimId" $ 
+getDimId = \bset' typ' pos' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       typ <- (return) typ'
@@ -719,7 +718,7 @@ foreign import ccall "isl_basic_set_to_str" c_toStr :: BasicSet -> IO C.CString
 
 
 toStr :: (Given Ctx) => BasicSet -> String
-toStr = \bset' -> trace "toStr" $ 
+toStr = \bset' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       bset <- (return) bset'
 
@@ -731,7 +730,7 @@ foreign import ccall "isl_basic_set_get_local_space" c_getLocalSpace :: BasicSet
 
 
 getLocalSpace :: (Given Ctx) => BasicSet -> LocalSpace
-getLocalSpace = \bset' -> trace "getLocalSpace" $ 
+getLocalSpace = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -743,7 +742,7 @@ foreign import ccall "isl_basic_set_is_empty" c_isEmpty :: BasicSet -> IO C.CBoo
 
 
 isEmpty :: (Given Ctx) => BasicSet -> Bool
-isEmpty = \bset' -> trace "isEmpty" $ 
+isEmpty = \bset' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bset <- (return) bset'
 
@@ -755,7 +754,7 @@ foreign import ccall "isl_basic_set_is_equal" c_isEqual :: BasicSet -> BasicSet 
 
 
 isEqual :: (Given Ctx) => BasicSet -> BasicSet -> Bool
-isEqual = \bset1' bset2' -> trace "isEqual" $ 
+isEqual = \bset1' bset2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bset1 <- (return) bset1'
       bset2 <- (return) bset2'
@@ -768,7 +767,7 @@ foreign import ccall "isl_basic_set_is_subset" c_isSubset :: BasicSet -> BasicSe
 
 
 isSubset :: (Given Ctx) => BasicSet -> BasicSet -> Bool
-isSubset = \bset1' bset2' -> trace "isSubset" $ 
+isSubset = \bset1' bset2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bset1 <- (return) bset1'
       bset2 <- (return) bset2'
@@ -781,7 +780,7 @@ foreign import ccall "isl_basic_set_is_wrapping" c_isWrapping :: BasicSet -> IO 
 
 
 isWrapping :: (Given Ctx) => BasicSet -> Bool
-isWrapping = \bset' -> trace "isWrapping" $ 
+isWrapping = \bset' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       bset <- (return) bset'
 
@@ -793,7 +792,7 @@ foreign import ccall "isl_basic_set_lexmax" c_lexmax :: BasicSet -> IO Set
 
 
 lexmax :: (Given Ctx) => BasicSet -> Set
-lexmax = \bset' -> trace "lexmax" $ 
+lexmax = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -805,7 +804,7 @@ foreign import ccall "isl_basic_set_lexmin" c_lexmin :: BasicSet -> IO Set
 
 
 lexmin :: (Given Ctx) => BasicSet -> Set
-lexmin = \bset' -> trace "lexmin" $ 
+lexmin = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -817,7 +816,7 @@ foreign import ccall "isl_basic_set_to_set" c_toSet :: BasicSet -> IO Set
 
 
 toSet :: (Given Ctx) => BasicSet -> Set
-toSet = \bset' -> trace "toSet" $ 
+toSet = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -829,7 +828,7 @@ foreign import ccall "isl_basic_set_union" c_union :: BasicSet -> BasicSet -> IO
 
 
 union :: (Given Ctx) => BasicSet -> BasicSet -> Set
-union = \bset1' bset2' -> trace "union" $ 
+union = \bset1' bset2' -> 
     unsafePerformIO $ (return) =<< do
       bset1 <- (return) bset1'
       bset2 <- (return) bset2'
@@ -842,7 +841,7 @@ foreign import ccall "isl_basic_set_affine_hull" c_affineHull :: BasicSet -> IO 
 
 
 affineHull :: (Given Ctx) => BasicSet -> BasicSet
-affineHull = \bset' -> trace "affineHull" $ 
+affineHull = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -854,7 +853,7 @@ foreign import ccall "isl_basic_set_apply" c_apply :: BasicSet -> BasicMap -> IO
 
 
 apply :: (Given Ctx) => BasicSet -> BasicMap -> BasicSet
-apply = \bset' bmap' -> trace "apply" $ 
+apply = \bset' bmap' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       bmap <- (return) bmap'
@@ -867,7 +866,7 @@ foreign import ccall "isl_basic_set_detect_equalities" c_detectEqualities :: Bas
 
 
 detectEqualities :: (Given Ctx) => BasicSet -> BasicSet
-detectEqualities = \bset' -> trace "detectEqualities" $ 
+detectEqualities = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -879,7 +878,7 @@ foreign import ccall "isl_basic_set_flatten" c_flatten :: BasicSet -> IO BasicSe
 
 
 flatten :: (Given Ctx) => BasicSet -> BasicSet
-flatten = \bset' -> trace "flatten" $ 
+flatten = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -891,7 +890,7 @@ foreign import ccall "isl_basic_set_gist" c_gist :: BasicSet -> BasicSet -> IO B
 
 
 gist :: (Given Ctx) => BasicSet -> BasicSet -> BasicSet
-gist = \bset' context' -> trace "gist" $ 
+gist = \bset' context' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       context <- (return) context'
@@ -904,7 +903,7 @@ foreign import ccall "isl_basic_set_intersect" c_intersect :: BasicSet -> BasicS
 
 
 intersect :: (Given Ctx) => BasicSet -> BasicSet -> BasicSet
-intersect = \bset1' bset2' -> trace "intersect" $ 
+intersect = \bset1' bset2' -> 
     unsafePerformIO $ (return) =<< do
       bset1 <- (return) bset1'
       bset2 <- (return) bset2'
@@ -917,7 +916,7 @@ foreign import ccall "isl_basic_set_intersect_params" c_intersectParams :: Basic
 
 
 intersectParams :: (Given Ctx) => BasicSet -> BasicSet -> BasicSet
-intersectParams = \bset1' bset2' -> trace "intersectParams" $ 
+intersectParams = \bset1' bset2' -> 
     unsafePerformIO $ (return) =<< do
       bset1 <- (return) bset1'
       bset2 <- (return) bset2'
@@ -930,7 +929,7 @@ foreign import ccall "isl_basic_set_params" c_params :: BasicSet -> IO BasicSet
 
 
 params :: (Given Ctx) => BasicSet -> BasicSet
-params = \bset' -> trace "params" $ 
+params = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -942,7 +941,7 @@ foreign import ccall "isl_basic_set_sample" c_sample :: BasicSet -> IO BasicSet
 
 
 sample :: (Given Ctx) => BasicSet -> BasicSet
-sample = \bset' -> trace "sample" $ 
+sample = \bset' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
 
@@ -954,7 +953,7 @@ foreign import ccall "isl_basic_set_dim_max_val" c_dimMaxVal :: BasicSet -> C.CI
 
 
 dimMaxVal :: (Given Ctx) => BasicSet -> Int -> Val
-dimMaxVal = \bset' pos' -> trace "dimMaxVal" $ 
+dimMaxVal = \bset' pos' -> 
     unsafePerformIO $ (return) =<< do
       bset <- (return) bset'
       pos <- (return . fromIntegral) pos'
@@ -967,7 +966,7 @@ foreign import ccall "isl_basic_set_read_from_str" c_readFromStr :: Ctx -> C.CSt
 
 
 readFromStr :: (Given Ctx) => String -> BasicSet
-readFromStr = \str' -> trace "readFromStr" $ 
+readFromStr = \str' -> 
     unsafePerformIO $ (return) =<< do
       str <- (C.newCString) str'
 

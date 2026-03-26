@@ -93,4 +93,6 @@ newtype DimType = DimType CInt deriving (Eq, Storable)
   , isl_dim_param \
   , isl_dim_in \
   , isl_dim_out \
-  , isl_dim_set
+  , isl_dim_set \
+  , isl_dim_div \
+  , isl_dim_all

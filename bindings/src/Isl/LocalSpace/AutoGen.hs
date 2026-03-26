@@ -7,7 +7,6 @@ module Isl.LocalSpace.AutoGen where
 import Control.Monad
 import Data.Reflection
 import Isl.Types
-import Debug.Trace
 
 import Foreign.C as C
 import Foreign.C.String as C
@@ -22,7 +21,7 @@ foreign import ccall "isl_local_space_find_dim_by_name" c_findDimByName :: Local
 
 
 findDimByName :: (Given Ctx) => LocalSpace -> DimType -> String -> Int
-findDimByName = \ls' typ' name' -> trace "findDimByName" $ 
+findDimByName = \ls' typ' name' -> 
     unsafePerformIO $ (return . fromIntegral) =<< do
       ls <- (return) ls'
       typ <- (return) typ'
@@ -36,7 +35,7 @@ foreign import ccall "isl_local_space_get_ctx" c_getCtx :: LocalSpace -> IO Ctx
 
 
 getCtx :: (Given Ctx) => LocalSpace -> Ctx
-getCtx = \ls' -> trace "getCtx" $ 
+getCtx = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -48,7 +47,7 @@ foreign import ccall "isl_local_space_dump" c_dump :: LocalSpace -> IO ()
 
 
 dump :: (Given Ctx) => LocalSpace -> ()
-dump = \ls' -> trace "dump" $ 
+dump = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -60,7 +59,7 @@ foreign import ccall "isl_local_space_get_dim_name" c_getDimName :: LocalSpace -
 
 
 getDimName :: (Given Ctx) => LocalSpace -> DimType -> Int -> String
-getDimName = \ls' typ' pos' -> trace "getDimName" $ 
+getDimName = \ls' typ' pos' -> 
     unsafePerformIO $ (C.peekCString) =<< do
       ls <- (return) ls'
       typ <- (return) typ'
@@ -74,7 +73,7 @@ foreign import ccall "isl_local_space_has_dim_id" c_hasDimId :: LocalSpace -> Di
 
 
 hasDimId :: (Given Ctx) => LocalSpace -> DimType -> Int -> Bool
-hasDimId = \ls' typ' pos' -> trace "hasDimId" $ 
+hasDimId = \ls' typ' pos' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       ls <- (return) ls'
       typ <- (return) typ'
@@ -88,7 +87,7 @@ foreign import ccall "isl_local_space_has_dim_name" c_hasDimName :: LocalSpace -
 
 
 hasDimName :: (Given Ctx) => LocalSpace -> DimType -> Int -> Bool
-hasDimName = \ls' typ' pos' -> trace "hasDimName" $ 
+hasDimName = \ls' typ' pos' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       ls <- (return) ls'
       typ <- (return) typ'
@@ -102,7 +101,7 @@ foreign import ccall "isl_local_space_is_equal" c_isEqual :: LocalSpace -> Local
 
 
 isEqual :: (Given Ctx) => LocalSpace -> LocalSpace -> Bool
-isEqual = \ls1' ls2' -> trace "isEqual" $ 
+isEqual = \ls1' ls2' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       ls1 <- (return) ls1'
       ls2 <- (return) ls2'
@@ -115,7 +114,7 @@ foreign import ccall "isl_local_space_is_params" c_isParams :: LocalSpace -> IO 
 
 
 isParams :: (Given Ctx) => LocalSpace -> Bool
-isParams = \ls' -> trace "isParams" $ 
+isParams = \ls' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       ls <- (return) ls'
 
@@ -127,7 +126,7 @@ foreign import ccall "isl_local_space_is_set" c_isSet :: LocalSpace -> IO C.CBoo
 
 
 isSet :: (Given Ctx) => LocalSpace -> Bool
-isSet = \ls' -> trace "isSet" $ 
+isSet = \ls' -> 
     unsafePerformIO $ (return . M.toBool) =<< do
       ls <- (return) ls'
 
@@ -139,7 +138,7 @@ foreign import ccall "isl_local_space_get_space" c_getSpace :: LocalSpace -> IO 
 
 
 getSpace :: (Given Ctx) => LocalSpace -> Space
-getSpace = \ls' -> trace "getSpace" $ 
+getSpace = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -151,7 +150,7 @@ foreign import ccall "isl_local_space_lifting" c_lifting :: LocalSpace -> IO Bas
 
 
 lifting :: (Given Ctx) => LocalSpace -> BasicMap
-lifting = \ls' -> trace "lifting" $ 
+lifting = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -163,7 +162,7 @@ foreign import ccall "isl_local_space_get_div" c_getDiv :: LocalSpace -> C.CInt 
 
 
 getDiv :: (Given Ctx) => LocalSpace -> Int -> Aff
-getDiv = \ls' pos' -> trace "getDiv" $ 
+getDiv = \ls' pos' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
       pos <- (return . fromIntegral) pos'
@@ -176,7 +175,7 @@ foreign import ccall "isl_local_space_get_dim_id" c_getDimId :: LocalSpace -> Di
 
 
 getDimId :: (Given Ctx) => LocalSpace -> DimType -> Int -> Id
-getDimId = \ls' typ' pos' -> trace "getDimId" $ 
+getDimId = \ls' typ' pos' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
       typ <- (return) typ'
@@ -190,7 +189,7 @@ foreign import ccall "isl_local_space_add_dims" c_addDims :: LocalSpace -> DimTy
 
 
 addDims :: (Given Ctx) => LocalSpace -> DimType -> Int -> LocalSpace
-addDims = \ls' typ' n' -> trace "addDims" $ 
+addDims = \ls' typ' n' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
       typ <- (return) typ'
@@ -204,7 +203,7 @@ foreign import ccall "isl_local_space_copy" c_copy :: LocalSpace -> IO LocalSpac
 
 
 copy :: (Given Ctx) => LocalSpace -> LocalSpace
-copy = \ls' -> trace "copy" $ 
+copy = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -216,7 +215,7 @@ foreign import ccall "isl_local_space_domain" c_domain :: LocalSpace -> IO Local
 
 
 domain :: (Given Ctx) => LocalSpace -> LocalSpace
-domain = \ls' -> trace "domain" $ 
+domain = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -228,7 +227,7 @@ foreign import ccall "isl_local_space_drop_dims" c_dropDims :: LocalSpace -> Dim
 
 
 dropDims :: (Given Ctx) => LocalSpace -> DimType -> Int -> Int -> LocalSpace
-dropDims = \ls' typ' first' n' -> trace "dropDims" $ 
+dropDims = \ls' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
       typ <- (return) typ'
@@ -243,7 +242,7 @@ foreign import ccall "isl_local_space_flatten_domain" c_flattenDomain :: LocalSp
 
 
 flattenDomain :: (Given Ctx) => LocalSpace -> LocalSpace
-flattenDomain = \ls' -> trace "flattenDomain" $ 
+flattenDomain = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -255,7 +254,7 @@ foreign import ccall "isl_local_space_flatten_range" c_flattenRange :: LocalSpac
 
 
 flattenRange :: (Given Ctx) => LocalSpace -> LocalSpace
-flattenRange = \ls' -> trace "flattenRange" $ 
+flattenRange = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -267,7 +266,7 @@ foreign import ccall "isl_local_space_from_domain" c_fromDomain :: LocalSpace ->
 
 
 fromDomain :: (Given Ctx) => LocalSpace -> LocalSpace
-fromDomain = \ls' -> trace "fromDomain" $ 
+fromDomain = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -279,7 +278,7 @@ foreign import ccall "isl_local_space_from_space" c_fromSpace :: Space -> IO Loc
 
 
 fromSpace :: (Given Ctx) => Space -> LocalSpace
-fromSpace = \space' -> trace "fromSpace" $ 
+fromSpace = \space' -> 
     unsafePerformIO $ (return) =<< do
       space <- (return) space'
 
@@ -291,7 +290,7 @@ foreign import ccall "isl_local_space_insert_dims" c_insertDims :: LocalSpace ->
 
 
 insertDims :: (Given Ctx) => LocalSpace -> DimType -> Int -> Int -> LocalSpace
-insertDims = \ls' typ' first' n' -> trace "insertDims" $ 
+insertDims = \ls' typ' first' n' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
       typ <- (return) typ'
@@ -306,7 +305,7 @@ foreign import ccall "isl_local_space_intersect" c_intersect :: LocalSpace -> Lo
 
 
 intersect :: (Given Ctx) => LocalSpace -> LocalSpace -> LocalSpace
-intersect = \ls1' ls2' -> trace "intersect" $ 
+intersect = \ls1' ls2' -> 
     unsafePerformIO $ (return) =<< do
       ls1 <- (return) ls1'
       ls2 <- (return) ls2'
@@ -319,7 +318,7 @@ foreign import ccall "isl_local_space_range" c_range :: LocalSpace -> IO LocalSp
 
 
 range :: (Given Ctx) => LocalSpace -> LocalSpace
-range = \ls' -> trace "range" $ 
+range = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -331,7 +330,7 @@ foreign import ccall "isl_local_space_set_dim_id" c_setDimId :: LocalSpace -> Di
 
 
 setDimId :: (Given Ctx) => LocalSpace -> DimType -> Int -> Id -> LocalSpace
-setDimId = \ls' typ' pos' id' -> trace "setDimId" $ 
+setDimId = \ls' typ' pos' id' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
       typ <- (return) typ'
@@ -346,7 +345,7 @@ foreign import ccall "isl_local_space_set_dim_name" c_setDimName :: LocalSpace -
 
 
 setDimName :: (Given Ctx) => LocalSpace -> DimType -> Int -> String -> LocalSpace
-setDimName = \ls' typ' pos' s' -> trace "setDimName" $ 
+setDimName = \ls' typ' pos' s' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
       typ <- (return) typ'
@@ -361,7 +360,7 @@ foreign import ccall "isl_local_space_set_from_params" c_setFromParams :: LocalS
 
 
 setFromParams :: (Given Ctx) => LocalSpace -> LocalSpace
-setFromParams = \ls' -> trace "setFromParams" $ 
+setFromParams = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
@@ -373,7 +372,7 @@ foreign import ccall "isl_local_space_set_tuple_id" c_setTupleId :: LocalSpace -
 
 
 setTupleId :: (Given Ctx) => LocalSpace -> DimType -> Id -> LocalSpace
-setTupleId = \ls' typ' id' -> trace "setTupleId" $ 
+setTupleId = \ls' typ' id' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
       typ <- (return) typ'
@@ -387,7 +386,7 @@ foreign import ccall "isl_local_space_wrap" c_wrap :: LocalSpace -> IO LocalSpac
 
 
 wrap :: (Given Ctx) => LocalSpace -> LocalSpace
-wrap = \ls' -> trace "wrap" $ 
+wrap = \ls' -> 
     unsafePerformIO $ (return) =<< do
       ls <- (return) ls'
 
