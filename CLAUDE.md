@@ -85,3 +85,47 @@ main = runIslT $ do
 - `ParamIndex` instances map param names to positional indices (0-based, alphabetical)
 - ISL strings are fine for user-facing display (`IslToString`, `IslFromString`) but never for testing/comparison — use ISL predicates (`isEqual`, `isSubset`) instead
 - The `FloorDiv`/`TFloorDiv` constructor represents ISL's existential/div dimensions: `floor(expr / d)`
+
+## Vectorization verification
+
+Generated C kernels (in `isl-infer/`) compile with `-O3 -march=native -fopenmp -mavx512f -mavx512bw -mavx512vnni -mf16c`. Always verify GCC actually vectorized inner loops — `#pragma omp simd` is a hint, not a guarantee.
+
+### GCC diagnostic flags
+
+```bash
+# Add to gcc invocation for vectorization reports:
+gcc ... -fopt-info-vec-optimized -fopt-info-vec-missed ...
+
+# Good: "loop vectorized using 64 byte vectors" (64 bytes = zmm = AVX-512)
+# Bad:  "not vectorized: unsupported data-ref" / "complicated access pattern"
+```
+
+### Assembly inspection
+
+```bash
+objdump -d /tmp/isl_*.so | grep -c 'zmm'     # >> 0 means AVX-512 used
+objdump -d /tmp/isl_*.so | grep 'vpdpbusd'   # VNNI int8 dot product (ideal for Q8)
+objdump -d /tmp/isl_*.so | grep 'vfmadd'     # FMA instructions
+```
+
+Key registers/instructions (Zen 5):
+- `zmm0-31`: AVX-512 512-bit — good
+- `ymm0-15`: AVX-256 — acceptable (half throughput)
+- Only `xmm`/scalar: vectorization failed — bad
+- `vpdpbusd`: VNNI int8×int8→int32 — ideal for Q8_0
+- `vpmovsxbd` + `vcvtdq2ps`: int8→float widening — means VNNI not used
+
+### Common vectorization blockers
+
+1. `(float)blk->qs[v]` widens int8→float before multiply, preventing VNNI
+2. Missing `restrict` on pointer params — aliasing analysis fails
+3. `block_q8_0` is 34 bytes (not power-of-2) — can't vectorize across struct boundaries
+4. Missing `reduction(+:var)` — GCC sees loop-carried dependency
+
+### Benchmarking
+
+```bash
+taskset -c 0-9 cabal run gemm-bench    # pin to cores
+```
+
+Roofline (Ryzen AI 9 365): DDR5 ≈ 50 GB/s practical, FP32 FMA ≈ 128 GFLOPS/core. Q8 matvec (M=1) at AI ≈ 2 FLOPs/byte is memory-bound.
