@@ -393,6 +393,33 @@ fromDomainAndRange = unsafeCoerce go where
     unsafeIslFromIO $ \_ -> c_fromDomainAndRange domain range
 
 
+foreign import ccall "isl_map_from_multi_aff" c_fromMultiAff :: MultiAff -> IO Map
+
+fromMultiAff :: forall m. MonadIO m => MultiAff %1 -> IslT m Map
+fromMultiAff = unsafeCoerce go where
+  go :: MultiAff -> IslT m Map
+  go maff =
+    unsafeIslFromIO $ \_ -> c_fromMultiAff maff
+
+
+foreign import ccall "isl_map_from_pw_aff" c_fromPwAff :: PwAff -> IO Map
+
+fromPwAff :: forall m. MonadIO m => PwAff %1 -> IslT m Map
+fromPwAff = unsafeCoerce go where
+  go :: PwAff -> IslT m Map
+  go pwaff =
+    unsafeIslFromIO $ \_ -> c_fromPwAff pwaff
+
+
+foreign import ccall "isl_map_from_pw_multi_aff" c_fromPwMultiAff :: PwMultiAff -> IO Map
+
+fromPwMultiAff :: forall m. MonadIO m => PwMultiAff %1 -> IslT m Map
+fromPwMultiAff = unsafeCoerce go where
+  go :: PwMultiAff -> IslT m Map
+  go pma =
+    unsafeIslFromIO $ \_ -> c_fromPwMultiAff pma
+
+
 foreign import ccall "isl_map_from_range" c_fromRange :: Set -> IO Map
 
 fromRange :: forall m. MonadIO m => Set %1 -> IslT m Map
@@ -654,6 +681,42 @@ orderLt = unsafeCoerce go where
     unsafeIslFromIO $ \_ -> c_orderLt map type1 (fromIntegral pos1) type2 (fromIntegral pos2)
 
 
+foreign import ccall "isl_map_preimage_domain_multi_aff" c_preimageDomainMultiAff :: Map -> MultiAff -> IO Map
+
+preimageDomainMultiAff :: forall m. MonadIO m => Map %1 -> MultiAff %1 -> IslT m Map
+preimageDomainMultiAff = unsafeCoerce go where
+  go :: Map -> MultiAff -> IslT m Map
+  go map ma =
+    unsafeIslFromIO $ \_ -> c_preimageDomainMultiAff map ma
+
+
+foreign import ccall "isl_map_preimage_domain_pw_multi_aff" c_preimageDomainPwMultiAff :: Map -> PwMultiAff -> IO Map
+
+preimageDomainPwMultiAff :: forall m. MonadIO m => Map %1 -> PwMultiAff %1 -> IslT m Map
+preimageDomainPwMultiAff = unsafeCoerce go where
+  go :: Map -> PwMultiAff -> IslT m Map
+  go map pma =
+    unsafeIslFromIO $ \_ -> c_preimageDomainPwMultiAff map pma
+
+
+foreign import ccall "isl_map_preimage_range_multi_aff" c_preimageRangeMultiAff :: Map -> MultiAff -> IO Map
+
+preimageRangeMultiAff :: forall m. MonadIO m => Map %1 -> MultiAff %1 -> IslT m Map
+preimageRangeMultiAff = unsafeCoerce go where
+  go :: Map -> MultiAff -> IslT m Map
+  go map ma =
+    unsafeIslFromIO $ \_ -> c_preimageRangeMultiAff map ma
+
+
+foreign import ccall "isl_map_preimage_range_pw_multi_aff" c_preimageRangePwMultiAff :: Map -> PwMultiAff -> IO Map
+
+preimageRangePwMultiAff :: forall m. MonadIO m => Map %1 -> PwMultiAff %1 -> IslT m Map
+preimageRangePwMultiAff = unsafeCoerce go where
+  go :: Map -> PwMultiAff -> IslT m Map
+  go map pma =
+    unsafeIslFromIO $ \_ -> c_preimageRangePwMultiAff map pma
+
+
 foreign import ccall "isl_map_project_out" c_projectOut :: Map -> DimType -> C.CUInt -> C.CUInt -> IO Map
 
 projectOut :: forall m. MonadIO m => Map %1 -> DimType -> Int -> Int -> IslT m Map
@@ -906,6 +969,24 @@ foreign import ccall "isl_map_plain_get_val_if_fixed" c_plainGetValIfFixed :: Ma
 plainGetValIfFixed :: MonadIO m => MapRef -> DimType -> Int -> IslT m Val
 plainGetValIfFixed map typ pos =
     unsafeIslFromIO $ \_ -> c_plainGetValIfFixed map typ (fromIntegral pos)
+
+
+foreign import ccall "isl_map_dim_max" c_dimMax :: Map -> C.CInt -> IO PwAff
+
+dimMax :: forall m. MonadIO m => Map %1 -> Int -> IslT m PwAff
+dimMax = unsafeCoerce go where
+  go :: Map -> Int -> IslT m PwAff
+  go map pos =
+    unsafeIslFromIO $ \_ -> c_dimMax map (fromIntegral pos)
+
+
+foreign import ccall "isl_map_dim_min" c_dimMin :: Map -> C.CInt -> IO PwAff
+
+dimMin :: forall m. MonadIO m => Map %1 -> Int -> IslT m PwAff
+dimMin = unsafeCoerce go where
+  go :: Map -> Int -> IslT m PwAff
+  go map pos =
+    unsafeIslFromIO $ \_ -> c_dimMin map (fromIntegral pos)
 
 
 foreign import ccall "isl_map_get_dim_id" c_getDimId :: MapRef -> DimType -> C.CUInt -> IO Id
@@ -1511,6 +1592,33 @@ toUnionMap = unsafeCoerce go where
   go :: Map -> IslT m UnionMap
   go map =
     unsafeIslFromIO $ \_ -> c_toUnionMap map
+
+
+foreign import ccall "isl_map_as_pw_multi_aff" c_asPwMultiAff :: Map -> IO PwMultiAff
+
+asPwMultiAff :: forall m. MonadIO m => Map %1 -> IslT m PwMultiAff
+asPwMultiAff = unsafeCoerce go where
+  go :: Map -> IslT m PwMultiAff
+  go map =
+    unsafeIslFromIO $ \_ -> c_asPwMultiAff map
+
+
+foreign import ccall "isl_map_lexmax_pw_multi_aff" c_lexmaxPwMultiAff :: Map -> IO PwMultiAff
+
+lexmaxPwMultiAff :: forall m. MonadIO m => Map %1 -> IslT m PwMultiAff
+lexmaxPwMultiAff = unsafeCoerce go where
+  go :: Map -> IslT m PwMultiAff
+  go map =
+    unsafeIslFromIO $ \_ -> c_lexmaxPwMultiAff map
+
+
+foreign import ccall "isl_map_lexmin_pw_multi_aff" c_lexminPwMultiAff :: Map -> IO PwMultiAff
+
+lexminPwMultiAff :: forall m. MonadIO m => Map %1 -> IslT m PwMultiAff
+lexminPwMultiAff = unsafeCoerce go where
+  go :: Map -> IslT m PwMultiAff
+  go map =
+    unsafeIslFromIO $ \_ -> c_lexminPwMultiAff map
 
 
 foreign import ccall "isl_map_get_domain_tuple_id" c_getDomainTupleId :: MapRef -> IO Id

@@ -345,6 +345,15 @@ pullbackAff = unsafeCoerce go where
     unsafeIslFromIO $ \_ -> c_pullbackAff aff1 aff2
 
 
+foreign import ccall "isl_aff_pullback_multi_aff" c_pullbackMultiAff :: Aff -> MultiAff -> IO Aff
+
+pullbackMultiAff :: forall m. MonadIO m => Aff %1 -> MultiAff %1 -> IslT m Aff
+pullbackMultiAff = unsafeCoerce go where
+  go :: Aff -> MultiAff -> IslT m Aff
+  go aff ma =
+    unsafeIslFromIO $ \_ -> c_pullbackMultiAff aff ma
+
+
 foreign import ccall "isl_aff_scale_down_ui" c_scaleDownUi :: Aff -> C.CUInt -> IO Aff
 
 scaleDownUi :: forall m. MonadIO m => Aff %1 -> Int -> IslT m Aff
@@ -666,6 +675,15 @@ sub = unsafeCoerce go where
   go :: Aff -> Aff -> IslT m Aff
   go aff1 aff2 =
     unsafeIslFromIO $ \_ -> c_sub aff1 aff2
+
+
+foreign import ccall "isl_aff_to_list" c_toList :: Aff -> IO AffList
+
+toList :: forall m. MonadIO m => Aff %1 -> IslT m AffList
+toList = unsafeCoerce go where
+  go :: Aff -> IslT m AffList
+  go el =
+    unsafeIslFromIO $ \_ -> c_toList el
 
 
 foreign import ccall "isl_aff_read_from_str" c_readFromStr :: Ctx -> C.CString -> IO Aff

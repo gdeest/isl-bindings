@@ -342,6 +342,15 @@ fromAff = unsafeCoerce go where
     unsafeIslFromIO $ \_ -> c_fromAff aff
 
 
+foreign import ccall "isl_basic_map_from_aff_list" c_fromAffList :: Space -> AffList -> IO BasicMap
+
+fromAffList :: forall m. MonadIO m => Space %1 -> AffList %1 -> IslT m BasicMap
+fromAffList = unsafeCoerce go where
+  go :: Space -> AffList -> IslT m BasicMap
+  go domain_space list =
+    unsafeIslFromIO $ \_ -> c_fromAffList domain_space list
+
+
 foreign import ccall "isl_basic_map_from_constraint" c_fromConstraint :: Constraint -> IO BasicMap
 
 fromConstraint :: forall m. MonadIO m => Constraint %1 -> IslT m BasicMap
@@ -367,6 +376,15 @@ fromDomainAndRange = unsafeCoerce go where
   go :: BasicSet -> BasicSet -> IslT m BasicMap
   go domain range =
     unsafeIslFromIO $ \_ -> c_fromDomainAndRange domain range
+
+
+foreign import ccall "isl_basic_map_from_multi_aff" c_fromMultiAff :: MultiAff -> IO BasicMap
+
+fromMultiAff :: forall m. MonadIO m => MultiAff %1 -> IslT m BasicMap
+fromMultiAff = unsafeCoerce go where
+  go :: MultiAff -> IslT m BasicMap
+  go maff =
+    unsafeIslFromIO $ \_ -> c_fromMultiAff maff
 
 
 foreign import ccall "isl_basic_map_from_range" c_fromRange :: BasicSet -> IO BasicMap
@@ -475,6 +493,24 @@ orderGt = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> DimType -> Int -> IslT m BasicMap
   go bmap type1 pos1 type2 pos2 =
     unsafeIslFromIO $ \_ -> c_orderGt bmap type1 (fromIntegral pos1) type2 (fromIntegral pos2)
+
+
+foreign import ccall "isl_basic_map_preimage_domain_multi_aff" c_preimageDomainMultiAff :: BasicMap -> MultiAff -> IO BasicMap
+
+preimageDomainMultiAff :: forall m. MonadIO m => BasicMap %1 -> MultiAff %1 -> IslT m BasicMap
+preimageDomainMultiAff = unsafeCoerce go where
+  go :: BasicMap -> MultiAff -> IslT m BasicMap
+  go bmap ma =
+    unsafeIslFromIO $ \_ -> c_preimageDomainMultiAff bmap ma
+
+
+foreign import ccall "isl_basic_map_preimage_range_multi_aff" c_preimageRangeMultiAff :: BasicMap -> MultiAff -> IO BasicMap
+
+preimageRangeMultiAff :: forall m. MonadIO m => BasicMap %1 -> MultiAff %1 -> IslT m BasicMap
+preimageRangeMultiAff = unsafeCoerce go where
+  go :: BasicMap -> MultiAff -> IslT m BasicMap
+  go bmap ma =
+    unsafeIslFromIO $ \_ -> c_preimageRangeMultiAff bmap ma
 
 
 foreign import ccall "isl_basic_map_product" c_product :: BasicMap -> BasicMap -> IO BasicMap
@@ -664,6 +700,15 @@ foreign import ccall "isl_basic_map_get_div" c_getDiv :: BasicMapRef -> C.CInt -
 getDiv :: MonadIO m => BasicMapRef -> Int -> IslT m Aff
 getDiv bmap pos =
     unsafeIslFromIO $ \_ -> c_getDiv bmap (fromIntegral pos)
+
+
+foreign import ccall "isl_basic_map_lexmin_pw_multi_aff" c_lexminPwMultiAff :: BasicMap -> IO PwMultiAff
+
+lexminPwMultiAff :: forall m. MonadIO m => BasicMap %1 -> IslT m PwMultiAff
+lexminPwMultiAff = unsafeCoerce go where
+  go :: BasicMap -> IslT m PwMultiAff
+  go bmap =
+    unsafeIslFromIO $ \_ -> c_lexminPwMultiAff bmap
 
 
 foreign import ccall "isl_basic_map_to_str" c_toStr :: BasicMapRef -> IO C.CString

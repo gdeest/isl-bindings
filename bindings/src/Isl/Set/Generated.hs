@@ -342,6 +342,15 @@ flatProduct = unsafeCoerce go where
     unsafeIslFromIO $ \_ -> c_flatProduct set1 set2
 
 
+foreign import ccall "isl_set_from_multi_aff" c_fromMultiAff :: MultiAff -> IO Set
+
+fromMultiAff :: forall m. MonadIO m => MultiAff %1 -> IslT m Set
+fromMultiAff = unsafeCoerce go where
+  go :: MultiAff -> IslT m Set
+  go ma =
+    unsafeIslFromIO $ \_ -> c_fromMultiAff ma
+
+
 foreign import ccall "isl_set_from_params" c_fromParams :: Set -> IO Set
 
 fromParams :: forall m. MonadIO m => Set %1 -> IslT m Set
@@ -349,6 +358,24 @@ fromParams = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
     unsafeIslFromIO $ \_ -> c_fromParams set
+
+
+foreign import ccall "isl_set_from_pw_aff" c_fromPwAff :: PwAff -> IO Set
+
+fromPwAff :: forall m. MonadIO m => PwAff %1 -> IslT m Set
+fromPwAff = unsafeCoerce go where
+  go :: PwAff -> IslT m Set
+  go pwaff =
+    unsafeIslFromIO $ \_ -> c_fromPwAff pwaff
+
+
+foreign import ccall "isl_set_from_pw_multi_aff" c_fromPwMultiAff :: PwMultiAff -> IO Set
+
+fromPwMultiAff :: forall m. MonadIO m => PwMultiAff %1 -> IslT m Set
+fromPwMultiAff = unsafeCoerce go where
+  go :: PwMultiAff -> IslT m Set
+  go pma =
+    unsafeIslFromIO $ \_ -> c_fromPwMultiAff pma
 
 
 foreign import ccall "isl_set_from_union_set" c_fromUnionSet :: UnionSet -> IO Set
@@ -457,6 +484,24 @@ neg = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
     unsafeIslFromIO $ \_ -> c_neg set
+
+
+foreign import ccall "isl_set_preimage_multi_aff" c_preimageMultiAff :: Set -> MultiAff -> IO Set
+
+preimageMultiAff :: forall m. MonadIO m => Set %1 -> MultiAff %1 -> IslT m Set
+preimageMultiAff = unsafeCoerce go where
+  go :: Set -> MultiAff -> IslT m Set
+  go set ma =
+    unsafeIslFromIO $ \_ -> c_preimageMultiAff set ma
+
+
+foreign import ccall "isl_set_preimage_pw_multi_aff" c_preimagePwMultiAff :: Set -> PwMultiAff -> IO Set
+
+preimagePwMultiAff :: forall m. MonadIO m => Set %1 -> PwMultiAff %1 -> IslT m Set
+preimagePwMultiAff = unsafeCoerce go where
+  go :: Set -> PwMultiAff -> IslT m Set
+  go set pma =
+    unsafeIslFromIO $ \_ -> c_preimagePwMultiAff set pma
 
 
 foreign import ccall "isl_set_project_out" c_projectOut :: Set -> DimType -> C.CUInt -> C.CUInt -> IO Set
@@ -763,6 +808,42 @@ foreign import ccall "isl_set_plain_get_val_if_fixed" c_plainGetValIfFixed :: Se
 plainGetValIfFixed :: MonadIO m => SetRef -> DimType -> Int -> IslT m Val
 plainGetValIfFixed set typ pos =
     unsafeIslFromIO $ \_ -> c_plainGetValIfFixed set typ (fromIntegral pos)
+
+
+foreign import ccall "isl_set_dim_max" c_dimMax :: Set -> C.CInt -> IO PwAff
+
+dimMax :: forall m. MonadIO m => Set %1 -> Int -> IslT m PwAff
+dimMax = unsafeCoerce go where
+  go :: Set -> Int -> IslT m PwAff
+  go set pos =
+    unsafeIslFromIO $ \_ -> c_dimMax set (fromIntegral pos)
+
+
+foreign import ccall "isl_set_dim_min" c_dimMin :: Set -> C.CInt -> IO PwAff
+
+dimMin :: forall m. MonadIO m => Set %1 -> Int -> IslT m PwAff
+dimMin = unsafeCoerce go where
+  go :: Set -> Int -> IslT m PwAff
+  go set pos =
+    unsafeIslFromIO $ \_ -> c_dimMin set (fromIntegral pos)
+
+
+foreign import ccall "isl_set_param_pw_aff_on_domain_id" c_paramPwAffOnDomainId :: Set -> Id -> IO PwAff
+
+paramPwAffOnDomainId :: forall m. MonadIO m => Set %1 -> Id %1 -> IslT m PwAff
+paramPwAffOnDomainId = unsafeCoerce go where
+  go :: Set -> Id -> IslT m PwAff
+  go domain id =
+    unsafeIslFromIO $ \_ -> c_paramPwAffOnDomainId domain id
+
+
+foreign import ccall "isl_set_pw_aff_on_domain_val" c_pwAffOnDomainVal :: Set -> Val -> IO PwAff
+
+pwAffOnDomainVal :: forall m. MonadIO m => Set %1 -> Val %1 -> IslT m PwAff
+pwAffOnDomainVal = unsafeCoerce go where
+  go :: Set -> Val -> IslT m PwAff
+  go domain v =
+    unsafeIslFromIO $ \_ -> c_pwAffOnDomainVal domain v
 
 
 foreign import ccall "isl_set_get_dim_id" c_getDimId :: SetRef -> DimType -> C.CUInt -> IO Id
@@ -1154,6 +1235,15 @@ minVal set obj =
     unsafeIslFromIO $ \_ -> c_minVal set obj
 
 
+foreign import ccall "isl_set_indicator_function" c_indicatorFunction :: Set -> IO PwAff
+
+indicatorFunction :: forall m. MonadIO m => Set %1 -> IslT m PwAff
+indicatorFunction = unsafeCoerce go where
+  go :: Set -> IslT m PwAff
+  go set =
+    unsafeIslFromIO $ \_ -> c_indicatorFunction set
+
+
 foreign import ccall "isl_set_to_union_set" c_toUnionSet :: Set -> IO UnionSet
 
 toUnionSet :: forall m. MonadIO m => Set %1 -> IslT m UnionSet
@@ -1161,6 +1251,33 @@ toUnionSet = unsafeCoerce go where
   go :: Set -> IslT m UnionSet
   go set =
     unsafeIslFromIO $ \_ -> c_toUnionSet set
+
+
+foreign import ccall "isl_set_as_pw_multi_aff" c_asPwMultiAff :: Set -> IO PwMultiAff
+
+asPwMultiAff :: forall m. MonadIO m => Set %1 -> IslT m PwMultiAff
+asPwMultiAff = unsafeCoerce go where
+  go :: Set -> IslT m PwMultiAff
+  go set =
+    unsafeIslFromIO $ \_ -> c_asPwMultiAff set
+
+
+foreign import ccall "isl_set_lexmax_pw_multi_aff" c_lexmaxPwMultiAff :: Set -> IO PwMultiAff
+
+lexmaxPwMultiAff :: forall m. MonadIO m => Set %1 -> IslT m PwMultiAff
+lexmaxPwMultiAff = unsafeCoerce go where
+  go :: Set -> IslT m PwMultiAff
+  go set =
+    unsafeIslFromIO $ \_ -> c_lexmaxPwMultiAff set
+
+
+foreign import ccall "isl_set_lexmin_pw_multi_aff" c_lexminPwMultiAff :: Set -> IO PwMultiAff
+
+lexminPwMultiAff :: forall m. MonadIO m => Set %1 -> IslT m PwMultiAff
+lexminPwMultiAff = unsafeCoerce go where
+  go :: Set -> IslT m PwMultiAff
+  go set =
+    unsafeIslFromIO $ \_ -> c_lexminPwMultiAff set
 
 
 foreign import ccall "isl_set_from_basic_set" c_fromBasicSet :: BasicSet -> IO Set

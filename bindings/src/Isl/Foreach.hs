@@ -8,14 +8,19 @@
 module Isl.Foreach
   ( -- * Callback types
     RawCallback
-    -- * Callback wrappers
+  , RawCallback2
+    -- * Callback wrappers (single-argument)
   , mkConstraintCb
   , mkBasicSetCb
   , mkSetCb
   , mkBasicMapCb
   , mkMapCb
+    -- * Callback wrappers (two-argument, for piecewise iteration)
+  , mkPwAffPieceCb
+  , mkPwMultiAffPieceCb
     -- * Generic foreach collection
   , foreachCollect
+  , foreachCollect2
   ) where
 
 import Data.IORef
@@ -30,6 +35,7 @@ import Isl.Types
 ------------------------------------------------------------------------
 
 type RawCallback a = a -> Ptr () -> IO CInt
+type RawCallback2 a b = a -> b -> Ptr () -> IO CInt
 
 foreign import ccall "wrapper"
   mkConstraintCb :: RawCallback Constraint -> IO (FunPtr (RawCallback Constraint))
@@ -45,6 +51,12 @@ foreign import ccall "wrapper"
 
 foreign import ccall "wrapper"
   mkMapCb :: RawCallback Map -> IO (FunPtr (RawCallback Map))
+
+foreign import ccall "wrapper"
+  mkPwAffPieceCb :: RawCallback2 Set Aff -> IO (FunPtr (RawCallback2 Set Aff))
+
+foreign import ccall "wrapper"
+  mkPwMultiAffPieceCb :: RawCallback2 Set MultiAff -> IO (FunPtr (RawCallback2 Set MultiAff))
 
 ------------------------------------------------------------------------
 -- Generic foreach → list collection
@@ -66,6 +78,27 @@ foreachCollect mkWrapper doForeach process = do
   bracket
     (mkWrapper $ \element _user -> do
       result <- process element
+      modifyIORef' ref (result :)
+      return 0)  -- isl_stat_ok
+    freeHaskellFunPtr
+    (\cb -> do
+      _ <- doForeach cb
+      reverse <$> readIORef ref)
+
+-- | Like 'foreachCollect' but for two-argument callbacks (e.g. piecewise iteration).
+foreachCollect2
+  :: (forall x. (a -> b -> Ptr () -> IO CInt) -> IO (FunPtr (a -> b -> Ptr () -> IO CInt)))
+     -- ^ wrapper function
+  -> (FunPtr (a -> b -> Ptr () -> IO CInt) -> IO CInt)
+     -- ^ the C foreach call, partially applied with the ISL object
+  -> (a -> b -> IO r)
+     -- ^ process each pair (both are __isl_take)
+  -> IO [r]
+foreachCollect2 mkWrapper doForeach process = do
+  ref <- newIORef []
+  bracket
+    (mkWrapper $ \x y _user -> do
+      result <- process x y
       modifyIORef' ref (result :)
       return 0)  -- isl_stat_ok
     freeHaskellFunPtr

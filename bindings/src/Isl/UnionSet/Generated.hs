@@ -170,6 +170,24 @@ lift = unsafeCoerce go where
     unsafeIslFromIO $ \_ -> c_lift uset
 
 
+foreign import ccall "isl_union_set_preimage_multi_aff" c_preimageMultiAff :: UnionSet -> MultiAff -> IO UnionSet
+
+preimageMultiAff :: forall m. MonadIO m => UnionSet %1 -> MultiAff %1 -> IslT m UnionSet
+preimageMultiAff = unsafeCoerce go where
+  go :: UnionSet -> MultiAff -> IslT m UnionSet
+  go uset ma =
+    unsafeIslFromIO $ \_ -> c_preimageMultiAff uset ma
+
+
+foreign import ccall "isl_union_set_preimage_pw_multi_aff" c_preimagePwMultiAff :: UnionSet -> PwMultiAff -> IO UnionSet
+
+preimagePwMultiAff :: forall m. MonadIO m => UnionSet %1 -> PwMultiAff %1 -> IslT m UnionSet
+preimagePwMultiAff = unsafeCoerce go where
+  go :: UnionSet -> PwMultiAff -> IslT m UnionSet
+  go uset pma =
+    unsafeIslFromIO $ \_ -> c_preimagePwMultiAff uset pma
+
+
 foreign import ccall "isl_union_set_product" c_product :: UnionSet -> UnionSet -> IO UnionSet
 
 product :: forall m. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionSet

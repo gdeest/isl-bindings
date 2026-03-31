@@ -38,6 +38,14 @@ newtype Space = Space { unSpace :: Ptr Space }
   deriving (Storable)
 newtype LocalSpace = LocalSpace { unLocalSpace :: Ptr LocalSpace }
   deriving (Storable)
+newtype PwAff = PwAff { unPwAff :: Ptr PwAff }
+  deriving (Storable)
+newtype MultiAff = MultiAff { unMultiAff :: Ptr MultiAff }
+  deriving (Storable)
+newtype PwMultiAff = PwMultiAff { unPwMultiAff :: Ptr PwMultiAff }
+  deriving (Storable)
+newtype AffList = AffList { unAffList :: Ptr AffList }
+  deriving (Storable)
 
 -- Borrowed reference types (unrestricted — used by isl_keep functions)
 newtype AffRef = AffRef (Ptr Aff)
@@ -63,6 +71,14 @@ newtype ConstraintRef = ConstraintRef (Ptr Constraint)
 newtype SpaceRef = SpaceRef (Ptr Space)
   deriving (Storable)
 newtype LocalSpaceRef = LocalSpaceRef (Ptr LocalSpace)
+  deriving (Storable)
+newtype PwAffRef = PwAffRef (Ptr PwAff)
+  deriving (Storable)
+newtype MultiAffRef = MultiAffRef (Ptr MultiAff)
+  deriving (Storable)
+newtype PwMultiAffRef = PwMultiAffRef (Ptr PwMultiAff)
+  deriving (Storable)
+newtype AffListRef = AffListRef (Ptr AffList)
   deriving (Storable)
 
 -- Typeclasses for linear resource management

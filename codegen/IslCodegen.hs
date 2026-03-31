@@ -261,6 +261,8 @@ isIslPtrType t = t `elem`
   , ISL_SPACE_PTR, ISL_LOCAL_SPACE_PTR
   , ISL_AFF_PTR, ISL_VAL_PTR, ISL_ID_PTR
   , ISL_CONSTRAINT_PTR
+  , ISL_PW_AFF_PTR, ISL_MULTI_AFF_PTR, ISL_PW_MULTI_AFF_PTR
+  , ISL_AFF_LIST_PTR
   ]
 
 hsTypes :: M.Map ISLType TypeInfo
@@ -332,6 +334,22 @@ hsTypes =
         True)
     , (ISL_ID_PTR, TI
         "Id" "Id" (Just "IdRef")
+        (Just "return") (Just "return")
+        True)
+    , (ISL_PW_AFF_PTR, TI
+        "PwAff" "PwAff" (Just "PwAffRef")
+        (Just "return") (Just "return")
+        True)
+    , (ISL_MULTI_AFF_PTR, TI
+        "MultiAff" "MultiAff" (Just "MultiAffRef")
+        (Just "return") (Just "return")
+        True)
+    , (ISL_PW_MULTI_AFF_PTR, TI
+        "PwMultiAff" "PwMultiAff" (Just "PwMultiAffRef")
+        (Just "return") (Just "return")
+        True)
+    , (ISL_AFF_LIST_PTR, TI
+        "AffList" "AffList" (Just "AffListRef")
         (Just "return") (Just "return")
         True)
     , (CHAR_PTR, TI
@@ -712,6 +730,10 @@ writeInstances coreh modName _functions = do
 
 -- | Map module name to C function prefix (e.g. "BasicSet" → "isl_basic_set").
 moduleToCPrefix :: String -> String
+moduleToCPrefix "PwAff"      = "isl_pw_aff"
+moduleToCPrefix "MultiAff"   = "isl_multi_aff"
+moduleToCPrefix "PwMultiAff" = "isl_pw_multi_aff"
+moduleToCPrefix "AffList"    = "isl_aff_list"
 moduleToCPrefix "Aff"        = "isl_aff"
 moduleToCPrefix "BasicMap"   = "isl_basic_map"
 moduleToCPrefix "BasicSet"   = "isl_basic_set"
@@ -741,6 +763,10 @@ moduleToType = M.fromList
   , ("Constraint", ("Constraint", "ConstraintRef"))
   , ("Space",      ("Space",      "SpaceRef"))
   , ("LocalSpace", ("LocalSpace", "LocalSpaceRef"))
+  , ("PwAff",      ("PwAff",      "PwAffRef"))
+  , ("MultiAff",   ("MultiAff",   "MultiAffRef"))
+  , ("PwMultiAff", ("PwMultiAff", "PwMultiAffRef"))
+  , ("AffList",    ("AffList",    "AffListRef"))
   ]
 
 toISLAnnotation :: Attr -> Maybe ISLAnnotation
@@ -945,7 +971,11 @@ mustKeepFun (ISLFunction annots _ name _) =
     --  (isSuffixOf "_copy" name) || (isSuffixOf "_get_ctx" name))
 
 moduleMap =
-  [ ("isl_aff_", "Aff")
+  [ ("isl_pw_multi_aff_", "PwMultiAff")
+  , ("isl_pw_aff_", "PwAff")
+  , ("isl_multi_aff_", "MultiAff")
+  , ("isl_aff_list_", "AffList")
+  , ("isl_aff_", "Aff")
   , ("isl_constraint_", "Constraint")
   , ("isl_local_space_", "LocalSpace")
   , ("isl_map_", "Map")

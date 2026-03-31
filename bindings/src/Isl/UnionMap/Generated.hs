@@ -281,6 +281,42 @@ lexLtUnionMap = unsafeCoerce go where
     unsafeIslFromIO $ \_ -> c_lexLtUnionMap umap1 umap2
 
 
+foreign import ccall "isl_union_map_preimage_domain_multi_aff" c_preimageDomainMultiAff :: UnionMap -> MultiAff -> IO UnionMap
+
+preimageDomainMultiAff :: forall m. MonadIO m => UnionMap %1 -> MultiAff %1 -> IslT m UnionMap
+preimageDomainMultiAff = unsafeCoerce go where
+  go :: UnionMap -> MultiAff -> IslT m UnionMap
+  go umap ma =
+    unsafeIslFromIO $ \_ -> c_preimageDomainMultiAff umap ma
+
+
+foreign import ccall "isl_union_map_preimage_domain_pw_multi_aff" c_preimageDomainPwMultiAff :: UnionMap -> PwMultiAff -> IO UnionMap
+
+preimageDomainPwMultiAff :: forall m. MonadIO m => UnionMap %1 -> PwMultiAff %1 -> IslT m UnionMap
+preimageDomainPwMultiAff = unsafeCoerce go where
+  go :: UnionMap -> PwMultiAff -> IslT m UnionMap
+  go umap pma =
+    unsafeIslFromIO $ \_ -> c_preimageDomainPwMultiAff umap pma
+
+
+foreign import ccall "isl_union_map_preimage_range_multi_aff" c_preimageRangeMultiAff :: UnionMap -> MultiAff -> IO UnionMap
+
+preimageRangeMultiAff :: forall m. MonadIO m => UnionMap %1 -> MultiAff %1 -> IslT m UnionMap
+preimageRangeMultiAff = unsafeCoerce go where
+  go :: UnionMap -> MultiAff -> IslT m UnionMap
+  go umap ma =
+    unsafeIslFromIO $ \_ -> c_preimageRangeMultiAff umap ma
+
+
+foreign import ccall "isl_union_map_preimage_range_pw_multi_aff" c_preimageRangePwMultiAff :: UnionMap -> PwMultiAff -> IO UnionMap
+
+preimageRangePwMultiAff :: forall m. MonadIO m => UnionMap %1 -> PwMultiAff %1 -> IslT m UnionMap
+preimageRangePwMultiAff = unsafeCoerce go where
+  go :: UnionMap -> PwMultiAff -> IslT m UnionMap
+  go umap pma =
+    unsafeIslFromIO $ \_ -> c_preimageRangePwMultiAff umap pma
+
+
 foreign import ccall "isl_union_map_project_out" c_projectOut :: UnionMap -> DimType -> C.CUInt -> C.CUInt -> IO UnionMap
 
 projectOut :: forall m. MonadIO m => UnionMap %1 -> DimType -> Int -> Int -> IslT m UnionMap

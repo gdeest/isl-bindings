@@ -274,6 +274,15 @@ fromConstraint = unsafeCoerce go where
     unsafeIslFromIO $ \_ -> c_fromConstraint constraint
 
 
+foreign import ccall "isl_basic_set_from_multi_aff" c_fromMultiAff :: MultiAff -> IO BasicSet
+
+fromMultiAff :: forall m. MonadIO m => MultiAff %1 -> IslT m BasicSet
+fromMultiAff = unsafeCoerce go where
+  go :: MultiAff -> IslT m BasicSet
+  go ma =
+    unsafeIslFromIO $ \_ -> c_fromMultiAff ma
+
+
 foreign import ccall "isl_basic_set_from_params" c_fromParams :: BasicSet -> IO BasicSet
 
 fromParams :: forall m. MonadIO m => BasicSet %1 -> IslT m BasicSet
@@ -344,6 +353,15 @@ positiveOrthant = unsafeCoerce go where
   go :: Space -> IslT m BasicSet
   go space =
     unsafeIslFromIO $ \_ -> c_positiveOrthant space
+
+
+foreign import ccall "isl_basic_set_preimage_multi_aff" c_preimageMultiAff :: BasicSet -> MultiAff -> IO BasicSet
+
+preimageMultiAff :: forall m. MonadIO m => BasicSet %1 -> MultiAff %1 -> IslT m BasicSet
+preimageMultiAff = unsafeCoerce go where
+  go :: BasicSet -> MultiAff -> IslT m BasicSet
+  go bset ma =
+    unsafeIslFromIO $ \_ -> c_preimageMultiAff bset ma
 
 
 foreign import ccall "isl_basic_set_project_out" c_projectOut :: BasicSet -> DimType -> C.CUInt -> C.CUInt -> IO BasicSet

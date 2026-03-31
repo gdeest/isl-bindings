@@ -791,6 +791,78 @@ zeroAffOnDomain = unsafeCoerce go where
     unsafeIslFromIO $ \_ -> c_zeroAffOnDomain space
 
 
+foreign import ccall "isl_space_domain_map_multi_aff" c_domainMapMultiAff :: Space -> IO MultiAff
+
+domainMapMultiAff :: forall m. MonadIO m => Space %1 -> IslT m MultiAff
+domainMapMultiAff = unsafeCoerce go where
+  go :: Space -> IslT m MultiAff
+  go space =
+    unsafeIslFromIO $ \_ -> c_domainMapMultiAff space
+
+
+foreign import ccall "isl_space_identity_multi_aff_on_domain" c_identityMultiAffOnDomain :: Space -> IO MultiAff
+
+identityMultiAffOnDomain :: forall m. MonadIO m => Space %1 -> IslT m MultiAff
+identityMultiAffOnDomain = unsafeCoerce go where
+  go :: Space -> IslT m MultiAff
+  go space =
+    unsafeIslFromIO $ \_ -> c_identityMultiAffOnDomain space
+
+
+foreign import ccall "isl_space_multi_aff" c_multiAff :: Space -> AffList -> IO MultiAff
+
+multiAff :: forall m. MonadIO m => Space %1 -> AffList %1 -> IslT m MultiAff
+multiAff = unsafeCoerce go where
+  go :: Space -> AffList -> IslT m MultiAff
+  go space list =
+    unsafeIslFromIO $ \_ -> c_multiAff space list
+
+
+foreign import ccall "isl_space_range_map_multi_aff" c_rangeMapMultiAff :: Space -> IO MultiAff
+
+rangeMapMultiAff :: forall m. MonadIO m => Space %1 -> IslT m MultiAff
+rangeMapMultiAff = unsafeCoerce go where
+  go :: Space -> IslT m MultiAff
+  go space =
+    unsafeIslFromIO $ \_ -> c_rangeMapMultiAff space
+
+
+foreign import ccall "isl_space_zero_multi_aff" c_zeroMultiAff :: Space -> IO MultiAff
+
+zeroMultiAff :: forall m. MonadIO m => Space %1 -> IslT m MultiAff
+zeroMultiAff = unsafeCoerce go where
+  go :: Space -> IslT m MultiAff
+  go space =
+    unsafeIslFromIO $ \_ -> c_zeroMultiAff space
+
+
+foreign import ccall "isl_space_domain_map_pw_multi_aff" c_domainMapPwMultiAff :: Space -> IO PwMultiAff
+
+domainMapPwMultiAff :: forall m. MonadIO m => Space %1 -> IslT m PwMultiAff
+domainMapPwMultiAff = unsafeCoerce go where
+  go :: Space -> IslT m PwMultiAff
+  go space =
+    unsafeIslFromIO $ \_ -> c_domainMapPwMultiAff space
+
+
+foreign import ccall "isl_space_identity_pw_multi_aff_on_domain" c_identityPwMultiAffOnDomain :: Space -> IO PwMultiAff
+
+identityPwMultiAffOnDomain :: forall m. MonadIO m => Space %1 -> IslT m PwMultiAff
+identityPwMultiAffOnDomain = unsafeCoerce go where
+  go :: Space -> IslT m PwMultiAff
+  go space =
+    unsafeIslFromIO $ \_ -> c_identityPwMultiAffOnDomain space
+
+
+foreign import ccall "isl_space_range_map_pw_multi_aff" c_rangeMapPwMultiAff :: Space -> IO PwMultiAff
+
+rangeMapPwMultiAff :: forall m. MonadIO m => Space %1 -> IslT m PwMultiAff
+rangeMapPwMultiAff = unsafeCoerce go where
+  go :: Space -> IslT m PwMultiAff
+  go space =
+    unsafeIslFromIO $ \_ -> c_rangeMapPwMultiAff space
+
+
 foreign import ccall "isl_space_get_domain_tuple_id" c_getDomainTupleId :: SpaceRef -> IO Id
 
 getDomainTupleId :: MonadIO m => SpaceRef -> IslT m Id
