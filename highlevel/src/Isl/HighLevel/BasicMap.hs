@@ -16,7 +16,7 @@ import Control.Monad (forM, foldM)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Proxy
 import GHC.TypeLits
-import System.IO.Unsafe (unsafePerformIO)
+import Control.Exception (evaluate)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.HighLevel.BasicSet (BasicSet(..))
@@ -26,14 +26,12 @@ import Isl.HighLevel.Params (KnownSymbols(..), Length)
 import Isl.HighLevel.Pure (PMapConjunction(..))
 
 import qualified Isl.Types as Isl
-import Isl.Types (Borrow(..), Dupable(..), Consumable(..))
-import Isl.Instances ()
-import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, withCtx, freeM)
-import qualified Isl.Foreach as Foreach
-import qualified Isl.BasicMap.AutoGen as BM
-import qualified Isl.Constraint.AutoGen as Constraint
-import qualified Isl.LocalSpace.AutoGen as LS
-import qualified Isl.Space.AutoGen as Space
+import Isl.Types (Borrow(..), Dupable(..), Consumable(..), ConstraintRef(..))
+import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, freeM)
+import qualified Isl.BasicMap as BM
+import qualified Isl.Constraint as Constraint
+import qualified Isl.LocalSpace as LS
+import qualified Isl.Space as Space
 
 -- | Owned, parameter- and dimension-indexed BasicMap.
 -- Linear — must be consumed exactly once.
@@ -76,26 +74,25 @@ toBasicMap (Conjunction constraints) = do
       nIn  = fromIntegral $ natVal (Proxy @ni)
       nOut = fromIntegral $ natVal (Proxy @no)
       paramNames = symbolVals @ps
-  space0 <- withCtx $ Space.alloc nParams nIn nOut
-  space <- foldM (\sp (i, name) -> withCtx $ Space.setDimName sp Isl.islDimParam i name)
+  space0 <- Space.alloc nParams nIn nOut
+  space <- foldM (\sp (i, name) -> Space.setDimName sp Isl.islDimParam i name)
                  space0
                  (zip [0..] paramNames)
-  univ <- withCtx $ BM.universe space
+  univ <- BM.universe space
   result <- foldM addConstraint univ constraints
   return (BasicMap result)
   where
-    getSpace :: Isl.BasicMapRef -> Isl.Space
-    getSpace ref = unsafePerformIO $ Foreach.basicMapGetSpace ref
     addConstraint bm constraint = do
-      let !(sp, bm') = borrow bm (unsafeCoerce getSpace)
-      ls <- withCtx $ LS.fromSpace sp
+      let !(ref, bm') = borrow bm (\r -> r)
+      sp <- BM.getSpace ref
+      ls <- LS.fromSpace sp
       (emptyC, e) <-
         case constraint of
           InequalityConstraint e -> do
-            co <- withCtx $ Constraint.inequalityAlloc ls
+            co <- Constraint.inequalityAlloc ls
             return (co, e)
           EqualityConstraint e -> do
-            co <- withCtx $ Constraint.equalityAlloc ls
+            co <- Constraint.equalityAlloc ls
             return (co, e)
       let (coeffs, constant) = expandExpr e
           setCoeff constr (coeff, dim) = do
@@ -103,14 +100,14 @@ toBasicMap (Conjunction constraints) = do
                   InDim i   -> (Isl.islDimIn, i)
                   OutDim j  -> (Isl.islDimOut, j)
                   MapParam k -> (Isl.islDimParam, k)
-            withCtx $ Constraint.setCoefficientSi
+            Constraint.setCoefficientSi
               constr dimType (fromIntegral pos) (fromIntegral coeff)
       linearPart <- foldM setCoeff emptyC coeffs
-      finalC <- withCtx $ Constraint.setConstantSi linearPart (fromIntegral constant)
-      withCtx $ BM.addConstraint bm' finalC
+      finalC <- Constraint.setConstantSi linearPart (fromIntegral constant)
+      BM.addConstraint bm' finalC
 
 fromString :: forall m ps ni no. MonadIO m => String -> IslT m (BasicMap ps ni no)
-fromString str = BasicMap <$> withCtx (BM.readFromStr str)
+fromString str = BasicMap <$> BM.readFromStr str
 
 -- Operations (consuming)
 
@@ -118,19 +115,19 @@ intersect :: forall m ps ni no. MonadIO m => BasicMap ps ni no %1 -> BasicMap ps
 intersect = unsafeCoerce go
   where
     go :: BasicMap ps ni no -> BasicMap ps ni no -> IslT m (BasicMap ps ni no)
-    go (BasicMap bm1) (BasicMap bm2) = BasicMap <$> withCtx (BM.intersect bm1 bm2)
+    go (BasicMap bm1) (BasicMap bm2) = BasicMap <$> BM.intersect bm1 bm2
 
 domain :: forall m ps ni no. MonadIO m => BasicMap ps ni no %1 -> IslT m (BasicSet ps ni)
 domain = unsafeCoerce go
   where
     go :: BasicMap ps ni no -> IslT m (BasicSet ps ni)
-    go (BasicMap bm) = BasicSet <$> withCtx (BM.domain bm)
+    go (BasicMap bm) = BasicSet <$> BM.domain bm
 
 range :: forall m ps ni no. MonadIO m => BasicMap ps ni no %1 -> IslT m (BasicSet ps no)
 range = unsafeCoerce go
   where
     go :: BasicMap ps ni no -> IslT m (BasicSet ps no)
-    go (BasicMap bm) = BasicSet <$> withCtx (BM.range bm)
+    go (BasicMap bm) = BasicSet <$> BM.range bm
 
 -- Predicates (borrowing)
 
@@ -138,23 +135,26 @@ isEmpty :: forall m ps ni no. Monad m => BasicMap ps ni no %1 -> IslT m (Ur Bool
 isEmpty = unsafeCoerce go
   where
     go :: BasicMap ps ni no -> IslT m (Ur Bool, BasicMap ps ni no)
-    go (BasicMap bm) = do
-      r <- withCtx (BM.isEmpty bm)
-      return (Ur r, BasicMap bm)
+    go (BasicMap bm) =
+      let !(r, bm') = borrow bm (\ref -> BM.isEmpty ref)
+      in IslT $ \_ -> return (Ur r, BasicMap bm')
 
 isEqual :: forall m ps ni no. Monad m
   => BasicMap ps ni no %1 -> BasicMap ps ni no %1 -> IslT m (Ur Bool, BasicMap ps ni no, BasicMap ps ni no)
 isEqual = unsafeCoerce go
   where
     go :: BasicMap ps ni no -> BasicMap ps ni no -> IslT m (Ur Bool, BasicMap ps ni no, BasicMap ps ni no)
-    go (BasicMap bm1) (BasicMap bm2) = do
-      r <- withCtx (BM.isEqual bm1 bm2)
-      return (Ur r, BasicMap bm1, BasicMap bm2)
+    go (BasicMap bm1) (BasicMap bm2) =
+      let !(r, bm1') = borrow bm1 (\ref1 ->
+            let !(r', bm2') = borrow bm2 (\ref2 -> BM.isEqual ref1 ref2)
+            in (r', bm2'))
+          (innerR, bm2') = r
+      in IslT $ \_ -> return (Ur innerR, BasicMap bm1', BasicMap bm2')
 
 -- Queries
 
 bmapToString :: BasicMapRef ps ni no -> String
-bmapToString (BasicMapRef bmRef) = unsafePerformIO $ Foreach.basicMapToStr bmRef
+bmapToString (BasicMapRef bmRef) = BM.toStr bmRef
 
 borrowBM :: forall m ps ni no a. Monad m
   => BasicMap ps ni no %1 -> (BasicMapRef ps ni no -> a) -> IslT m (Ur a, BasicMap ps ni no)
@@ -179,9 +179,9 @@ decomposeBM = unsafeCoerce go
     go (BasicMap rawBm) = do
       let !(ref, rawBm') = borrow rawBm (\r -> r)
       constraints <- unsafeIslFromIO $ \_ ->
-        Foreach.basicMapForeachConstraint ref $ \c -> do
+        BM.foreachConstraint ref $ \c -> do
           result <- extractMapConstraint nParams nIn nOut c
-          Foreach.constraintFree c
+          evaluate (consume c)
           return result
       return (Ur (PMapConjunction (Conjunction constraints)), BasicMap rawBm')
 
@@ -189,17 +189,18 @@ decomposeBM = unsafeCoerce go
 -- reading coefficients for parameters, input, and output dimensions.
 extractMapConstraint :: Int -> Int -> Int -> Isl.Constraint -> IO (Constraint MapIx)
 extractMapConstraint nParams nIn nOut c = do
-  isEq <- Foreach.constraintIsEquality c
+  let cRef = let Isl.Constraint ptr = c in ConstraintRef ptr
+  let !isEq = Constraint.isEquality cRef
   paramCoeffs <- forM [0 .. nParams - 1] $ \i -> do
-    coeff <- Foreach.constraintGetCoefficientSi c Isl.islDimParam i
+    coeff <- Constraint.constraintGetCoefficientSi c Isl.islDimParam i
     return (coeff, MapParam i)
   inCoeffs <- forM [0 .. nIn - 1] $ \i -> do
-    coeff <- Foreach.constraintGetCoefficientSi c Isl.islDimIn i
+    coeff <- Constraint.constraintGetCoefficientSi c Isl.islDimIn i
     return (coeff, InDim i)
   outCoeffs <- forM [0 .. nOut - 1] $ \j -> do
-    coeff <- Foreach.constraintGetCoefficientSi c Isl.islDimOut j
+    coeff <- Constraint.constraintGetCoefficientSi c Isl.islDimOut j
     return (coeff, OutDim j)
-  constant <- Foreach.constraintGetConstantSi c
+  constant <- Constraint.constraintGetConstantSi c
   let allCoeffs = filter (\(coeff, _) -> coeff /= 0) (paramCoeffs ++ inCoeffs ++ outCoeffs)
       expr = rebuildExpr allCoeffs constant
   return $ if isEq
@@ -232,8 +233,8 @@ consumingIsEmpty = unsafeCoerce go
   where
     go :: BasicMap ps ni no -> IslT m (Ur Bool)
     go (BasicMap bm) = do
-      r <- withCtx (BM.isEmpty bm)
-      freeM bm
+      let !(r, bm') = borrow bm (\ref -> BM.isEmpty ref)
+      freeM bm'
       return (Ur r)
 
 -- | Check equality of two BasicMaps, then free both.
@@ -242,6 +243,9 @@ consumingIsEqual = unsafeCoerce go
   where
     go :: BasicMap ps ni no -> BasicMap ps ni no -> IslT m (Ur Bool)
     go (BasicMap bm1) (BasicMap bm2) = do
-      r <- withCtx (BM.isEqual bm1 bm2)
-      freeM bm1; freeM bm2
-      return (Ur r)
+      let !(r, bm1') = borrow bm1 (\ref1 ->
+            let !(r', bm2') = borrow bm2 (\ref2 -> BM.isEqual ref1 ref2)
+            in (r', bm2'))
+          (innerR, bm2') = r
+      freeM bm1'; freeM bm2'
+      return (Ur innerR)

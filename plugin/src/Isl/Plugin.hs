@@ -53,25 +53,60 @@ import GHC.Types.PkgQual (PkgQual(NoPkgQual))
 import GHC.Utils.Outputable (text, (<+>))
 import GHC.Data.FastString (unpackFS, mkFastString)
 
-import qualified Data.Reflection
-import Data.Reflection (give)
 import Data.Maybe (mapMaybe)
 import Data.List (elemIndex)
+import Data.Foldable (foldlM)
+import Control.Exception (evaluate)
 import System.IO.Unsafe (unsafePerformIO)
 
 import qualified Isl.Types as Isl
-import qualified Isl.BasicSet.AutoGen as BS
-import qualified Isl.BasicMap.AutoGen as BM
-import qualified Isl.Set.AutoGen as S
-import qualified Isl.Map.AutoGen as M
-import qualified Isl.Constraint.AutoGen as C
-import qualified Isl.LocalSpace.AutoGen as LS
-import qualified Isl.Space.AutoGen as Space
+import Isl.Monad (IslT(..))
+import qualified Isl.BasicSet as BS
+import qualified Isl.BasicMap as BM
+import qualified Isl.Set as S
+import qualified Isl.Map as M
+import qualified Isl.Constraint as C
+import qualified Isl.LocalSpace as LS
+import qualified Isl.Space as Space
+import qualified Isl.Aff as Aff
+import qualified Isl.Val as Val
 import Isl.HighLevel.Constraints
   ( Expr(..), Constraint(..), SetIx(..), MapIx(..), expandExpr )
-import qualified Isl.Foreach as Foreach
-import qualified Isl.Aff.AutoGen as Aff
-import Isl.Instances ()
+
+-- * Helpers for running ISL operations from the plugin
+
+-- | Run an IslT IO computation with a raw Ctx, extracting the result via unsafePerformIO.
+-- Used by the plugin which operates in TcPluginM, not IslT.
+runRawIsl :: Isl.Ctx -> IslT IO a -> a
+runRawIsl ctx (IslT f) = unsafePerformIO (f ctx)
+
+-- | Construct a SetRef from an owned Set (for PureQuery functions).
+setRef :: Isl.Set -> Isl.SetRef
+setRef (Isl.Set p) = Isl.SetRef p
+
+-- | Construct a MapRef from an owned Map.
+mapRef :: Isl.Map -> Isl.MapRef
+mapRef (Isl.Map p) = Isl.MapRef p
+
+-- | Construct a BasicSetRef from an owned BasicSet.
+basicSetRef :: Isl.BasicSet -> Isl.BasicSetRef
+basicSetRef (Isl.BasicSet p) = Isl.BasicSetRef p
+
+-- | Construct a BasicMapRef from an owned BasicMap.
+basicMapRef :: Isl.BasicMap -> Isl.BasicMapRef
+basicMapRef (Isl.BasicMap p) = Isl.BasicMapRef p
+
+-- | Construct a ConstraintRef from an owned Constraint.
+constraintRef :: Isl.Constraint -> Isl.ConstraintRef
+constraintRef (Isl.Constraint p) = Isl.ConstraintRef p
+
+-- | Construct a ValRef from an owned Val.
+valRef :: Isl.Val -> Isl.ValRef
+valRef (Isl.Val p) = Isl.ValRef p
+
+-- | Construct an AffRef from an owned Aff.
+affRef :: Isl.Aff -> Isl.AffRef
+affRef (Isl.Aff p) = Isl.AffRef p
 
 -- * Plugin entry point
 
@@ -294,14 +329,14 @@ solveOne env = \case
           let ctx = envCtxPtr env
               s1 = buildSet ctx nParams nDims paramNames cs1
               s2 = buildSet ctx nParams nDims paramNames cs2
-              result = give ctx $ S.isSubset s1 s2
+              result = S.isSubset (setRef s1) (setRef s2)
           if result
             then traceProved "Subset" >> (Just . (, ct) <$> makeEvidence ct)
             else do
               traceFailed "Subset" $
-                "\n  LHS: " ++ islSetToStr ctx s1 ++
+                "\n  LHS: " ++ islSetToStr s1 ++
                 "\n  is NOT a subset of" ++
-                "\n  RHS: " ++ islSetToStr ctx s2
+                "\n  RHS: " ++ islSetToStr s2
               pure Nothing
         _ -> traceReifyFail >> pure Nothing
 
@@ -312,12 +347,12 @@ solveOne env = \case
         Just cs -> do
           let ctx = envCtxPtr env
               s = buildSet ctx (length paramNames) nDims paramNames cs
-              result = give ctx $ not (S.isEmpty s)
+              result = not (S.isEmpty (setRef s))
           if result
             then traceProved "NonEmpty" >> (Just . (, ct) <$> makeEvidence ct)
             else do
               traceFailed "NonEmpty" $
-                "\n  Set is empty: " ++ islSetToStr ctx s
+                "\n  Set is empty: " ++ islSetToStr s
               pure Nothing
         _ -> traceReifyFail >> pure Nothing
 
@@ -331,14 +366,14 @@ solveOne env = \case
           let ctx = envCtxPtr env
               s1 = buildSet ctx nParams nDims paramNames cs1
               s2 = buildSet ctx nParams nDims paramNames cs2
-              result = give ctx $ S.isEqual s1 s2
+              result = S.isEqual (setRef s1) (setRef s2)
           if result
             then traceProved "Equal" >> (Just . (, ct) <$> makeEvidence ct)
             else do
               traceFailed "Equal" $
-                "\n  LHS: " ++ islSetToStr ctx s1 ++
+                "\n  LHS: " ++ islSetToStr s1 ++
                 "\n  is NOT equal to" ++
-                "\n  RHS: " ++ islSetToStr ctx s2
+                "\n  RHS: " ++ islSetToStr s2
               pure Nothing
         _ -> traceReifyFail >> pure Nothing
 
@@ -354,14 +389,14 @@ solveOne env = \case
           let ctx = envCtxPtr env
               m1 = buildMap ctx nParams nIn nOut paramNames cs1
               m2 = buildMap ctx nParams nIn nOut paramNames cs2
-              result = give ctx $ M.isSubset m1 m2
+              result = M.isSubset (mapRef m1) (mapRef m2)
           if result
             then traceProved "MapSubset" >> (Just . (, ct) <$> makeEvidence ct)
             else do
               traceFailed "MapSubset" $
-                "\n  LHS: " ++ islMapToStr ctx m1 ++
+                "\n  LHS: " ++ islMapToStr m1 ++
                 "\n  is NOT a subset of" ++
-                "\n  RHS: " ++ islMapToStr ctx m2
+                "\n  RHS: " ++ islMapToStr m2
               pure Nothing
         _ -> traceReifyFail >> pure Nothing
 
@@ -375,14 +410,14 @@ solveOne env = \case
           let ctx = envCtxPtr env
               m1 = buildMap ctx nParams nIn nOut paramNames cs1
               m2 = buildMap ctx nParams nIn nOut paramNames cs2
-              result = give ctx $ M.isEqual m1 m2
+              result = M.isEqual (mapRef m1) (mapRef m2)
           if result
             then traceProved "MapEqual" >> (Just . (, ct) <$> makeEvidence ct)
             else do
               traceFailed "MapEqual" $
-                "\n  LHS: " ++ islMapToStr ctx m1 ++
+                "\n  LHS: " ++ islMapToStr m1 ++
                 "\n  is NOT equal to" ++
-                "\n  RHS: " ++ islMapToStr ctx m2
+                "\n  RHS: " ++ islMapToStr m2
               pure Nothing
         _ -> traceReifyFail >> pure Nothing
 
@@ -395,16 +430,16 @@ solveOne env = \case
         (Just mapCs, Just rangeCs) -> do
           let ctx = envCtxPtr env
               m       = buildMap ctx nParams nIn nOut paramNames mapCs
-              rng     = give ctx $ M.range m
+              rng     = runRawIsl ctx $ M.range m
               expected = buildSet ctx nParams nOut paramNames rangeCs
-              result  = give ctx $ S.isEqual rng expected
+              result  = S.isEqual (setRef rng) (setRef expected)
           if result
             then traceProved "RangeOf" >> (Just . (, ct) <$> makeEvidence ct)
             else do
               traceFailed "RangeOf" $
-                "\n  Map:      " ++ islMapToStr ctx m ++
-                "\n  Range:    " ++ islSetToStr ctx rng ++
-                "\n  Expected: " ++ islSetToStr ctx expected
+                "\n  Map:      " ++ islMapToStr m ++
+                "\n  Range:    " ++ islSetToStr rng ++
+                "\n  Expected: " ++ islSetToStr expected
               pure Nothing
         _ -> traceReifyFail >> pure Nothing
 
@@ -419,17 +454,17 @@ solveOne env = \case
           let ctx = envCtxPtr env
               m     = buildMap ctx nParams nIn nOut paramNames mapCs
               src   = buildSet ctx nParams nIn paramNames srcCs
-              image = give ctx $ S.apply src m
+              image = runRawIsl ctx $ S.apply src m
               dst   = buildSet ctx nParams nOut paramNames dstCs
-              result = give ctx $ S.isSubset image dst
+              result = S.isSubset (setRef image) (setRef dst)
           if result
             then traceProved "ImageSubset" >> (Just . (, ct) <$> makeEvidence ct)
             else do
               traceFailed "ImageSubset" $
-                "\n  Map:    " ++ islMapToStr ctx m ++
-                "\n  Source: " ++ islSetToStr ctx src ++
-                "\n  Image:  " ++ islSetToStr ctx image ++
-                "\n  Target: " ++ islSetToStr ctx dst ++
+                "\n  Map:    " ++ islMapToStr m ++
+                "\n  Source: " ++ islSetToStr src ++
+                "\n  Image:  " ++ islSetToStr image ++
+                "\n  Target: " ++ islSetToStr dst ++
                 "\n  Image is NOT a subset of Target"
               pure Nothing
         _ -> traceReifyFail >> pure Nothing
@@ -474,12 +509,12 @@ traceReifyFail =
   tcPluginTrace "isl-plugin" (text "Could not reify type-level constraints (stuck type families?)")
 
 -- | Convert an ISL set to its string representation for diagnostics.
-islSetToStr :: Isl.Ctx -> Isl.Set -> String
-islSetToStr ctx s = give ctx $ S.toStr s
+islSetToStr :: Isl.Set -> String
+islSetToStr s = S.toStr (setRef s)
 
 -- | Convert an ISL map to its string representation for diagnostics.
-islMapToStr :: Isl.Ctx -> Isl.Map -> String
-islMapToStr ctx m = give ctx $ M.toStr m
+islMapToStr :: Isl.Map -> String
+islMapToStr m = M.toStr (mapRef m)
 
 -- * Evidence construction
 
@@ -540,7 +575,7 @@ rewriteApply env _rewriteEnv _givens args = case args of
             rewriteSetResult env (envIslApply env) args paramNames nOut psTy noTy $ \ctx ->
               let m   = buildMap ctx nParams nIn nOut paramNames mapCs
                   s   = buildSet ctx nParams nIn paramNames setCs
-              in give ctx $ S.apply s m
+              in runRawIsl ctx $ S.apply s m
           _ -> pure TcPluginNoRewrite
       _ -> pure TcPluginNoRewrite
   _ -> pure TcPluginNoRewrite
@@ -559,7 +594,7 @@ rewriteIntersectSet env _re _givens args = case args of
             rewriteSetResult env (envIslIntersectSet env) args paramNames nDims psTy nTy $ \ctx ->
               let s1 = buildSet ctx (length paramNames) nDims paramNames cs1
                   s2 = buildSet ctx (length paramNames) nDims paramNames cs2
-              in give ctx $ S.intersect s1 s2
+              in runRawIsl ctx $ S.intersect s1 s2
           _ -> pure TcPluginNoRewrite
       _ -> pure TcPluginNoRewrite
   _ -> pure TcPluginNoRewrite
@@ -576,7 +611,7 @@ rewriteComplementSet env _re _givens args = case args of
           Just cs ->
             rewriteSetResult env (envIslComplementSet env) args paramNames nDims psTy nTy $ \ctx ->
               let s = buildSet ctx (length paramNames) nDims paramNames cs
-              in give ctx $ S.complement s
+              in runRawIsl ctx $ S.complement s
           _ -> pure TcPluginNoRewrite
       _ -> pure TcPluginNoRewrite
   _ -> pure TcPluginNoRewrite
@@ -595,7 +630,7 @@ rewriteDifferenceSet env _re _givens args = case args of
             rewriteSetResult env (envIslDifferenceSet env) args paramNames nDims psTy nTy $ \ctx ->
               let s1 = buildSet ctx (length paramNames) nDims paramNames cs1
                   s2 = buildSet ctx (length paramNames) nDims paramNames cs2
-              in give ctx $ S.subtract s1 s2
+              in runRawIsl ctx $ S.subtract s1 s2
           _ -> pure TcPluginNoRewrite
       _ -> pure TcPluginNoRewrite
   _ -> pure TcPluginNoRewrite
@@ -612,7 +647,7 @@ rewriteDomain env _re _givens args = case args of
           Just cs ->
             rewriteSetResult env (envIslDomainTF env) args paramNames nIn psTy niTy $ \ctx ->
               let m = buildMap ctx (length paramNames) nIn nOut paramNames cs
-              in give ctx $ M.domain m
+              in runRawIsl ctx $ M.domain m
           _ -> pure TcPluginNoRewrite
       _ -> pure TcPluginNoRewrite
   _ -> pure TcPluginNoRewrite
@@ -629,7 +664,7 @@ rewriteRange env _re _givens args = case args of
           Just cs ->
             rewriteSetResult env (envIslRangeTF env) args paramNames nOut psTy noTy $ \ctx ->
               let m = buildMap ctx (length paramNames) nIn nOut paramNames cs
-              in give ctx $ M.range m
+              in runRawIsl ctx $ M.range m
           _ -> pure TcPluginNoRewrite
       _ -> pure TcPluginNoRewrite
   _ -> pure TcPluginNoRewrite
@@ -652,7 +687,7 @@ rewriteCompose env _re _givens args = case args of
             result <- tcPluginIO $ pure $
               let m1 = buildMap (envCtxPtr env) nParams nK nOut paramNames m1Cs
                   m2 = buildMap (envCtxPtr env) nParams nIn nK paramNames m2Cs
-                  composed = give (envCtxPtr env) $ M.applyRange m2 m1
+                  composed = runRawIsl (envCtxPtr env) $ M.applyRange m2 m1
               in decomposeIslMap env paramNames nIn nOut composed
             let combinedNTy = mkNumLitTy (fromIntegral (nIn + nOut))
                 resultTy = liftMapDisjunction env paramNames nIn psTy combinedNTy result
@@ -675,7 +710,7 @@ rewriteReverseMap env _re _givens args = case args of
           Just cs -> do
             result <- tcPluginIO $ pure $
               let m = buildMap (envCtxPtr env) (length paramNames) nIn nOut paramNames cs
-                  rev = give (envCtxPtr env) $ M.reverse m
+                  rev = runRawIsl (envCtxPtr env) $ M.reverse m
               in decomposeIslMap env paramNames nOut nIn rev
             let combinedNTy = mkNumLitTy (fromIntegral (nOut + nIn))
                 resultTy = liftMapDisjunction env paramNames nOut psTy combinedNTy result
@@ -698,7 +733,7 @@ rewriteProjectOut env _re _givens args = case args of
           Just cs ->
             rewriteSetResult env (envIslProjectOut env) args paramNames nResult psTy nResultTy $ \ctx ->
               let s = buildSet ctx (length paramNames) nDims paramNames cs
-              in give ctx $ S.projectOut s Isl.islDimSet (fromIntegral first) (fromIntegral count)
+              in runRawIsl ctx $ S.projectOut s Isl.islDimSet (fromIntegral first) (fromIntegral count)
           _ -> pure TcPluginNoRewrite
       _ -> pure TcPluginNoRewrite
   _ -> pure TcPluginNoRewrite
@@ -712,7 +747,7 @@ rewriteFromString env _re _givens args = case args of
       (Just nDims, Just str) -> do
         let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
         rewriteSetResult env (envIslFromString env) args paramNames nDims psTy nTy $ \ctx ->
-          give ctx $ S.readFromStr str
+          runRawIsl ctx $ S.readFromStr str
       _ -> pure TcPluginNoRewrite
   _ -> pure TcPluginNoRewrite
 
@@ -728,7 +763,7 @@ rewriteToString env _re _givens args = case args of
           Just cs -> do
             let ctx = envCtxPtr env
                 s = buildSet ctx (length paramNames) nDims paramNames cs
-                str = islSetToStr ctx s
+                str = islSetToStr s
                 resultTy = mkStrLitTy (mkFastString str)
                 origTy = mkTyConApp (envIslToString env) args
                 co = mkUnivCo (PluginProv "isl-plugin") Nominal origTy resultTy
@@ -749,7 +784,7 @@ rewriteMapToString env _re _givens args = case args of
           Just cs -> do
             let ctx = envCtxPtr env
                 m = buildMap ctx (length paramNames) nIn nOut paramNames cs
-                str = islMapToStr ctx m
+                str = islMapToStr m
                 resultTy = mkStrLitTy (mkFastString str)
                 origTy = mkTyConApp (envIslMapToString env) args
                 co = mkUnivCo (PluginProv "isl-plugin") Nominal origTy resultTy
@@ -764,47 +799,44 @@ decomposeIslSet :: IslPluginEnv -> [String] -> Int -> Isl.Set -> [[Constraint Se
 decomposeIslSet _env paramNames nDims set =
   let nParams = length paramNames
       ctx = envCtxPtr _env
-      !(ref, _) = Isl.borrow set (\r -> r)
-  in unsafePerformIO $ Foreach.setForeachBasicSet ref $ \bs -> do
-       -- Get number of div dimensions (must use basicSetDim, not spaceDim)
-       let !(bsRef, _) = Isl.borrow bs (\r -> r)
-       nDivs <- Foreach.basicSetDim bsRef Isl.islDimDiv
+  in unsafePerformIO $ S.foreachBasicSet (setRef set) $ \bs -> do
+       -- Get number of div dimensions
+       let nDivs = BS.dim (basicSetRef bs) Isl.islDimDiv
 
        -- Extract div definitions: each div is floor(aff / d)
-       let divExprs = [give ctx $ extractSetDiv bs nDims nParams i | i <- [0..nDivs-1]]
+       let divExprs = [extractSetDiv ctx bs nDims nParams i | i <- [0..nDivs-1]]
 
-       constraints <- Foreach.basicSetForeachConstraint bsRef $ \c -> do
-         isEq <- Foreach.constraintIsEquality c
+       constraints <- BS.foreachConstraint (basicSetRef bs) $ \c -> do
+         let isEq = C.isEquality (constraintRef c)
          -- Regular dim + param coefficients
          coeffs <- mapM (\i -> do
-           v <- Foreach.constraintGetCoefficientSi c Isl.islDimSet i
+           v <- C.constraintGetCoefficientSi c Isl.islDimSet i
            pure (v, Ix (SetDim i))) [0..nDims-1]
          paramCoeffs <- mapM (\i -> do
-           v <- Foreach.constraintGetCoefficientSi c Isl.islDimParam i
+           v <- C.constraintGetCoefficientSi c Isl.islDimParam i
            pure (v, Ix (SetParam i))) [0..nParams-1]
          -- Div coefficients: substitute with FloorDiv expressions
          divCoeffs <- mapM (\i -> do
-           v <- Foreach.constraintGetCoefficientSi c Isl.islDimDiv i
+           v <- C.constraintGetCoefficientSi c Isl.islDimDiv i
            pure (v, divExprs !! i)) [0..nDivs-1]
-         constant <- Foreach.constraintGetConstantSi c
-         Foreach.constraintFree c
+         constant <- C.constraintGetConstantSi c
+         evaluate (Isl.consume c)
          let allTerms = [(v, e) | (v, e) <- coeffs ++ paramCoeffs ++ divCoeffs, v /= 0]
              expr = rebuildExprWithDivs allTerms constant
          pure $ if isEq then EqualityConstraint expr else InequalityConstraint expr
-       Foreach.basicSetFree bs
+       evaluate (Isl.consume bs)
        pure constraints
 
 -- | Extract the definition of a div dimension from a BasicSet as a FloorDiv Expr.
 -- div_i = floor(aff / d) where aff is an affine expression over dims + params.
--- Must be called inside @give ctx@.
-extractSetDiv :: Data.Reflection.Given Isl.Ctx => Isl.BasicSet -> Int -> Int -> Int -> Expr SetIx
-extractSetDiv bs nDims nParams divIdx =
-  let aff = BS.getDiv bs (fromIntegral divIdx)
-      denom = unsafePerformIO $ Foreach.valGetNumSi $ Aff.getDenominatorVal aff
+extractSetDiv :: Isl.Ctx -> Isl.BasicSet -> Int -> Int -> Int -> Expr SetIx
+extractSetDiv ctx bs nDims nParams divIdx =
+  let aff = runRawIsl ctx $ BS.getDiv (basicSetRef bs) (fromIntegral divIdx)
+      denom = Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getDenominatorVal (affRef aff)
       -- ISL quirk: isl_aff from basic set uses isl_dim_in for set dimensions
-      dimCoeffs = [(unsafePerformIO $ Foreach.valGetNumSi $ Aff.getCoefficientVal aff Isl.islDimIn (fromIntegral i), Ix (SetDim i)) | i <- [0..nDims-1]]
-      paramCoeffs = [(unsafePerformIO $ Foreach.valGetNumSi $ Aff.getCoefficientVal aff Isl.islDimParam (fromIntegral i), Ix (SetParam i)) | i <- [0..nParams-1]]
-      constVal = unsafePerformIO $ Foreach.valGetNumSi $ Aff.getConstantVal aff
+      dimCoeffs = [(Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getCoefficientVal (affRef aff) Isl.islDimIn (fromIntegral i), Ix (SetDim i)) | i <- [0..nDims-1]]
+      paramCoeffs = [(Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getCoefficientVal (affRef aff) Isl.islDimParam (fromIntegral i), Ix (SetParam i)) | i <- [0..nParams-1]]
+      constVal = Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getConstantVal (affRef aff)
       allTerms = [(v, e) | (v, e) <- dimCoeffs ++ paramCoeffs, v /= 0]
       innerExpr = rebuildExprWithDivs allTerms constVal
   in FloorDiv innerExpr denom
@@ -813,45 +845,43 @@ decomposeIslMap :: IslPluginEnv -> [String] -> Int -> Int -> Isl.Map -> [[Constr
 decomposeIslMap _env paramNames nIn nOut m =
   let nParams = length paramNames
       ctx = envCtxPtr _env
-      !(ref, _) = Isl.borrow m (\r -> r)
-  in unsafePerformIO $ Foreach.mapForeachBasicMap ref $ \bm -> do
-       let !(bmRef, _) = Isl.borrow bm (\r -> r)
-       nDivs <- Foreach.basicMapDim bmRef Isl.islDimDiv
+  in unsafePerformIO $ M.foreachBasicMap (mapRef m) $ \bm -> do
+       let nDivs = BM.dim (basicMapRef bm) Isl.islDimDiv
 
        -- Extract div definitions for map space
-       let divExprs = [give ctx $ extractMapDiv bm nIn nOut nParams i | i <- [0..nDivs-1]]
+       let divExprs = [extractMapDiv ctx bm nIn nOut nParams i | i <- [0..nDivs-1]]
 
-       constraints <- Foreach.basicMapForeachConstraint bmRef $ \c -> do
-         isEq <- Foreach.constraintIsEquality c
+       constraints <- BM.foreachConstraint (basicMapRef bm) $ \c -> do
+         let isEq = C.isEquality (constraintRef c)
          inCoeffs <- mapM (\i -> do
-           v <- Foreach.constraintGetCoefficientSi c Isl.islDimIn i
+           v <- C.constraintGetCoefficientSi c Isl.islDimIn i
            pure (v, Ix (InDim i))) [0..nIn-1]
          outCoeffs <- mapM (\i -> do
-           v <- Foreach.constraintGetCoefficientSi c Isl.islDimOut i
+           v <- C.constraintGetCoefficientSi c Isl.islDimOut i
            pure (v, Ix (OutDim i))) [0..nOut-1]
          paramCoeffs <- mapM (\i -> do
-           v <- Foreach.constraintGetCoefficientSi c Isl.islDimParam i
+           v <- C.constraintGetCoefficientSi c Isl.islDimParam i
            pure (v, Ix (MapParam i))) [0..nParams-1]
          divCoeffs <- mapM (\i -> do
-           v <- Foreach.constraintGetCoefficientSi c Isl.islDimDiv i
+           v <- C.constraintGetCoefficientSi c Isl.islDimDiv i
            pure (v, divExprs !! i)) [0..nDivs-1]
-         constant <- Foreach.constraintGetConstantSi c
-         Foreach.constraintFree c
+         constant <- C.constraintGetConstantSi c
+         evaluate (Isl.consume c)
          let allTerms = [(v, e) | (v, e) <- inCoeffs ++ outCoeffs ++ paramCoeffs ++ divCoeffs, v /= 0]
              expr = rebuildExprWithDivs allTerms constant
          pure $ if isEq then EqualityConstraint expr else InequalityConstraint expr
-       Foreach.basicMapFree bm
+       evaluate (Isl.consume bm)
        pure constraints
 
 -- | Extract a div definition from a BasicMap.
-extractMapDiv :: Data.Reflection.Given Isl.Ctx => Isl.BasicMap -> Int -> Int -> Int -> Int -> Expr MapIx
-extractMapDiv bm nIn nOut nParams divIdx =
-  let aff = BM.getDiv bm (fromIntegral divIdx)
-      denom = unsafePerformIO $ Foreach.valGetNumSi $ Aff.getDenominatorVal aff
-      inCoeffs = [(unsafePerformIO $ Foreach.valGetNumSi $ Aff.getCoefficientVal aff Isl.islDimIn (fromIntegral i), Ix (InDim i)) | i <- [0..nIn-1]]
-      outCoeffs = [(unsafePerformIO $ Foreach.valGetNumSi $ Aff.getCoefficientVal aff Isl.islDimOut (fromIntegral i), Ix (OutDim i)) | i <- [0..nOut-1]]
-      paramCoeffs = [(unsafePerformIO $ Foreach.valGetNumSi $ Aff.getCoefficientVal aff Isl.islDimParam (fromIntegral i), Ix (MapParam i)) | i <- [0..nParams-1]]
-      constVal = unsafePerformIO $ Foreach.valGetNumSi $ Aff.getConstantVal aff
+extractMapDiv :: Isl.Ctx -> Isl.BasicMap -> Int -> Int -> Int -> Int -> Expr MapIx
+extractMapDiv ctx bm nIn nOut nParams divIdx =
+  let aff = runRawIsl ctx $ BM.getDiv (basicMapRef bm) (fromIntegral divIdx)
+      denom = Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getDenominatorVal (affRef aff)
+      inCoeffs = [(Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getCoefficientVal (affRef aff) Isl.islDimIn (fromIntegral i), Ix (InDim i)) | i <- [0..nIn-1]]
+      outCoeffs = [(Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getCoefficientVal (affRef aff) Isl.islDimOut (fromIntegral i), Ix (OutDim i)) | i <- [0..nOut-1]]
+      paramCoeffs = [(Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getCoefficientVal (affRef aff) Isl.islDimParam (fromIntegral i), Ix (MapParam i)) | i <- [0..nParams-1]]
+      constVal = Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getConstantVal (affRef aff)
       allTerms = [(v, e) | (v, e) <- inCoeffs ++ outCoeffs ++ paramCoeffs, v /= 0]
       innerExpr = rebuildExprWithDivs allTerms constVal
   in FloorDiv innerExpr denom
@@ -966,73 +996,75 @@ mkPromotedListTy k = foldr (\x xs -> mkTyConApp promotedConsDataCon [k, x, xs])
 buildBasicSet
   :: Isl.Ctx -> Int -> Int -> [String] -> [Constraint SetIx] -> Isl.BasicSet
 buildBasicSet ctx nParams nDims paramNames constraints =
-  let space0 = give ctx $ Space.setAlloc (fromIntegral nParams) (fromIntegral nDims)
-      space  = foldl (\sp (i, name) -> give ctx $ Space.setDimName sp Isl.islDimParam i name)
+  runRawIsl ctx $ do
+    space0 <- Space.setAlloc (fromIntegral nParams) (fromIntegral nDims)
+    space  <- foldlM (\sp (i, name) -> Space.setDimName sp Isl.islDimParam i name)
                      space0 (zip [0..] paramNames)
-      univ   = give ctx $ BS.universe space
-  in foldl (addOneSetConstraint ctx) univ constraints
+    univ   <- BS.universe space
+    foldlM (addOneSetConstraint ctx) univ constraints
 
 buildSet :: Isl.Ctx -> Int -> Int -> [String] -> [Constraint SetIx] -> Isl.Set
 buildSet ctx nParams nDims paramNames constraints =
-  give ctx $ S.fromBasicSet (buildBasicSet ctx nParams nDims paramNames constraints)
+  runRawIsl ctx $ S.fromBasicSet (buildBasicSet ctx nParams nDims paramNames constraints)
 
-addOneSetConstraint :: Isl.Ctx -> Isl.BasicSet -> Constraint SetIx -> Isl.BasicSet
-addOneSetConstraint ctx bs constraint =
-  let sp     = give ctx $ BS.getSpace bs
-      ls     = give ctx $ LS.fromSpace sp
-      (coeffs, constant) = case constraint of
+addOneSetConstraint :: Isl.Ctx -> Isl.BasicSet -> Constraint SetIx -> IslT IO Isl.BasicSet
+addOneSetConstraint ctx bs constraint = do
+  sp     <- BS.getSpace (basicSetRef bs)
+  ls     <- LS.fromSpace sp
+  let (coeffs, constant) = case constraint of
         InequalityConstraint e -> expandExpr e
         EqualityConstraint e   -> expandExpr e
-      emptyC = case constraint of
-        InequalityConstraint _ -> give ctx $ C.inequalityAlloc ls
-        EqualityConstraint _   -> give ctx $ C.equalityAlloc ls
-      withCoeffs = foldl (setSetCoeff ctx) emptyC coeffs
-      finalC     = give ctx $ C.setConstantSi withCoeffs (fromIntegral constant)
-  in give ctx $ BS.addConstraint bs finalC
+  emptyC <- case constraint of
+    InequalityConstraint _ -> C.inequalityAlloc ls
+    EqualityConstraint _   -> C.equalityAlloc ls
+  withCoeffs <- foldlM (setSetCoeff ctx) emptyC coeffs
+  finalC     <- C.setConstantSi withCoeffs (fromIntegral constant)
+  BS.addConstraint bs finalC
 
-setSetCoeff :: Isl.Ctx -> Isl.Constraint -> (Integer, SetIx) -> Isl.Constraint
-setSetCoeff ctx c (coeff, ix) =
+setSetCoeff :: Isl.Ctx -> Isl.Constraint -> (Integer, SetIx) -> IslT IO Isl.Constraint
+setSetCoeff _ctx c (coeff, ix) =
   let (dimType, pos) = case ix of
         SetDim i   -> (Isl.islDimSet, i)
         SetParam i -> (Isl.islDimParam, i)
-  in give ctx $ C.setCoefficientSi c dimType (fromIntegral pos) (fromIntegral coeff)
+  in C.setCoefficientSi c dimType (fromIntegral pos) (fromIntegral coeff)
 
 -- ** Maps
 
 buildBasicMap
   :: Isl.Ctx -> Int -> Int -> Int -> [String] -> [Constraint MapIx] -> Isl.BasicMap
 buildBasicMap ctx nParams nIn nOut paramNames constraints =
-  let space0 = give ctx $ Space.alloc (fromIntegral nParams) (fromIntegral nIn) (fromIntegral nOut)
-      space  = foldl (\sp (i, name) -> give ctx $ Space.setDimName sp Isl.islDimParam i name)
+  runRawIsl ctx $ do
+    space0 <- Space.alloc (fromIntegral nParams) (fromIntegral nIn) (fromIntegral nOut)
+    space  <- foldlM (\sp (i, name) -> Space.setDimName sp Isl.islDimParam i name)
                      space0 (zip [0..] paramNames)
-      univ   = give ctx $ BM.universe space
-  in foldl (addOneMapConstraint ctx) univ constraints
+    univ   <- BM.universe space
+    foldlM (addOneMapConstraint ctx) univ constraints
 
 buildMap :: Isl.Ctx -> Int -> Int -> Int -> [String] -> [Constraint MapIx] -> Isl.Map
 buildMap ctx nParams nIn nOut paramNames constraints =
-  give ctx $ M.fromBasicMap (buildBasicMap ctx nParams nIn nOut paramNames constraints)
+  runRawIsl ctx $ M.fromBasicMap (buildBasicMap ctx nParams nIn nOut paramNames constraints)
 
-addOneMapConstraint :: Isl.Ctx -> Isl.BasicMap -> Constraint MapIx -> Isl.BasicMap
-addOneMapConstraint ctx bm constraint =
-  let sp     = give ctx $ BM.getSpace bm
-      ls     = give ctx $ LS.fromSpace sp
-      (coeffs, constant) = case constraint of
+addOneMapConstraint :: Isl.Ctx -> Isl.BasicMap -> Constraint MapIx -> IslT IO Isl.BasicMap
+addOneMapConstraint ctx bm constraint = do
+  sp     <- BM.getSpace (basicMapRef bm)
+  ls     <- LS.fromSpace sp
+  let (coeffs, constant) = case constraint of
         InequalityConstraint e -> expandExpr e
         EqualityConstraint e   -> expandExpr e
-      emptyC = case constraint of
-        InequalityConstraint _ -> give ctx $ C.inequalityAlloc ls
-        EqualityConstraint _   -> give ctx $ C.equalityAlloc ls
-      withCoeffs = foldl (setMapCoeff ctx) emptyC coeffs
-      finalC     = give ctx $ C.setConstantSi withCoeffs (fromIntegral constant)
-  in give ctx $ BM.addConstraint bm finalC
+  emptyC <- case constraint of
+    InequalityConstraint _ -> C.inequalityAlloc ls
+    EqualityConstraint _   -> C.equalityAlloc ls
+  withCoeffs <- foldlM (setMapCoeff ctx) emptyC coeffs
+  finalC     <- C.setConstantSi withCoeffs (fromIntegral constant)
+  BM.addConstraint bm finalC
 
-setMapCoeff :: Isl.Ctx -> Isl.Constraint -> (Integer, MapIx) -> Isl.Constraint
-setMapCoeff ctx c (coeff, ix) =
+setMapCoeff :: Isl.Ctx -> Isl.Constraint -> (Integer, MapIx) -> IslT IO Isl.Constraint
+setMapCoeff _ctx c (coeff, ix) =
   let (dimType, pos) = case ix of
         InDim i    -> (Isl.islDimIn, i)
         OutDim i   -> (Isl.islDimOut, i)
         MapParam i -> (Isl.islDimParam, i)
-  in give ctx $ C.setCoefficientSi c dimType (fromIntegral pos) (fromIntegral coeff)
+  in C.setCoefficientSi c dimType (fromIntegral pos) (fromIntegral coeff)
 
 -- (ISL property check functions removed — inlined into solveOne with richer error messages)
 

@@ -12,10 +12,10 @@
 
 module Isl.HighLevel.Map where
 
+import Control.Exception (evaluate)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Proxy
 import GHC.TypeLits
-import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.HighLevel.BasicMap (BasicMap(..), extractMapConstraint)
@@ -26,11 +26,10 @@ import Isl.HighLevel.Set (Set(..))
 
 import qualified Isl.Types as Isl
 import Isl.Types (Borrow(..), Dupable(..), Consumable(..))
-import Isl.Instances ()
-import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, withCtx, freeM)
-import qualified Isl.Foreach as Foreach
-import qualified Isl.Map.AutoGen as M
-import qualified Isl.Set.AutoGen as S
+import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, freeM)
+import qualified Isl.Map as M
+import qualified Isl.Set as S
+import qualified Isl.BasicMap as BM
 
 -- | Owned, parameter- and dimension-indexed Map.
 -- Linear — must be consumed exactly once.
@@ -57,10 +56,10 @@ fromBasicMap :: forall m ps ni no. MonadIO m => BasicMap ps ni no %1 -> IslT m (
 fromBasicMap = unsafeCoerce go
   where
     go :: BasicMap ps ni no -> IslT m (Map ps ni no)
-    go (BasicMap bm) = Map <$> withCtx (M.fromBasicMap bm)
+    go (BasicMap bm) = Map <$> M.fromBasicMap bm
 
 fromString :: forall m ps ni no. MonadIO m => String -> IslT m (Map ps ni no)
-fromString str = Map <$> withCtx (M.readFromStr str)
+fromString str = Map <$> M.readFromStr str
 
 -- Operations (consuming)
 
@@ -69,39 +68,39 @@ union :: forall m ps1 ps2 ni no. MonadIO m
 union = unsafeCoerce go
   where
     go :: Map ps1 ni no -> Map ps2 ni no -> IslT m (Map (Union ps1 ps2) ni no)
-    go (Map m1) (Map m2) = Map <$> withCtx (M.union m1 m2)
+    go (Map m1) (Map m2) = Map <$> M.union m1 m2
 
 intersect :: forall m ps1 ps2 ni no. MonadIO m
   => Map ps1 ni no %1 -> Map ps2 ni no %1 -> IslT m (Map (Union ps1 ps2) ni no)
 intersect = unsafeCoerce go
   where
     go :: Map ps1 ni no -> Map ps2 ni no -> IslT m (Map (Union ps1 ps2) ni no)
-    go (Map m1) (Map m2) = Map <$> withCtx (M.intersect m1 m2)
+    go (Map m1) (Map m2) = Map <$> M.intersect m1 m2
 
 subtract :: forall m ps1 ps2 ni no. MonadIO m
   => Map ps1 ni no %1 -> Map ps2 ni no %1 -> IslT m (Map (Union ps1 ps2) ni no)
 subtract = unsafeCoerce go
   where
     go :: Map ps1 ni no -> Map ps2 ni no -> IslT m (Map (Union ps1 ps2) ni no)
-    go (Map m1) (Map m2) = Map <$> withCtx (M.subtract m1 m2)
+    go (Map m1) (Map m2) = Map <$> M.subtract m1 m2
 
 domain :: forall m ps ni no. MonadIO m => Map ps ni no %1 -> IslT m (Set ps ni)
 domain = unsafeCoerce go
   where
     go :: Map ps ni no -> IslT m (Set ps ni)
-    go (Map m) = Set <$> withCtx (M.domain m)
+    go (Map m) = Set <$> M.domain m
 
 range :: forall m ps ni no. MonadIO m => Map ps ni no %1 -> IslT m (Set ps no)
 range = unsafeCoerce go
   where
     go :: Map ps ni no -> IslT m (Set ps no)
-    go (Map m) = Set <$> withCtx (M.range m)
+    go (Map m) = Set <$> M.range m
 
 coalesce :: forall m ps ni no. MonadIO m => Map ps ni no %1 -> IslT m (Map ps ni no)
 coalesce = unsafeCoerce go
   where
     go :: Map ps ni no -> IslT m (Map ps ni no)
-    go (Map m) = Map <$> withCtx (M.coalesce m)
+    go (Map m) = Map <$> M.coalesce m
 
 -- Reverse
 
@@ -109,7 +108,7 @@ reverse :: forall m ps ni no. MonadIO m => Map ps ni no %1 -> IslT m (Map ps no 
 reverse = unsafeCoerce go
   where
     go :: Map ps ni no -> IslT m (Map ps no ni)
-    go (Map m) = Map <$> withCtx (M.reverse m)
+    go (Map m) = Map <$> M.reverse m
 
 -- Complement
 
@@ -117,7 +116,7 @@ complement :: forall m ps ni no. MonadIO m => Map ps ni no %1 -> IslT m (Map ps 
 complement = unsafeCoerce go
   where
     go :: Map ps ni no -> IslT m (Map ps ni no)
-    go (Map m) = Map <$> withCtx (M.complement m)
+    go (Map m) = Map <$> M.complement m
 
 -- Apply (set through map)
 
@@ -126,7 +125,7 @@ apply :: forall m ps ni no. MonadIO m
 apply = unsafeCoerce go
   where
     go :: Map ps ni no -> Set ps ni -> IslT m (Set ps no)
-    go (Map m) (Set s) = Set <$> withCtx (S.apply s m)
+    go (Map m) (Set s) = Set <$> S.apply s m
 
 -- Composition
 
@@ -135,14 +134,14 @@ applyRange :: forall m ps ni k no. MonadIO m
 applyRange = unsafeCoerce go
   where
     go :: Map ps ni k -> Map ps k no -> IslT m (Map ps ni no)
-    go (Map m1) (Map m2) = Map <$> withCtx (M.applyRange m1 m2)
+    go (Map m1) (Map m2) = Map <$> M.applyRange m1 m2
 
 applyDomain :: forall m ps ni k no. MonadIO m
   => Map ps ni k %1 -> Map ps no ni %1 -> IslT m (Map ps no k)
 applyDomain = unsafeCoerce go
   where
     go :: Map ps ni k -> Map ps no ni -> IslT m (Map ps no k)
-    go (Map m1) (Map m2) = Map <$> withCtx (M.applyDomain m1 m2)
+    go (Map m1) (Map m2) = Map <$> M.applyDomain m1 m2
 
 -- Domain/range restriction
 
@@ -151,28 +150,28 @@ intersectDomain :: forall m ps ni no. MonadIO m
 intersectDomain = unsafeCoerce go
   where
     go :: Map ps ni no -> Set ps ni -> IslT m (Map ps ni no)
-    go (Map m) (Set s) = Map <$> withCtx (M.intersectDomain m s)
+    go (Map m) (Set s) = Map <$> M.intersectDomain m s
 
 intersectRange :: forall m ps ni no. MonadIO m
   => Map ps ni no %1 -> Set ps no %1 -> IslT m (Map ps ni no)
 intersectRange = unsafeCoerce go
   where
     go :: Map ps ni no -> Set ps no -> IslT m (Map ps ni no)
-    go (Map m) (Set s) = Map <$> withCtx (M.intersectRange m s)
+    go (Map m) (Set s) = Map <$> M.intersectRange m s
 
 subtractDomain :: forall m ps ni no. MonadIO m
   => Map ps ni no %1 -> Set ps ni %1 -> IslT m (Map ps ni no)
 subtractDomain = unsafeCoerce go
   where
     go :: Map ps ni no -> Set ps ni -> IslT m (Map ps ni no)
-    go (Map m) (Set s) = Map <$> withCtx (M.subtractDomain m s)
+    go (Map m) (Set s) = Map <$> M.subtractDomain m s
 
 subtractRange :: forall m ps ni no. MonadIO m
   => Map ps ni no %1 -> Set ps no %1 -> IslT m (Map ps ni no)
 subtractRange = unsafeCoerce go
   where
     go :: Map ps ni no -> Set ps no -> IslT m (Map ps ni no)
-    go (Map m) (Set s) = Map <$> withCtx (M.subtractRange m s)
+    go (Map m) (Set s) = Map <$> M.subtractRange m s
 
 -- Products
 
@@ -181,21 +180,21 @@ flatProduct :: forall m ps ni1 no1 ni2 no2. MonadIO m
 flatProduct = unsafeCoerce go
   where
     go :: Map ps ni1 no1 -> Map ps ni2 no2 -> IslT m (Map ps (ni1 + ni2) (no1 + no2))
-    go (Map m1) (Map m2) = Map <$> withCtx (M.flatProduct m1 m2)
+    go (Map m1) (Map m2) = Map <$> M.flatProduct m1 m2
 
 flatRangeProduct :: forall m ps ni no1 no2. MonadIO m
   => Map ps ni no1 %1 -> Map ps ni no2 %1 -> IslT m (Map ps ni (no1 + no2))
 flatRangeProduct = unsafeCoerce go
   where
     go :: Map ps ni no1 -> Map ps ni no2 -> IslT m (Map ps ni (no1 + no2))
-    go (Map m1) (Map m2) = Map <$> withCtx (M.flatRangeProduct m1 m2)
+    go (Map m1) (Map m2) = Map <$> M.flatRangeProduct m1 m2
 
 flatDomainProduct :: forall m ps ni1 ni2 no. MonadIO m
   => Map ps ni1 no %1 -> Map ps ni2 no %1 -> IslT m (Map ps (ni1 + ni2) no)
 flatDomainProduct = unsafeCoerce go
   where
     go :: Map ps ni1 no -> Map ps ni2 no -> IslT m (Map ps (ni1 + ni2) no)
-    go (Map m1) (Map m2) = Map <$> withCtx (M.flatDomainProduct m1 m2)
+    go (Map m1) (Map m2) = Map <$> M.flatDomainProduct m1 m2
 
 -- Predicates (borrowing)
 
@@ -203,27 +202,31 @@ isEmpty :: forall m ps ni no. Monad m => Map ps ni no %1 -> IslT m (Ur Bool, Map
 isEmpty = unsafeCoerce go
   where
     go :: Map ps ni no -> IslT m (Ur Bool, Map ps ni no)
-    go (Map m) = do
-      r <- withCtx (M.isEmpty m)
-      return (Ur r, Map m)
+    go (Map m) =
+      let !(r, m') = borrow m (\ref -> M.isEmpty ref)
+      in return (Ur r, Map m')
 
 isEqual :: forall m ps ni no. Monad m
   => Map ps ni no %1 -> Map ps ni no %1 -> IslT m (Ur Bool, Map ps ni no, Map ps ni no)
 isEqual = unsafeCoerce go
   where
     go :: Map ps ni no -> Map ps ni no -> IslT m (Ur Bool, Map ps ni no, Map ps ni no)
-    go (Map m1) (Map m2) = do
-      r <- withCtx (M.isEqual m1 m2)
-      return (Ur r, Map m1, Map m2)
+    go (Map m1) (Map m2) =
+      let !(ref1, m1') = borrow m1 (\r -> r)
+          !(ref2, m2') = borrow m2 (\r -> r)
+          !r = M.isEqual ref1 ref2
+      in return (Ur r, Map m1', Map m2')
 
 isSubset :: forall m ps ni no. Monad m
   => Map ps ni no %1 -> Map ps ni no %1 -> IslT m (Ur Bool, Map ps ni no, Map ps ni no)
 isSubset = unsafeCoerce go
   where
     go :: Map ps ni no -> Map ps ni no -> IslT m (Ur Bool, Map ps ni no, Map ps ni no)
-    go (Map m1) (Map m2) = do
-      r <- withCtx (M.isSubset m1 m2)
-      return (Ur r, Map m1, Map m2)
+    go (Map m1) (Map m2) =
+      let !(ref1, m1') = borrow m1 (\r -> r)
+          !(ref2, m2') = borrow m2 (\r -> r)
+          !r = M.isSubset ref1 ref2
+      in return (Ur r, Map m1', Map m2')
 
 -- Conversion
 
@@ -231,12 +234,12 @@ toUnionMap :: forall m ps ni no. MonadIO m => Map ps ni no %1 -> IslT m Isl.Unio
 toUnionMap = unsafeCoerce go
   where
     go :: Map ps ni no -> IslT m Isl.UnionMap
-    go (Map m) = withCtx (M.toUnionMap m)
+    go (Map m) = M.toUnionMap m
 
 -- Queries
 
 mapToString :: MapRef ps ni no -> String
-mapToString (MapRef mRef) = unsafePerformIO $ Foreach.mapToStr mRef
+mapToString (MapRef mRef) = M.toStr mRef
 
 borrowMap :: forall m ps ni no a. Monad m
   => Map ps ni no %1 -> (MapRef ps ni no -> a) -> IslT m (Ur a, Map ps ni no)
@@ -261,13 +264,13 @@ decomposeMap = unsafeCoerce go
     go (Map rawMap) = do
       let !(ref, rawMap') = borrow rawMap (\r -> r)
       conjunctions <- unsafeIslFromIO $ \_ ->
-        Foreach.mapForeachBasicMap ref $ \bm -> do
+        M.foreachBasicMap ref $ \bm -> do
           let !(bmRef, _) = borrow bm (\r -> r)
-          constraints <- Foreach.basicMapForeachConstraint bmRef $ \c -> do
+          constraints <- BM.foreachConstraint bmRef $ \c -> do
             result <- extractMapConstraint nParams nIn nOut c
-            Foreach.constraintFree c
+            evaluate (consume c)
             return result
-          Foreach.basicMapFree bm
+          evaluate (consume bm)
           return (PMapConjunction (Conjunction constraints))
       return (Ur (PMapDisjunction conjunctions), Map rawMap')
 
@@ -297,8 +300,8 @@ consumingIsEmpty = unsafeCoerce go
   where
     go :: Map ps ni no -> IslT m (Ur Bool)
     go (Map m) = do
-      r <- withCtx (M.isEmpty m)
-      freeM m
+      let !(r, m') = borrow m (\ref -> M.isEmpty ref)
+      freeM m'
       return (Ur r)
 
 -- | Check equality of two Maps, then free both.
@@ -307,8 +310,10 @@ consumingIsEqual = unsafeCoerce go
   where
     go :: Map ps ni no -> Map ps ni no -> IslT m (Ur Bool)
     go (Map m1) (Map m2) = do
-      r <- withCtx (M.isEqual m1 m2)
-      freeM m1; freeM m2
+      let !(ref1, m1') = borrow m1 (\r -> r)
+          !(ref2, m2') = borrow m2 (\r -> r)
+          !r = M.isEqual ref1 ref2
+      freeM m1'; freeM m2'
       return (Ur r)
 
 -- | Check if first Map is a subset of the second, then free both.
@@ -317,6 +322,8 @@ consumingIsSubset = unsafeCoerce go
   where
     go :: Map ps ni no -> Map ps ni no -> IslT m (Ur Bool)
     go (Map m1) (Map m2) = do
-      r <- withCtx (M.isSubset m1 m2)
-      freeM m1; freeM m2
+      let !(ref1, m1') = borrow m1 (\r -> r)
+          !(ref2, m2') = borrow m2 (\r -> r)
+          !r = M.isSubset ref1 ref2
+      freeM m1'; freeM m2'
       return (Ur r)

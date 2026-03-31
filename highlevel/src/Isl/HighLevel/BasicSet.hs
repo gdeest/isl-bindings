@@ -18,7 +18,6 @@ import Control.Monad
 import Control.Monad.IO.Class (MonadIO)
 import Data.Proxy
 import GHC.TypeLits
-import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.HighLevel.Constraints
@@ -27,17 +26,16 @@ import Isl.HighLevel.Indices
 import Isl.HighLevel.Params (KnownSymbols(..), Length)
 import Isl.HighLevel.Pure (PConjunction(..))
 
+import Control.Exception (evaluate)
+
 import qualified Isl.Types as Isl
 import Isl.Types (Borrow(..), Dupable(..), Consumable(..))
-import Isl.Instances ()
-import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, withCtx, freeM)
-import Isl.Linear (borrowPure)
-import qualified Isl.Foreach as Foreach
+import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, freeM)
 
-import qualified Isl.BasicSet.AutoGen as BS
-import qualified Isl.Constraint.AutoGen as Constraint
-import qualified Isl.LocalSpace.AutoGen as LS
-import qualified Isl.Space.AutoGen as Space
+import qualified Isl.BasicSet as BS
+import qualified Isl.Constraint as Constraint
+import qualified Isl.LocalSpace as LS
+import qualified Isl.Space as Space
 
 -- | Owned, parameter- and dimension-indexed BasicSet.
 -- Linear — must be consumed exactly once.
@@ -83,38 +81,39 @@ toBasicSet (Conjunction constraints) = do
   let nParams = fromIntegral $ natVal (Proxy @(Length ps))
       nDims = fromIntegral $ natVal (Proxy @n)
       paramNames = symbolVals @ps
-  space0 <- withCtx $ Space.setAlloc nParams nDims
+  space0 <- Space.setAlloc nParams nDims
   -- Set parameter names on the space
-  space <- foldM (\sp (i, name) -> withCtx $ Space.setDimName sp Isl.islDimParam i name)
+  space <- foldM (\sp (i, name) -> Space.setDimName sp Isl.islDimParam i name)
                  space0
                  (zip [0..] paramNames)
-  univ <- withCtx $ BS.universe space
+  univ <- BS.universe space
   result <- foldM addConstraint univ constraints
   return (BasicSet result)
   where
-    getSpace :: Isl.BasicSetRef -> Isl.Space
-    getSpace ref = unsafePerformIO $ Foreach.basicSetGetSpace ref
     addConstraint bs constraint = do
-      let !(sp, bs') = borrow bs getSpace
-      ls <- withCtx $ LS.fromSpace sp
+      -- getSpace is MonadicGive now, so we borrow the BasicSet for the ref,
+      -- then call getSpace in IslT.
+      let !(ref, bs') = borrow bs (\r -> r)
+      sp <- BS.getSpace ref
+      ls <- LS.fromSpace sp
       (emptyC, e) <-
         case constraint of
           InequalityConstraint e -> do
-            co <- withCtx $ Constraint.inequalityAlloc ls
+            co <- Constraint.inequalityAlloc ls
             return (co, e)
           EqualityConstraint e -> do
-            co <- withCtx $ Constraint.equalityAlloc ls
+            co <- Constraint.equalityAlloc ls
             return (co, e)
       let (coeffs, constant) = expandExpr e
           setCoeff constr (coeff, ix) = do
             let (dimType, pos) = case ix of
                   SetDim i  -> (Isl.islDimSet, i)
                   SetParam i -> (Isl.islDimParam, i)
-            withCtx $ Constraint.setCoefficientSi
+            Constraint.setCoefficientSi
               constr dimType (fromIntegral pos) (fromIntegral coeff)
       linearPart <- foldM setCoeff emptyC coeffs
-      finalC <- withCtx $ Constraint.setConstantSi linearPart (fromIntegral constant)
-      withCtx $ BS.addConstraint bs' finalC
+      finalC <- Constraint.setConstantSi linearPart (fromIntegral constant)
+      BS.addConstraint bs' finalC
 
 -- Operations (consuming)
 
@@ -122,7 +121,7 @@ intersect :: forall m ps n. MonadIO m => BasicSet ps n %1 -> BasicSet ps n %1 ->
 intersect = unsafeCoerce go
   where
     go :: BasicSet ps n -> BasicSet ps n -> IslT m (BasicSet ps n)
-    go (BasicSet bs1) (BasicSet bs2) = BasicSet <$> withCtx (BS.intersect bs1 bs2)
+    go (BasicSet bs1) (BasicSet bs2) = BasicSet <$> BS.intersect bs1 bs2
 
 eliminateLast
   :: forall m ps n. (MonadIO m, KnownNat n, 1 <= n)
@@ -132,16 +131,15 @@ eliminateLast = unsafeCoerce go
     go :: BasicSet ps n -> IslT m (BasicSet ps (n-1))
     go (BasicSet bs) =
       let d = fromIntegral $ (natVal $ Proxy @n) - 1
-      in BasicSet <$> withCtx (BS.projectOut bs Isl.islDimSet d 1)
+      in BasicSet <$> BS.projectOut bs Isl.islDimSet d 1
 
 fromString :: MonadIO m => String -> IslT m (BasicSet ps n)
-fromString str = BasicSet <$> withCtx (BS.readFromStr str)
+fromString str = BasicSet <$> BS.readFromStr str
 
 -- Queries (borrowing)
 
 bsetToString :: BasicSetRef ps n -> String
-bsetToString (BasicSetRef bsRef) =
-  unsafePerformIO $ Foreach.basicSetToStr bsRef
+bsetToString (BasicSetRef bsRef) = BS.toStr bsRef
 
 -- | Borrow a BasicSet, apply a pure query to its Ref, return the result
 -- as unrestricted (Ur) alongside the still-owned BasicSet.
@@ -171,9 +169,9 @@ decomposeBS = unsafeCoerce go
     go (BasicSet rawBs) = do
       let !(ref, rawBs') = borrow rawBs (\r -> r)
       constraints <- unsafeIslFromIO $ \_ ->
-        Foreach.basicSetForeachConstraint ref $ \c -> do
+        BS.foreachConstraint ref $ \c -> do
           result <- extractSetConstraint nParams nDims c
-          Foreach.constraintFree c
+          evaluate (consume c)
           return result
       return (Ur (PConjunction (Conjunction constraints)), BasicSet rawBs')
 
@@ -181,14 +179,15 @@ decomposeBS = unsafeCoerce go
 -- reading coefficients for @nParams@ parameters and @nDims@ set dimensions.
 extractSetConstraint :: Int -> Int -> Isl.Constraint -> IO (Constraint SetIx)
 extractSetConstraint nParams nDims c = do
-  isEq <- Foreach.constraintIsEquality c
+  let cRef = Isl.ConstraintRef (Isl.unConstraint c)
+      !isEq = Constraint.isEquality cRef
   paramCoeffs <- forM [0 .. nParams - 1] $ \i -> do
-    coeff <- Foreach.constraintGetCoefficientSi c Isl.islDimParam i
+    coeff <- Constraint.constraintGetCoefficientSi c Isl.islDimParam i
     return (coeff, SetParam (fromIntegral i))
   dimCoeffs <- forM [0 .. nDims - 1] $ \i -> do
-    coeff <- Foreach.constraintGetCoefficientSi c Isl.islDimSet i
+    coeff <- Constraint.constraintGetCoefficientSi c Isl.islDimSet i
     return (coeff, SetDim (fromIntegral i))
-  constant <- Foreach.constraintGetConstantSi c
+  constant <- Constraint.constraintGetConstantSi c
   let allCoeffs = filter (\(coeff, _) -> coeff /= 0) (paramCoeffs ++ dimCoeffs)
       expr = rebuildExpr allCoeffs constant
   return $ if isEq
@@ -223,6 +222,6 @@ consumingIsEmpty = unsafeCoerce go
   where
     go :: BasicSet ps n -> IslT m (Ur Bool)
     go (BasicSet bs) = do
-      r <- withCtx (BS.isEmpty bs)
-      freeM bs
+      let !(r, bs') = borrow bs (\ref -> BS.isEmpty ref)
+      freeM bs'
       return (Ur r)

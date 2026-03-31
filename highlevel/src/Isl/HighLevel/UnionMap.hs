@@ -9,11 +9,12 @@
 
 module Isl.HighLevel.UnionMap where
 
+import Control.Exception (evaluate)
 import Control.Monad (forM, foldM)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Maybe (catMaybes)
+import Foreign.Ptr (nullPtr)
 import GHC.TypeLits (someNatVal, SomeNat(..), KnownNat, Symbol)
-import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.HighLevel.BasicMap (extractMapConstraint)
@@ -24,17 +25,19 @@ import Isl.HighLevel.UnionSet (UnionSet(..))
 import Isl.HighLevel.Pure
 
 import qualified Isl.Types as Isl
-import Isl.Types (Borrow(..), Dupable(..), Consumable(..))
-import Isl.Instances ()
-import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, withCtx, freeM)
-import qualified Isl.Foreach as Foreach
-import qualified Isl.UnionMap.AutoGen as UM
-import qualified Isl.UnionSet.AutoGen as USAutoGen
-import qualified Isl.BasicMap.AutoGen as BM
-import qualified Isl.Map.AutoGen as M
-import qualified Isl.Constraint.AutoGen as C
-import qualified Isl.LocalSpace.AutoGen as LS
-import qualified Isl.Space.AutoGen as Space
+import Isl.Types (Borrow(..), Dupable(..), Consumable(..), SpaceRef(..), Ctx(..))
+import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, freeM)
+import qualified Isl.UnionMap as UM
+import qualified Isl.UnionSet as USAutoGen
+import qualified Isl.BasicMap as BM
+import qualified Isl.Map as M
+import qualified Isl.Constraint as Constraint
+import qualified Isl.LocalSpace as LS
+import qualified Isl.Space as Space
+
+-- | Run an IslT IO action in raw IO context (safe when the action ignores ctx).
+runIO :: IslT IO a -> IO a
+runIO (IslT f) = f (Ctx nullPtr)
 
 -- | Owned UnionMap. Not dimension-indexed because a union can contain
 -- maps of different spaces.
@@ -61,10 +64,10 @@ fromMap :: forall m (ps :: [Symbol]) ni no. MonadIO m => Map ps ni no %1 -> IslT
 fromMap = unsafeCoerce go
   where
     go :: Map ps ni no -> IslT m UnionMap
-    go (Map m) = UnionMap <$> withCtx (UM.fromMap m)
+    go (Map m) = UnionMap <$> UM.fromMap m
 
 fromString :: forall m. MonadIO m => String -> IslT m UnionMap
-fromString str = UnionMap <$> withCtx (UM.readFromStr str)
+fromString str = UnionMap <$> UM.readFromStr str
 
 -- Operations (consuming)
 
@@ -72,95 +75,95 @@ union :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
 union = unsafeCoerce go
   where
     go :: UnionMap -> UnionMap -> IslT m UnionMap
-    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.union um1 um2)
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> UM.union um1 um2
 
 intersect :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
 intersect = unsafeCoerce go
   where
     go :: UnionMap -> UnionMap -> IslT m UnionMap
-    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.intersect um1 um2)
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> UM.intersect um1 um2
 
 subtract :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
 subtract = unsafeCoerce go
   where
     go :: UnionMap -> UnionMap -> IslT m UnionMap
-    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.subtract um1 um2)
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> UM.subtract um1 um2
 
 coalesce :: forall m. MonadIO m => UnionMap %1 -> IslT m UnionMap
 coalesce = unsafeCoerce go
   where
     go :: UnionMap -> IslT m UnionMap
-    go (UnionMap um) = UnionMap <$> withCtx (UM.coalesce um)
+    go (UnionMap um) = UnionMap <$> UM.coalesce um
 
 -- | Extract the domain of a union map as a union set. Consuming.
 domain :: forall m. MonadIO m => UnionMap %1 -> IslT m UnionSet
 domain = unsafeCoerce go
   where
     go :: UnionMap -> IslT m UnionSet
-    go (UnionMap um) = UnionSet <$> withCtx (UM.domain um)
+    go (UnionMap um) = UnionSet <$> UM.domain um
 
 -- | Extract the range of a union map as a union set. Consuming.
 range :: forall m. MonadIO m => UnionMap %1 -> IslT m UnionSet
 range = unsafeCoerce go
   where
     go :: UnionMap -> IslT m UnionSet
-    go (UnionMap um) = UnionSet <$> withCtx (UM.range um)
+    go (UnionMap um) = UnionSet <$> UM.range um
 
 -- | Reverse a union map (swap domain and range). Consuming.
 reverse :: forall m. MonadIO m => UnionMap %1 -> IslT m UnionMap
 reverse = unsafeCoerce go
   where
     go :: UnionMap -> IslT m UnionMap
-    go (UnionMap um) = UnionMap <$> withCtx (UM.reverse um)
+    go (UnionMap um) = UnionMap <$> UM.reverse um
 
 -- | Compose two union maps on the domain side. Consuming.
 applyDomain :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
 applyDomain = unsafeCoerce go
   where
     go :: UnionMap -> UnionMap -> IslT m UnionMap
-    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.applyDomain um1 um2)
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> UM.applyDomain um1 um2
 
 -- | Compose two union maps on the range side. Consuming.
 applyRange :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
 applyRange = unsafeCoerce go
   where
     go :: UnionMap -> UnionMap -> IslT m UnionMap
-    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.applyRange um1 um2)
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> UM.applyRange um1 um2
 
 -- | Flat range product of two union maps. Consuming.
 flatRangeProduct :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
 flatRangeProduct = unsafeCoerce go
   where
     go :: UnionMap -> UnionMap -> IslT m UnionMap
-    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.flatRangeProduct um1 um2)
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> UM.flatRangeProduct um1 um2
 
 -- | Lexicographic less-than relation between two union maps. Consuming.
 lexLtUnionMap :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
 lexLtUnionMap = unsafeCoerce go
   where
     go :: UnionMap -> UnionMap -> IslT m UnionMap
-    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.lexLtUnionMap um1 um2)
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> UM.lexLtUnionMap um1 um2
 
 -- | Intersect the domain of a union map with a union set. Consuming.
 intersectDomain :: forall m. MonadIO m => UnionMap %1 -> UnionSet %1 -> IslT m UnionMap
 intersectDomain = unsafeCoerce go
   where
     go :: UnionMap -> UnionSet -> IslT m UnionMap
-    go (UnionMap um) (UnionSet us) = UnionMap <$> withCtx (UM.intersectDomain um us)
+    go (UnionMap um) (UnionSet us) = UnionMap <$> UM.intersectDomain um us
 
 -- | Simplify a union map given a context (another union map). Consuming.
 gist :: forall m. MonadIO m => UnionMap %1 -> UnionMap %1 -> IslT m UnionMap
 gist = unsafeCoerce go
   where
     go :: UnionMap -> UnionMap -> IslT m UnionMap
-    go (UnionMap um1) (UnionMap um2) = UnionMap <$> withCtx (UM.gist um1 um2)
+    go (UnionMap um1) (UnionMap um2) = UnionMap <$> UM.gist um1 um2
 
 -- | Simplify a union map given a domain context (a union set). Consuming.
 gistDomain :: forall m. MonadIO m => UnionMap %1 -> UnionSet %1 -> IslT m UnionMap
 gistDomain = unsafeCoerce go
   where
     go :: UnionMap -> UnionSet -> IslT m UnionMap
-    go (UnionMap um) (UnionSet us) = UnionMap <$> withCtx (UM.gistDomain um us)
+    go (UnionMap um) (UnionSet us) = UnionMap <$> UM.gistDomain um us
 
 -- Lift pure representations to ISL objects
 
@@ -174,40 +177,43 @@ toUnionMapFromNamed nm = do
   maps <- mapM (buildOneMap nParams nIn nOut (nmParams nm) (nmDomainName nm)) (nmConjs nm)
   case maps of
     []     -> do
-      sp <- withCtx $ Space.alloc (fromIntegral nParams) (fromIntegral nIn) (fromIntegral nOut)
+      sp <- Space.alloc (fromIntegral nParams) (fromIntegral nIn) (fromIntegral nOut)
       sp' <- setParamNames sp (nmParams nm)
       sp'' <- case nmDomainName nm of
-                Just name -> withCtx $ Space.setTupleName sp' Isl.islDimIn name
+                Just name -> Space.setTupleName sp' Isl.islDimIn name
                 Nothing   -> return sp'
-      UnionMap <$> withCtx (UM.emptySpace sp'')
+      UnionMap <$> UM.emptySpace sp''
     (m:ms) -> do
-      um0 <- UnionMap <$> withCtx (UM.fromMap m)
-      foldM (\(UnionMap acc) m' -> UnionMap <$> withCtx (UM.union acc (UM.fromMap m')))
+      um0 <- UnionMap <$> UM.fromMap m
+      foldM (\(UnionMap acc) m' -> do
+                um' <- UM.fromMap m'
+                UnionMap <$> UM.union acc um')
             um0 ms
   where
     buildOneMap nP nI nO paramNames domName (Conjunction constraints) = do
-      space0 <- withCtx $ Space.alloc (fromIntegral nP) (fromIntegral nI) (fromIntegral nO)
+      space0 <- Space.alloc (fromIntegral nP) (fromIntegral nI) (fromIntegral nO)
       space1 <- setParamNames space0 paramNames
       space2 <- case domName of
-                  Just name -> withCtx $ Space.setTupleName space1 Isl.islDimIn name
+                  Just name -> Space.setTupleName space1 Isl.islDimIn name
                   Nothing   -> return space1
-      univ <- withCtx $ BM.universe space2
+      univ <- BM.universe space2
       bm <- foldM addMapConstraint univ constraints
-      withCtx $ M.fromBasicMap bm
+      M.fromBasicMap bm
 
     setParamNames sp names =
-      foldM (\s (i, name) -> withCtx $ Space.setDimName s Isl.islDimParam i name)
+      foldM (\s (i, name) -> Space.setDimName s Isl.islDimParam i name)
             sp (zip [0..] names)
 
     addMapConstraint bm constraint = do
-      let !(sp, bm') = borrow bm (\ref -> unsafePerformIO $ Foreach.basicMapGetSpace ref)
-      ls <- withCtx $ LS.fromSpace sp
+      let !(ref, bm') = borrow bm (\r -> r)
+      sp <- BM.getSpace ref
+      ls <- LS.fromSpace sp
       (emptyC, e) <- case constraint of
         InequalityConstraint e -> do
-          co <- withCtx $ C.inequalityAlloc ls
+          co <- Constraint.inequalityAlloc ls
           return (co, e)
         EqualityConstraint e -> do
-          co <- withCtx $ C.equalityAlloc ls
+          co <- Constraint.equalityAlloc ls
           return (co, e)
       let (coeffs, constant) = expandExpr e
           setCoeff constr (coeff, ix) = do
@@ -215,10 +221,10 @@ toUnionMapFromNamed nm = do
                   InDim i    -> (Isl.islDimIn, i)
                   OutDim i   -> (Isl.islDimOut, i)
                   MapParam i -> (Isl.islDimParam, i)
-            withCtx $ C.setCoefficientSi constr dimType (fromIntegral pos) (fromIntegral coeff)
+            Constraint.setCoefficientSi constr dimType (fromIntegral pos) (fromIntegral coeff)
       linearPart <- foldM setCoeff emptyC coeffs
-      finalC <- withCtx $ C.setConstantSi linearPart (fromIntegral constant)
-      withCtx $ BM.addConstraint bm' finalC
+      finalC <- Constraint.setConstantSi linearPart (fromIntegral constant)
+      BM.addConstraint bm' finalC
 
 -- | Apply a union map to a union set. This is the core operation for
 -- computing scheduled domains: @applyToSet domain schedule@ gives the
@@ -229,7 +235,7 @@ applyToSet :: forall m. MonadIO m => UnionSet %1 -> UnionMap %1 -> IslT m UnionS
 applyToSet = unsafeCoerce go
   where
     go :: UnionSet -> UnionMap -> IslT m UnionSet
-    go (UnionSet us) (UnionMap um) = UnionSet <$> withCtx (USAutoGen.apply us um)
+    go (UnionSet us) (UnionMap um) = UnionSet <$> USAutoGen.apply us um
 
 -- Predicates (borrowing)
 
@@ -237,30 +243,35 @@ isEmpty :: forall m. Monad m => UnionMap %1 -> IslT m (Ur Bool, UnionMap)
 isEmpty = unsafeCoerce go
   where
     go :: UnionMap -> IslT m (Ur Bool, UnionMap)
-    go (UnionMap um) = do
-      r <- withCtx (UM.isEmpty um)
-      return (Ur r, UnionMap um)
+    go (UnionMap um) =
+      let !(ref, um') = borrow um (\r -> r)
+          !r = UM.isEmpty ref
+      in IslT $ \_ -> return (Ur r, UnionMap um')
 
 isEqual :: forall m. Monad m => UnionMap %1 -> UnionMap %1 -> IslT m (Ur Bool, UnionMap, UnionMap)
 isEqual = unsafeCoerce go
   where
     go :: UnionMap -> UnionMap -> IslT m (Ur Bool, UnionMap, UnionMap)
-    go (UnionMap um1) (UnionMap um2) = do
-      r <- withCtx (UM.isEqual um1 um2)
-      return (Ur r, UnionMap um1, UnionMap um2)
+    go (UnionMap um1) (UnionMap um2) =
+      let !(ref1, um1') = borrow um1 (\r -> r)
+          !(ref2, um2') = borrow um2 (\r -> r)
+          !r = UM.isEqual ref1 ref2
+      in IslT $ \_ -> return (Ur r, UnionMap um1', UnionMap um2')
 
 isSubset :: forall m. Monad m => UnionMap %1 -> UnionMap %1 -> IslT m (Ur Bool, UnionMap, UnionMap)
 isSubset = unsafeCoerce go
   where
     go :: UnionMap -> UnionMap -> IslT m (Ur Bool, UnionMap, UnionMap)
-    go (UnionMap um1) (UnionMap um2) = do
-      r <- withCtx (UM.isSubset um1 um2)
-      return (Ur r, UnionMap um1, UnionMap um2)
+    go (UnionMap um1) (UnionMap um2) =
+      let !(ref1, um1') = borrow um1 (\r -> r)
+          !(ref2, um2') = borrow um2 (\r -> r)
+          !r = UM.isSubset ref1 ref2
+      in IslT $ \_ -> return (Ur r, UnionMap um1', UnionMap um2')
 
 -- Queries
 
 umapToString :: UnionMapRef -> String
-umapToString (UnionMapRef umRef) = unsafePerformIO $ Foreach.unionMapToStr umRef
+umapToString (UnionMapRef umRef) = UM.toStr umRef
 
 borrowUM :: forall m a. Monad m => UnionMap %1 -> (UnionMapRef -> a) -> IslT m (Ur a, UnionMap)
 borrowUM = unsafeCoerce go
@@ -280,22 +291,23 @@ decomposeUnionMap = unsafeCoerce go
     go (UnionMap rawUm) = do
       let !(ref, rawUm') = borrow rawUm (\r -> r)
       results <- unsafeIslFromIO $ \_ ->
-        Foreach.unionMapForeachMap ref $ \m -> do
+        UM.foreachMap ref $ \m -> do
           let !(mRef, _) = borrow m (\r -> r)
-          space <- Foreach.mapGetSpace mRef
-          nIn  <- Foreach.spaceDim space Isl.islDimIn
-          nOut <- Foreach.spaceDim space Isl.islDimOut
-          nParams <- Foreach.spaceDim space Isl.islDimParam
-          Foreach.spaceFree space
-          conjunctions <- Foreach.mapForeachBasicMap mRef $ \bm -> do
+          space <- runIO $ M.getSpace mRef
+          let spRef = SpaceRef (Isl.unSpace space)
+              nIn  = Space.dim spRef Isl.islDimIn
+              nOut = Space.dim spRef Isl.islDimOut
+              nParams = Space.dim spRef Isl.islDimParam
+          evaluate (consume space)
+          conjunctions <- M.foreachBasicMap mRef $ \bm -> do
             let !(bmRef, _) = borrow bm (\r -> r)
-            constraints <- Foreach.basicMapForeachConstraint bmRef $ \c -> do
+            constraints <- BM.foreachConstraint bmRef $ \c -> do
               result <- extractMapConstraint nParams nIn nOut c
-              Foreach.constraintFree c
+              evaluate (consume c)
               return result
-            Foreach.basicMapFree bm
+            evaluate (consume bm)
             return (Conjunction constraints)
-          Foreach.mapFree m
+          evaluate (consume m)
           return (nIn, nOut, conjunctions)
       return (Ur (map wrapMapDisjunction results), UnionMap rawUm')
 
@@ -320,26 +332,27 @@ decomposeUnionMapNamed = unsafeCoerce go
     go (UnionMap rawUm) = do
       let !(ref, rawUm') = borrow rawUm (\r -> r)
       results <- unsafeIslFromIO $ \_ ->
-        Foreach.unionMapForeachMap ref $ \m -> do
+        UM.foreachMap ref $ \m -> do
           let !(mRef, _) = borrow m (\r -> r)
-          space <- Foreach.mapGetSpace mRef
-          nIn  <- Foreach.spaceDim space Isl.islDimIn
-          nOut <- Foreach.spaceDim space Isl.islDimOut
-          nParams <- Foreach.spaceDim space Isl.islDimParam
-          domainName <- Foreach.spaceGetTupleName space Isl.islDimIn
-          rangeName  <- Foreach.spaceGetTupleName space Isl.islDimOut
+          space <- runIO $ M.getSpace mRef
+          let spRef = SpaceRef (Isl.unSpace space)
+              nIn  = Space.dim spRef Isl.islDimIn
+              nOut = Space.dim spRef Isl.islDimOut
+              nParams = Space.dim spRef Isl.islDimParam
+          domainName <- Space.spaceGetTupleName space Isl.islDimIn
+          rangeName  <- Space.spaceGetTupleName space Isl.islDimOut
           paramNames <- forM [0 .. nParams - 1] $ \i ->
-            Foreach.spaceGetDimName space Isl.islDimParam i
-          Foreach.spaceFree space
-          conjunctions <- Foreach.mapForeachBasicMap mRef $ \bm -> do
+            Space.spaceGetDimName space Isl.islDimParam i
+          evaluate (consume space)
+          conjunctions <- M.foreachBasicMap mRef $ \bm -> do
             let !(bmRef, _) = borrow bm (\r -> r)
-            constraints <- Foreach.basicMapForeachConstraint bmRef $ \c -> do
+            constraints <- BM.foreachConstraint bmRef $ \c -> do
               result <- extractMapConstraint nParams nIn nOut c
-              Foreach.constraintFree c
+              evaluate (consume c)
               return result
-            Foreach.basicMapFree bm
+            evaluate (consume bm)
             return (Conjunction constraints)
-          Foreach.mapFree m
+          evaluate (consume m)
           return NamedMap
             { nmDomainName = domainName
             , nmRangeName  = rangeName
@@ -376,8 +389,9 @@ consumingIsEmpty = unsafeCoerce go
   where
     go :: UnionMap -> IslT m (Ur Bool)
     go (UnionMap um) = do
-      r <- withCtx (UM.isEmpty um)
-      freeM um
+      let !(ref, um') = borrow um (\r -> r)
+          !r = UM.isEmpty ref
+      freeM um'
       return (Ur r)
 
 -- | Check equality of two UnionMaps, then free both.
@@ -386,8 +400,10 @@ consumingIsEqual = unsafeCoerce go
   where
     go :: UnionMap -> UnionMap -> IslT m (Ur Bool)
     go (UnionMap um1) (UnionMap um2) = do
-      r <- withCtx (UM.isEqual um1 um2)
-      freeM um1; freeM um2
+      let !(ref1, um1') = borrow um1 (\r -> r)
+          !(ref2, um2') = borrow um2 (\r -> r)
+          !r = UM.isEqual ref1 ref2
+      freeM um1'; freeM um2'
       return (Ur r)
 
 -- | Check if first UnionMap is a subset of the second, then free both.
@@ -396,6 +412,8 @@ consumingIsSubset = unsafeCoerce go
   where
     go :: UnionMap -> UnionMap -> IslT m (Ur Bool)
     go (UnionMap um1) (UnionMap um2) = do
-      r <- withCtx (UM.isSubset um1 um2)
-      freeM um1; freeM um2
+      let !(ref1, um1') = borrow um1 (\r -> r)
+          !(ref2, um2') = borrow um2 (\r -> r)
+          !r = UM.isSubset ref1 ref2
+      freeM um1'; freeM um2'
       return (Ur r)

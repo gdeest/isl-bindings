@@ -12,10 +12,10 @@
 
 module Isl.HighLevel.Set where
 
+import Control.Exception (evaluate)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Proxy
 import GHC.TypeLits
-import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.HighLevel.BasicSet (BasicSet(..), extractSetConstraint)
@@ -25,10 +25,9 @@ import Isl.HighLevel.Pure (PConjunction(..), PDisjunction(..))
 
 import qualified Isl.Types as Isl
 import Isl.Types (Borrow(..), Dupable(..), Consumable(..))
-import Isl.Instances ()
-import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, withCtx, freeM)
-import qualified Isl.Foreach as Foreach
-import qualified Isl.Set.AutoGen as S
+import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, freeM)
+import qualified Isl.Set as S
+import qualified Isl.BasicSet as BS
 
 -- | Owned, parameter- and dimension-indexed Set.
 -- Linear — must be consumed exactly once.
@@ -55,10 +54,10 @@ fromBasicSet :: forall m ps n. MonadIO m => BasicSet ps n %1 -> IslT m (Set ps n
 fromBasicSet = unsafeCoerce go
   where
     go :: BasicSet ps n -> IslT m (Set ps n)
-    go (BasicSet bs) = Set <$> withCtx (S.fromBasicSet bs)
+    go (BasicSet bs) = Set <$> S.fromBasicSet bs
 
 fromString :: forall m ps n. MonadIO m => String -> IslT m (Set ps n)
-fromString str = Set <$> withCtx (S.readFromStr str)
+fromString str = Set <$> S.readFromStr str
 
 -- Operations (consuming)
 -- Binary operations use Union to merge parameter spaces, matching ISL's behavior.
@@ -68,33 +67,33 @@ union :: forall m ps1 ps2 n. MonadIO m
 union = unsafeCoerce go
   where
     go :: Set ps1 n -> Set ps2 n -> IslT m (Set (Union ps1 ps2) n)
-    go (Set s1) (Set s2) = Set <$> withCtx (S.union s1 s2)
+    go (Set s1) (Set s2) = Set <$> S.union s1 s2
 
 intersect :: forall m ps1 ps2 n. MonadIO m
   => Set ps1 n %1 -> Set ps2 n %1 -> IslT m (Set (Union ps1 ps2) n)
 intersect = unsafeCoerce go
   where
     go :: Set ps1 n -> Set ps2 n -> IslT m (Set (Union ps1 ps2) n)
-    go (Set s1) (Set s2) = Set <$> withCtx (S.intersect s1 s2)
+    go (Set s1) (Set s2) = Set <$> S.intersect s1 s2
 
 subtract :: forall m ps1 ps2 n. MonadIO m
   => Set ps1 n %1 -> Set ps2 n %1 -> IslT m (Set (Union ps1 ps2) n)
 subtract = unsafeCoerce go
   where
     go :: Set ps1 n -> Set ps2 n -> IslT m (Set (Union ps1 ps2) n)
-    go (Set s1) (Set s2) = Set <$> withCtx (S.subtract s1 s2)
+    go (Set s1) (Set s2) = Set <$> S.subtract s1 s2
 
 complement :: forall m ps n. MonadIO m => Set ps n %1 -> IslT m (Set ps n)
 complement = unsafeCoerce go
   where
     go :: Set ps n -> IslT m (Set ps n)
-    go (Set s) = Set <$> withCtx (S.complement s)
+    go (Set s) = Set <$> S.complement s
 
 coalesce :: forall m ps n. MonadIO m => Set ps n %1 -> IslT m (Set ps n)
 coalesce = unsafeCoerce go
   where
     go :: Set ps n -> IslT m (Set ps n)
-    go (Set s) = Set <$> withCtx (S.coalesce s)
+    go (Set s) = Set <$> S.coalesce s
 
 -- Predicates (borrowing — isl_keep, safe to return objects after query)
 
@@ -102,25 +101,29 @@ isEmpty :: forall m ps n. Monad m => Set ps n %1 -> IslT m (Ur Bool, Set ps n)
 isEmpty = unsafeCoerce go
   where
     go :: Set ps n -> IslT m (Ur Bool, Set ps n)
-    go (Set s) = do
-      r <- withCtx (S.isEmpty s)
-      return (Ur r, Set s)
+    go (Set s) =
+      let !(r, s') = borrow s (\ref -> S.isEmpty ref)
+      in return (Ur r, Set s')
 
 isEqual :: forall m ps n. Monad m => Set ps n %1 -> Set ps n %1 -> IslT m (Ur Bool, Set ps n, Set ps n)
 isEqual = unsafeCoerce go
   where
     go :: Set ps n -> Set ps n -> IslT m (Ur Bool, Set ps n, Set ps n)
-    go (Set s1) (Set s2) = do
-      r <- withCtx (S.isEqual s1 s2)
-      return (Ur r, Set s1, Set s2)
+    go (Set s1) (Set s2) =
+      let !(ref1, s1') = borrow s1 (\r -> r)
+          !(ref2, s2') = borrow s2 (\r -> r)
+          !r = S.isEqual ref1 ref2
+      in return (Ur r, Set s1', Set s2')
 
 isSubset :: forall m ps n. Monad m => Set ps n %1 -> Set ps n %1 -> IslT m (Ur Bool, Set ps n, Set ps n)
 isSubset = unsafeCoerce go
   where
     go :: Set ps n -> Set ps n -> IslT m (Ur Bool, Set ps n, Set ps n)
-    go (Set s1) (Set s2) = do
-      r <- withCtx (S.isSubset s1 s2)
-      return (Ur r, Set s1, Set s2)
+    go (Set s1) (Set s2) =
+      let !(ref1, s1') = borrow s1 (\r -> r)
+          !(ref2, s2') = borrow s2 (\r -> r)
+          !r = S.isSubset ref1 ref2
+      in return (Ur r, Set s1', Set s2')
 
 -- Conversion
 
@@ -128,12 +131,12 @@ toUnionSet :: forall m ps n. MonadIO m => Set ps n %1 -> IslT m Isl.UnionSet
 toUnionSet = unsafeCoerce go
   where
     go :: Set ps n -> IslT m Isl.UnionSet
-    go (Set s) = withCtx (S.toUnionSet s)
+    go (Set s) = S.toUnionSet s
 
 -- Queries
 
 setToString :: SetRef ps n -> String
-setToString (SetRef sRef) = unsafePerformIO $ Foreach.setToStr sRef
+setToString (SetRef sRef) = S.toStr sRef
 
 borrowSet :: forall m ps n a. Monad m => Set ps n %1 -> (SetRef ps n -> a) -> IslT m (Ur a, Set ps n)
 borrowSet = unsafeCoerce go
@@ -156,13 +159,13 @@ decomposeSet = unsafeCoerce go
     go (Set rawSet) = do
       let !(ref, rawSet') = borrow rawSet (\r -> r)
       conjunctions <- unsafeIslFromIO $ \_ ->
-        Foreach.setForeachBasicSet ref $ \bs -> do
+        S.foreachBasicSet ref $ \bs -> do
           let !(bsRef, _) = borrow bs (\r -> r)
-          constraints <- Foreach.basicSetForeachConstraint bsRef $ \c -> do
+          constraints <- BS.foreachConstraint bsRef $ \c -> do
             result <- extractSetConstraint nParams nDims c
-            Foreach.constraintFree c
+            evaluate (consume c)
             return result
-          Foreach.basicSetFree bs
+          evaluate (consume bs)
           return (PConjunction (Conjunction constraints))
       return (Ur (PDisjunction conjunctions), Set rawSet')
 
@@ -192,8 +195,8 @@ consumingIsEmpty = unsafeCoerce go
   where
     go :: Set ps n -> IslT m (Ur Bool)
     go (Set s) = do
-      r <- withCtx (S.isEmpty s)
-      freeM s
+      let !(r, s') = borrow s (\ref -> S.isEmpty ref)
+      freeM s'
       return (Ur r)
 
 -- | Check equality of two Sets, then free both.
@@ -202,8 +205,10 @@ consumingIsEqual = unsafeCoerce go
   where
     go :: Set ps n -> Set ps n -> IslT m (Ur Bool)
     go (Set s1) (Set s2) = do
-      r <- withCtx (S.isEqual s1 s2)
-      freeM s1; freeM s2
+      let !(ref1, s1') = borrow s1 (\r -> r)
+          !(ref2, s2') = borrow s2 (\r -> r)
+          !r = S.isEqual ref1 ref2
+      freeM s1'; freeM s2'
       return (Ur r)
 
 -- | Check if first Set is a subset of the second, then free both.
@@ -212,6 +217,8 @@ consumingIsSubset = unsafeCoerce go
   where
     go :: Set ps n -> Set ps n -> IslT m (Ur Bool)
     go (Set s1) (Set s2) = do
-      r <- withCtx (S.isSubset s1 s2)
-      freeM s1; freeM s2
+      let !(ref1, s1') = borrow s1 (\r -> r)
+          !(ref2, s2') = borrow s2 (\r -> r)
+          !r = S.isSubset ref1 ref2
+      freeM s1'; freeM s2'
       return (Ur r)

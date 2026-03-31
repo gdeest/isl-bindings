@@ -15,7 +15,7 @@ import Control.DeepSeq (NFData)
 import Control.Monad.IO.Class (MonadIO)
 import GHC.TypeLits (Nat, KnownNat, Symbol)
 
-import Isl.Monad (IslT, Isl, Ur(..), runIslT, runIsl, withCtx)
+import Isl.Monad (IslT, Isl, Ur(..), runIslT, runIsl)
 import Isl.HighLevel.Constraints (Conjunction, SetIx, MapIx)
 import Isl.HighLevel.Params (KnownSymbols, Length)
 import qualified Isl.HighLevel.BasicSet as BS
