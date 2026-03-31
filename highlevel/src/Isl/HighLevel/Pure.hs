@@ -28,6 +28,10 @@ module Isl.HighLevel.Pure
     -- * Map-like pure representations
   , PMapConjunction(..)
   , PMapDisjunction(..)
+    -- * Multi-aff / piecewise pure representations
+  , PMultiAff(..)
+  , PPwAff(..)
+  , PPwMultiAff(..)
     -- * DSL builders
   , mkPConjunction
   , mkPDisjunction
@@ -48,7 +52,7 @@ import Data.Proxy (Proxy(..))
 import GHC.Generics (Generic)
 import GHC.TypeLits (Nat, KnownNat, natVal, Symbol, KnownSymbol, symbolVal)
 
-import Isl.HighLevel.Constraints (Conjunction, SetIx(..), MapIx(..))
+import Isl.HighLevel.Constraints (Conjunction, Expr, SetIx(..), MapIx(..))
 import Isl.HighLevel.Indices (IxList, coerceIxList, mkIxListWith)
 import Isl.HighLevel.Params (KnownSymbols(..), Length)
 
@@ -83,6 +87,24 @@ newtype PMapDisjunction (ps :: [Symbol]) (nIn :: Nat) (nOut :: Nat) = PMapDisjun
 
 deriving instance Show (PMapDisjunction ps nIn nOut)
 deriving instance Eq (PMapDisjunction ps nIn nOut)
+
+-- | Pure multi-aff: list of output expressions over input dims/params.
+newtype PMultiAff (ps :: [Symbol]) (ni :: Nat) (no :: Nat) = PMultiAff [Expr SetIx]
+
+deriving instance Show (PMultiAff ps ni no)
+deriving instance Eq (PMultiAff ps ni no)
+
+-- | Pure piecewise aff: list of (domain constraints, expression) pieces.
+newtype PPwAff (ps :: [Symbol]) (n :: Nat) = PPwAff [(Conjunction SetIx, Expr SetIx)]
+
+deriving instance Show (PPwAff ps n)
+deriving instance Eq (PPwAff ps n)
+
+-- | Pure piecewise multi-aff: list of (domain constraints, output expressions) pieces.
+newtype PPwMultiAff (ps :: [Symbol]) (ni :: Nat) (no :: Nat) = PPwMultiAff [(Conjunction SetIx, [Expr SetIx])]
+
+deriving instance Show (PPwMultiAff ps ni no)
+deriving instance Eq (PPwMultiAff ps ni no)
 
 -- | Existentially-quantified disjunction. Used when deconstructing
 -- union types where the dimension count and parameters are not statically known.

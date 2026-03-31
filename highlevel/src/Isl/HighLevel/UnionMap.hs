@@ -17,9 +17,9 @@ import Foreign.Ptr (nullPtr)
 import GHC.TypeLits (someNatVal, SomeNat(..), KnownNat, Symbol)
 import Unsafe.Coerce (unsafeCoerce)
 
-import Isl.HighLevel.BasicMap (extractMapConstraint)
 import Isl.HighLevel.Constraints
-  ( Conjunction(..), Constraint(..), MapIx(..), expandExpr )
+  ( Conjunction(..), Constraint(..), MapIx(..)
+  , extractMapDivs, extractMapConstraint, addMapConstraint )
 import Isl.HighLevel.Map (Map(..))
 import Isl.HighLevel.UnionSet (UnionSet(..))
 import Isl.HighLevel.Pure
@@ -31,8 +31,6 @@ import qualified Isl.UnionMap as UM
 import qualified Isl.UnionSet as USAutoGen
 import qualified Isl.BasicMap as BM
 import qualified Isl.Map as M
-import qualified Isl.Constraint as Constraint
-import qualified Isl.LocalSpace as LS
 import qualified Isl.Space as Space
 
 -- | Run an IslT IO action in raw IO context (safe when the action ignores ctx).
@@ -204,28 +202,6 @@ toUnionMapFromNamed nm = do
       foldM (\s (i, name) -> Space.setDimName s Isl.islDimParam i name)
             sp (zip [0..] names)
 
-    addMapConstraint bm constraint = do
-      let !(ref, bm') = borrow bm (\r -> r)
-      sp <- BM.getSpace ref
-      ls <- LS.fromSpace sp
-      (emptyC, e) <- case constraint of
-        InequalityConstraint e -> do
-          co <- Constraint.inequalityAlloc ls
-          return (co, e)
-        EqualityConstraint e -> do
-          co <- Constraint.equalityAlloc ls
-          return (co, e)
-      let (coeffs, constant) = expandExpr e
-          setCoeff constr (coeff, ix) = do
-            let (dimType, pos) = case ix of
-                  InDim i    -> (Isl.islDimIn, i)
-                  OutDim i   -> (Isl.islDimOut, i)
-                  MapParam i -> (Isl.islDimParam, i)
-            Constraint.setCoefficientSi constr dimType (fromIntegral pos) (fromIntegral coeff)
-      linearPart <- foldM setCoeff emptyC coeffs
-      finalC <- Constraint.setConstantSi linearPart (fromIntegral constant)
-      BM.addConstraint bm' finalC
-
 -- | Apply a union map to a union set. This is the core operation for
 -- computing scheduled domains: @applyToSet domain schedule@ gives the
 -- image of @domain@ under @schedule@.
@@ -301,8 +277,10 @@ decomposeUnionMap = unsafeCoerce go
           evaluate (consume space)
           conjunctions <- M.foreachBasicMap mRef $ \bm -> do
             let !(bmRef, _) = borrow bm (\r -> r)
+                !rawBmRef = Isl.BasicMapRef (Isl.unBasicMap bm)
+            divExprs <- extractMapDivs rawBmRef nIn nOut nParams
             constraints <- BM.foreachConstraint bmRef $ \c -> do
-              result <- extractMapConstraint nParams nIn nOut c
+              result <- extractMapConstraint nParams nIn nOut divExprs c
               evaluate (consume c)
               return result
             evaluate (consume bm)
@@ -346,8 +324,10 @@ decomposeUnionMapNamed = unsafeCoerce go
           evaluate (consume space)
           conjunctions <- M.foreachBasicMap mRef $ \bm -> do
             let !(bmRef, _) = borrow bm (\r -> r)
+                !rawBmRef = Isl.BasicMapRef (Isl.unBasicMap bm)
+            divExprs <- extractMapDivs rawBmRef nIn nOut nParams
             constraints <- BM.foreachConstraint bmRef $ \c -> do
-              result <- extractMapConstraint nParams nIn nOut c
+              result <- extractMapConstraint nParams nIn nOut divExprs c
               evaluate (consume c)
               return result
             evaluate (consume bm)

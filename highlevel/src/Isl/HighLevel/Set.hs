@@ -18,8 +18,8 @@ import Data.Proxy
 import GHC.TypeLits
 import Unsafe.Coerce (unsafeCoerce)
 
-import Isl.HighLevel.BasicSet (BasicSet(..), extractSetConstraint)
-import Isl.HighLevel.Constraints (Conjunction(..), SetIx)
+import Isl.HighLevel.BasicSet (BasicSet(..))
+import Isl.HighLevel.Constraints (Conjunction(..), SetIx, extractSetDivs, extractSetConstraint)
 import Isl.HighLevel.Params (KnownSymbols(..), Length, Union)
 import Isl.HighLevel.Pure (PConjunction(..), PDisjunction(..))
 
@@ -161,8 +161,10 @@ decomposeSet = unsafeCoerce go
       conjunctions <- unsafeIslFromIO $ \_ ->
         S.foreachBasicSet ref $ \bs -> do
           let !(bsRef, _) = borrow bs (\r -> r)
+              !rawBsRef = Isl.BasicSetRef (Isl.unBasicSet bs)
+          divExprs <- extractSetDivs rawBsRef nDims nParams
           constraints <- BS.foreachConstraint bsRef $ \c -> do
-            result <- extractSetConstraint nParams nDims c
+            result <- extractSetConstraint nParams nDims divExprs c
             evaluate (consume c)
             return result
           evaluate (consume bs)

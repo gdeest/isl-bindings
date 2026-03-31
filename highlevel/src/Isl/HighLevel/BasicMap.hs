@@ -12,7 +12,7 @@
 
 module Isl.HighLevel.BasicMap where
 
-import Control.Monad (forM, foldM)
+import Control.Monad (foldM)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Proxy
 import GHC.TypeLits
@@ -26,11 +26,9 @@ import Isl.HighLevel.Params (KnownSymbols(..), Length)
 import Isl.HighLevel.Pure (PMapConjunction(..))
 
 import qualified Isl.Types as Isl
-import Isl.Types (Borrow(..), Dupable(..), Consumable(..), ConstraintRef(..))
+import Isl.Types (Borrow(..), Dupable(..), Consumable(..))
 import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, freeM)
 import qualified Isl.BasicMap as BM
-import qualified Isl.Constraint as Constraint
-import qualified Isl.LocalSpace as LS
 import qualified Isl.Space as Space
 
 -- | Owned, parameter- and dimension-indexed BasicMap.
@@ -79,32 +77,8 @@ toBasicMap (Conjunction constraints) = do
                  space0
                  (zip [0..] paramNames)
   univ <- BM.universe space
-  result <- foldM addConstraint univ constraints
+  result <- foldM addMapConstraint univ constraints
   return (BasicMap result)
-  where
-    addConstraint bm constraint = do
-      let !(ref, bm') = borrow bm (\r -> r)
-      sp <- BM.getSpace ref
-      ls <- LS.fromSpace sp
-      (emptyC, e) <-
-        case constraint of
-          InequalityConstraint e -> do
-            co <- Constraint.inequalityAlloc ls
-            return (co, e)
-          EqualityConstraint e -> do
-            co <- Constraint.equalityAlloc ls
-            return (co, e)
-      let (coeffs, constant) = expandExpr e
-          setCoeff constr (coeff, dim) = do
-            let (dimType, pos) = case dim of
-                  InDim i   -> (Isl.islDimIn, i)
-                  OutDim j  -> (Isl.islDimOut, j)
-                  MapParam k -> (Isl.islDimParam, k)
-            Constraint.setCoefficientSi
-              constr dimType (fromIntegral pos) (fromIntegral coeff)
-      linearPart <- foldM setCoeff emptyC coeffs
-      finalC <- Constraint.setConstantSi linearPart (fromIntegral constant)
-      BM.addConstraint bm' finalC
 
 fromString :: forall m ps ni no. MonadIO m => String -> IslT m (BasicMap ps ni no)
 fromString str = BasicMap <$> BM.readFromStr str
@@ -178,34 +152,14 @@ decomposeBM = unsafeCoerce go
     go :: BasicMap ps ni no -> IslT m (Ur (PMapConjunction ps ni no), BasicMap ps ni no)
     go (BasicMap rawBm) = do
       let !(ref, rawBm') = borrow rawBm (\r -> r)
-      constraints <- unsafeIslFromIO $ \_ ->
+          !bmRef = Isl.BasicMapRef (Isl.unBasicMap rawBm)
+      constraints <- unsafeIslFromIO $ \_ -> do
+        divExprs <- extractMapDivs bmRef nIn nOut nParams
         BM.foreachConstraint ref $ \c -> do
-          result <- extractMapConstraint nParams nIn nOut c
+          result <- extractMapConstraint nParams nIn nOut divExprs c
           evaluate (consume c)
           return result
       return (Ur (PMapConjunction (Conjunction constraints)), BasicMap rawBm')
-
--- | Extract a pure 'Constraint' from a raw ISL constraint,
--- reading coefficients for parameters, input, and output dimensions.
-extractMapConstraint :: Int -> Int -> Int -> Isl.Constraint -> IO (Constraint MapIx)
-extractMapConstraint nParams nIn nOut c = do
-  let cRef = let Isl.Constraint ptr = c in ConstraintRef ptr
-  let !isEq = Constraint.isEquality cRef
-  paramCoeffs <- forM [0 .. nParams - 1] $ \i -> do
-    coeff <- Constraint.constraintGetCoefficientSi c Isl.islDimParam i
-    return (coeff, MapParam i)
-  inCoeffs <- forM [0 .. nIn - 1] $ \i -> do
-    coeff <- Constraint.constraintGetCoefficientSi c Isl.islDimIn i
-    return (coeff, InDim i)
-  outCoeffs <- forM [0 .. nOut - 1] $ \j -> do
-    coeff <- Constraint.constraintGetCoefficientSi c Isl.islDimOut j
-    return (coeff, OutDim j)
-  constant <- Constraint.constraintGetConstantSi c
-  let allCoeffs = filter (\(coeff, _) -> coeff /= 0) (paramCoeffs ++ inCoeffs ++ outCoeffs)
-      expr = rebuildExpr allCoeffs constant
-  return $ if isEq
-    then EqualityConstraint expr
-    else InequalityConstraint expr
 
 -- Resource management
 

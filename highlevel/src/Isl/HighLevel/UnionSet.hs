@@ -18,9 +18,9 @@ import GHC.TypeLits (someNatVal, SomeNat(..), KnownNat, Symbol)
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
-import Isl.HighLevel.BasicSet (extractSetConstraint)
 import Isl.HighLevel.Constraints
-  ( Conjunction(..), Constraint(..), SetIx(..), expandExpr )
+  ( Conjunction(..), Constraint(..), SetIx(..)
+  , extractSetDivs, extractSetConstraint, addSetConstraint )
 import Isl.HighLevel.Pure
 import Isl.HighLevel.Set (Set(..))
 
@@ -30,8 +30,6 @@ import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, freeM)
 import qualified Isl.UnionSet as US
 import qualified Isl.BasicSet as BS
 import qualified Isl.Set as S
-import qualified Isl.Constraint as Constraint
-import qualified Isl.LocalSpace as LS
 import qualified Isl.Space as Space
 
 -- | Helper to run an IslT IO action from plain IO.
@@ -163,8 +161,10 @@ decomposeUnionSet = unsafeCoerce go
           evaluate (consume space)
           conjunctions <- S.foreachBasicSet sRef $ \bs -> do
             let !(bsRef, _) = borrow bs (\r -> r)
+                !rawBsRef = Isl.BasicSetRef (Isl.unBasicSet bs)
+            divExprs <- extractSetDivs rawBsRef nDims nParams
             constraints <- BS.foreachConstraint bsRef $ \c -> do
-              result <- extractSetConstraint nParams nDims c
+              result <- extractSetConstraint nParams nDims divExprs c
               evaluate (consume c)
               return result
             evaluate (consume bs)
@@ -221,27 +221,6 @@ toUnionSetFromNamed ns = do
       foldM (\s (i, name) -> Space.setDimName s Isl.islDimParam i name)
             sp (zip [0..] names)
 
-    addSetConstraint bs constraint = do
-      let !(ref, bs') = borrow bs (\r -> r)
-      sp <- BS.getSpace ref
-      ls <- LS.fromSpace sp
-      (emptyC, e) <- case constraint of
-        InequalityConstraint e -> do
-          co <- Constraint.inequalityAlloc ls
-          return (co, e)
-        EqualityConstraint e -> do
-          co <- Constraint.equalityAlloc ls
-          return (co, e)
-      let (coeffs, constant) = expandExpr e
-          setCoeff constr (coeff, ix) = do
-            let (dimType, pos) = case ix of
-                  SetDim i  -> (Isl.islDimSet, i)
-                  SetParam i -> (Isl.islDimParam, i)
-            Constraint.setCoefficientSi constr dimType (fromIntegral pos) (fromIntegral coeff)
-      linearPart <- foldM setCoeff emptyC coeffs
-      finalC <- Constraint.setConstantSi linearPart (fromIntegral constant)
-      BS.addConstraint bs' finalC
-
 -- Named decomposition
 
 -- | Decompose a UnionSet into per-space 'NamedSet's, preserving tuple names
@@ -269,8 +248,10 @@ decomposeUnionSetNamed = unsafeCoerce go
           evaluate (consume space)
           conjunctions <- S.foreachBasicSet sRef $ \bs -> do
             let !(bsRef, _) = borrow bs (\r -> r)
+                !rawBsRef = Isl.BasicSetRef (Isl.unBasicSet bs)
+            divExprs <- extractSetDivs rawBsRef nDims nParams
             constraints <- BS.foreachConstraint bsRef $ \c -> do
-              result <- extractSetConstraint nParams nDims c
+              result <- extractSetConstraint nParams nDims divExprs c
               evaluate (consume c)
               return result
             evaluate (consume bs)

@@ -18,8 +18,8 @@ import Data.Proxy
 import GHC.TypeLits
 import Unsafe.Coerce (unsafeCoerce)
 
-import Isl.HighLevel.BasicMap (BasicMap(..), extractMapConstraint)
-import Isl.HighLevel.Constraints (Conjunction(..), MapIx)
+import Isl.HighLevel.BasicMap (BasicMap(..))
+import Isl.HighLevel.Constraints (Conjunction(..), MapIx, extractMapDivs, extractMapConstraint)
 import Isl.HighLevel.Params (KnownSymbols(..), Length, Union)
 import Isl.HighLevel.Pure (PMapConjunction(..), PMapDisjunction(..))
 import Isl.HighLevel.Set (Set(..))
@@ -266,8 +266,10 @@ decomposeMap = unsafeCoerce go
       conjunctions <- unsafeIslFromIO $ \_ ->
         M.foreachBasicMap ref $ \bm -> do
           let !(bmRef, _) = borrow bm (\r -> r)
+              !rawBmRef = Isl.BasicMapRef (Isl.unBasicMap bm)
+          divExprs <- extractMapDivs rawBmRef nIn nOut nParams
           constraints <- BM.foreachConstraint bmRef $ \c -> do
-            result <- extractMapConstraint nParams nIn nOut c
+            result <- extractMapConstraint nParams nIn nOut divExprs c
             evaluate (consume c)
             return result
           evaluate (consume bm)

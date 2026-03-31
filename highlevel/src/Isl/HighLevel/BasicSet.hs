@@ -33,8 +33,6 @@ import Isl.Types (Borrow(..), Dupable(..), Consumable(..))
 import Isl.Monad (IslT(..), Ur(..), unsafeIslFromIO, freeM)
 
 import qualified Isl.BasicSet as BS
-import qualified Isl.Constraint as Constraint
-import qualified Isl.LocalSpace as LS
 import qualified Isl.Space as Space
 
 -- | Owned, parameter- and dimension-indexed BasicSet.
@@ -82,38 +80,12 @@ toBasicSet (Conjunction constraints) = do
       nDims = fromIntegral $ natVal (Proxy @n)
       paramNames = symbolVals @ps
   space0 <- Space.setAlloc nParams nDims
-  -- Set parameter names on the space
   space <- foldM (\sp (i, name) -> Space.setDimName sp Isl.islDimParam i name)
                  space0
                  (zip [0..] paramNames)
   univ <- BS.universe space
-  result <- foldM addConstraint univ constraints
+  result <- foldM addSetConstraint univ constraints
   return (BasicSet result)
-  where
-    addConstraint bs constraint = do
-      -- getSpace is MonadicGive now, so we borrow the BasicSet for the ref,
-      -- then call getSpace in IslT.
-      let !(ref, bs') = borrow bs (\r -> r)
-      sp <- BS.getSpace ref
-      ls <- LS.fromSpace sp
-      (emptyC, e) <-
-        case constraint of
-          InequalityConstraint e -> do
-            co <- Constraint.inequalityAlloc ls
-            return (co, e)
-          EqualityConstraint e -> do
-            co <- Constraint.equalityAlloc ls
-            return (co, e)
-      let (coeffs, constant) = expandExpr e
-          setCoeff constr (coeff, ix) = do
-            let (dimType, pos) = case ix of
-                  SetDim i  -> (Isl.islDimSet, i)
-                  SetParam i -> (Isl.islDimParam, i)
-            Constraint.setCoefficientSi
-              constr dimType (fromIntegral pos) (fromIntegral coeff)
-      linearPart <- foldM setCoeff emptyC coeffs
-      finalC <- Constraint.setConstantSi linearPart (fromIntegral constant)
-      BS.addConstraint bs' finalC
 
 -- Operations (consuming)
 
@@ -168,31 +140,14 @@ decomposeBS = unsafeCoerce go
     go :: BasicSet ps n -> IslT m (Ur (PConjunction ps n), BasicSet ps n)
     go (BasicSet rawBs) = do
       let !(ref, rawBs') = borrow rawBs (\r -> r)
-      constraints <- unsafeIslFromIO $ \_ ->
+          !bsRef = Isl.BasicSetRef (Isl.unBasicSet rawBs)
+      constraints <- unsafeIslFromIO $ \_ -> do
+        divExprs <- extractSetDivs bsRef nDims nParams
         BS.foreachConstraint ref $ \c -> do
-          result <- extractSetConstraint nParams nDims c
+          result <- extractSetConstraint nParams nDims divExprs c
           evaluate (consume c)
           return result
       return (Ur (PConjunction (Conjunction constraints)), BasicSet rawBs')
-
--- | Extract a pure 'Constraint' from a raw ISL constraint pointer,
--- reading coefficients for @nParams@ parameters and @nDims@ set dimensions.
-extractSetConstraint :: Int -> Int -> Isl.Constraint -> IO (Constraint SetIx)
-extractSetConstraint nParams nDims c = do
-  let cRef = Isl.ConstraintRef (Isl.unConstraint c)
-      !isEq = Constraint.isEquality cRef
-  paramCoeffs <- forM [0 .. nParams - 1] $ \i -> do
-    coeff <- Constraint.constraintGetCoefficientSi c Isl.islDimParam i
-    return (coeff, SetParam (fromIntegral i))
-  dimCoeffs <- forM [0 .. nDims - 1] $ \i -> do
-    coeff <- Constraint.constraintGetCoefficientSi c Isl.islDimSet i
-    return (coeff, SetDim (fromIntegral i))
-  constant <- Constraint.constraintGetConstantSi c
-  let allCoeffs = filter (\(coeff, _) -> coeff /= 0) (paramCoeffs ++ dimCoeffs)
-      expr = rebuildExpr allCoeffs constant
-  return $ if isEq
-    then EqualityConstraint expr
-    else InequalityConstraint expr
 
 -- Resource management
 
