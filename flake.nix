@@ -79,6 +79,12 @@
               isl-bindings-hl = hself.isl-bindings-hl;
               isl-typelevel = hself.isl-typelevel;
             };
+          isl-dsl = hsuper.callCabal2nix "isl-dsl"
+            (pkgs.lib.cleanSource ./dsl) {
+              isl-bindings = hself.isl-bindings;
+              isl-bindings-hl = hself.isl-bindings-hl;
+              isl-scan = hself.isl-scan;
+            };
           isl-test = hsuper.callCabal2nix "isl-test"
             (pkgs.lib.cleanSource ./isl-test) {
               isl-bindings = hself.isl-bindings;
@@ -86,6 +92,11 @@
               isl-scan = hself.isl-scan;
               isl-typelevel = hself.isl-typelevel;
               isl-plugin = hself.isl-plugin;
+            };
+          isl-infer = hsuper.callCabal2nix "isl-infer"
+            (pkgs.lib.cleanSource ./isl-infer) {
+              isl-bindings-hl = hself.isl-bindings-hl;
+              isl-scan = hself.isl-scan;
             };
         });
       in
@@ -97,6 +108,7 @@
           isl-scan = haskellPackages.isl-scan;
           isl-typelevel = haskellPackages.isl-typelevel;
           isl-plugin = haskellPackages.isl-plugin;
+          isl-dsl = haskellPackages.isl-dsl;
           isl-test = haskellPackages.isl-test;
           default = haskellPackages.isl-test;
         };
@@ -108,11 +120,14 @@
             ps.isl-scan
             ps.isl-typelevel
             ps.isl-plugin
+            ps.isl-dsl
             ps.isl-test
+            ps.isl-infer
           ];
           buildInputs = [
             pkgs.cabal-install
             pkgs.haskellPackages.ghcid
+            pkgs.haskellPackages.haskell-language-server
             isl_0_27
           ];
           withHoogle = true;

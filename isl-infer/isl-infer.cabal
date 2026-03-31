@@ -1,0 +1,83 @@
+cabal-version:       2.4
+name:                isl-infer
+version:             0.1.0.0
+synopsis:            Polyhedral LLM inference engine with runtime schedule exploration
+license:             MIT
+author:              Gaël Deest
+category:            Math
+
+library
+  exposed-modules:   Isl.Infer.Codegen
+                   , Isl.Infer.Codegen.Bound
+                   , Isl.Infer.Codegen.Loop
+                   , Isl.Infer.Codegen.OpenMP
+                   , Isl.Infer.Codegen.Emit
+                   , Isl.Infer.Runtime
+                   , Isl.Infer.Specialize
+                   , Isl.Infer.GGUF
+                   , Isl.Infer.GGUF.Types
+                   , Isl.Infer.Kernel.Elementwise
+                   , Isl.Infer.Model
+                   , Isl.Infer.Forward
+                   , Isl.Infer.Tokenizer
+                   , Isl.Infer.Schedule
+                   , Isl.Infer.Kernel.GEMM
+                   , Isl.Infer.Compile
+  build-depends:     base >=4.12.0.0 && <5
+                   , bytestring
+                   , containers
+                   , text
+                   , vector
+                   , filepath
+                   , directory
+                   , process
+                   , unix
+                   , isl-bindings-hl
+                   , isl-scan
+  hs-source-dirs:    src
+  default-language:   GHC2024
+  default-extensions: DataKinds
+                    , TypeApplications
+                    , ScopedTypeVariables
+  c-sources:         cbits/inference.c
+  cc-options:        -O3 -fopenmp -mavx512f -mavx512bw -mavx512vnni -mf16c
+  -- Note: -march=native handled by nix GCC wrapper or explicit flag
+  extra-libraries:   gomp m
+  ghc-options:       -Wall -Wno-unused-top-binds
+
+executable gemm-bench
+  main-is:           GemmBench.hs
+  hs-source-dirs:    app
+  build-depends:     base
+                   , containers
+                   , isl-infer
+                   , isl-bindings-hl
+                   , isl-scan
+  default-language:  GHC2024
+  ghc-options:       -O2 -Wall
+
+executable isl-infer
+  main-is:           Main.hs
+  hs-source-dirs:    app
+  build-depends:     base
+                   , containers
+                   , isl-infer
+  default-language:  GHC2024
+  ghc-options:       -O2 -Wall
+
+executable kernel-test
+  main-is:           KernelTest.hs
+  hs-source-dirs:    app
+  build-depends:     base, containers, isl-infer
+  default-language:  GHC2024
+  ghc-options:       -O2 -Wall
+
+executable gguf-info
+  main-is:           GgufInfo.hs
+  hs-source-dirs:    app
+  build-depends:     base
+                   , containers
+                   , vector
+                   , isl-infer
+  default-language:  GHC2024
+  ghc-options:       -O2 -Wall
