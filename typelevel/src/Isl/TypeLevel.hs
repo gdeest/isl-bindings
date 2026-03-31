@@ -43,29 +43,42 @@ module Isl.TypeLevel
   , TConstraint(..)
   , type (>=.), type (<=.), type (==.)
     -- * Validation
-  , ValidExpr, AllValid, AllValidCSS, ValidConstraint
+  , ValidExpr, AllValid, AllValidCSS, ValidConstraint, AllValidExprs
     -- * Type-level polyhedra
   , TBasicSet(..), TSet(..), TBasicMap(..), TMap(..)
+    -- * Type-level affine functions
+  , TMultiAff(..), TPwAff(..), TPwMultiAff(..)
     -- * Set proof obligations (plugin-solved)
   , IslSubset, IslNonEmpty, IslEqual, IslDomainOf
     -- * Map proof obligations (plugin-solved)
   , IslMapSubset, IslMapEqual, IslRangeOf, IslImageSubset
+    -- * Multi-aff proof obligations (plugin-solved)
+  , IslMultiAffEqual
     -- * Type-level computations (plugin-rewritten)
   , IslIntersectSet, IslComplementSet, IslDifferenceSet
   , IslApply, IslDomainTF, IslRangeTF
   , IslCompose, IslReverseMap
   , IslProjectOut, IslFromString
   , IslToString, IslMapToString
+    -- * Multi-aff type families (plugin-rewritten)
+  , IslMultiAffToMap, IslApplyMultiAff, IslComposeMultiAff
+  , IslMultiAffToString, IslMultiAffFromString
+    -- * PwAff type families (plugin-rewritten)
+  , IslSetDimMax, IslSetDimMin
     -- * Singletons
   , STExpr(..), STConstraint(..), STConstraints(..)
+  , STExprs(..)
     -- * Auto-derivation
   , KnownZ(..), ParamIndex(..)
   , KnownExpr(..), KnownConstraint(..), KnownConstraints(..)
+  , KnownExprs(..)
     -- * Singleton-carrying polyhedra
   , SBasicSet(..), sBasicSet
   , SBasicMap(..), sBasicMap
+    -- * Singleton-carrying multi-aff
+  , SMultiAff(..), sMultiAff
     -- * Evaluation
-  , evalSBasicSet, evalSBasicMap
+  , evalSBasicSet, evalSBasicMap, evalSMultiAff
   ) where
 
 import Isl.TypeLevel.Expr

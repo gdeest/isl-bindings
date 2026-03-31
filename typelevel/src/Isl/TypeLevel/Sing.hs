@@ -47,19 +47,25 @@ module Isl.TypeLevel.Sing
   , STExpr(..)
   , STConstraint(..)
   , STConstraints(..)
+  , STExprs(..)
     -- * Auto-derivation: type-level → singleton
   , KnownExpr(..)
   , KnownConstraint(..)
   , KnownConstraints(..)
+  , KnownExprs(..)
     -- * Singleton-carrying polyhedra
   , SBasicSet(..), sBasicSet
   , SBasicMap(..), sBasicMap
+    -- * Singleton-carrying multi-aff
+  , SMultiAff(..), sMultiAff
     -- * Evaluation: singleton → ISL object
   , evalSBasicSet
   , evalSBasicMap
+  , evalSMultiAff
     -- * Singleton reification (internal, used by evaluation)
   , reifySTConstraintsSet
   , reifySTConstraintsMap
+  , reifySTExprsSet
   ) where
 
 import Data.Kind (Type)
@@ -68,7 +74,7 @@ import Data.Proxy (Proxy(..))
 import GHC.TypeLits (Nat, KnownNat, natVal, Symbol, KnownSymbol, type (+))
 
 import Isl.TypeLevel.Expr
-import Isl.TypeLevel.Constraint (TConstraint(..), AllValid)
+import Isl.TypeLevel.Constraint (TConstraint(..), AllValid, AllValidExprs)
 import Isl.HighLevel.Constraints (Expr(..), Constraint(..), Conjunction(..), SetIx(..), MapIx(..))
 import Isl.HighLevel.Params (KnownSymbols, Length)
 import Isl.HighLevel.Set (Set)
@@ -78,6 +84,8 @@ import qualified Isl.HighLevel.BasicSet as BS
 import qualified Isl.HighLevel.Set as SetOp
 import qualified Isl.HighLevel.BasicMap as BM
 import qualified Isl.HighLevel.Map as MapOp
+import Isl.HighLevel.MultiAff (MultiAff)
+import qualified Isl.HighLevel.MultiAff as MAOp
 
 
 -- =========================================================================
@@ -309,3 +317,58 @@ reifySTExprMapSplit nIn (STMul p a) =
   Mul (zValOf p) (reifySTExprMapSplit nIn a)
 reifySTExprMapSplit nIn (STFloorDiv a p) =
   FloorDiv (reifySTExprMapSplit nIn a) (zValOf p)
+
+
+-- =========================================================================
+-- Expression list singletons (for multi-aff)
+-- =========================================================================
+
+-- | Singleton for a type-level expression list @es :: [TExpr ps n]@.
+data STExprs (ps :: [Symbol]) (n :: Nat) (es :: [TExpr ps n]) where
+  STENil  :: STExprs ps n '[]
+  STECons :: STExpr ps n e -> STExprs ps n es -> STExprs ps n (e ': es)
+
+-- | Automatically produce a singleton for a type-level expression list.
+class KnownExprs (ps :: [Symbol]) (n :: Nat) (es :: [TExpr ps n]) where
+  knownExprs :: STExprs ps n es
+
+instance KnownExprs ps n '[] where
+  knownExprs = STENil
+
+instance (KnownExpr ps n e, KnownExprs ps n es) => KnownExprs ps n (e ': es) where
+  knownExprs = STECons knownExpr knownExprs
+
+-- | Reify an expression list to value-level @[Expr SetIx]@.
+reifySTExprsSet :: STExprs ps n es -> [Expr SetIx]
+reifySTExprsSet STENil = []
+reifySTExprsSet (STECons e es) = reifySTExprSet e : reifySTExprsSet es
+
+
+-- =========================================================================
+-- Singleton-carrying MultiAff
+-- =========================================================================
+
+-- | A multi-aff whose type-level expression list @es@ is visible to GHC
+-- (enabling compile-time proof obligations) and whose singleton enables
+-- reification to ISL objects.
+data SMultiAff (ps :: [Symbol]) (ni :: Nat) (no :: Nat) (es :: [TExpr ps ni]) where
+  MkSMultiAff :: STExprs ps ni es -> SMultiAff ps ni no es
+
+-- | Build an 'SMultiAff' from type-level info.
+--
+-- @
+-- type ShiftRight = '[ 'TDim (D 0) +. 'TConst ('Pos 1), 'TDim (D 1) ]
+-- shift :: SMultiAff '[] 2 2 ShiftRight
+-- shift = sMultiAff
+-- @
+sMultiAff :: forall ps ni no es.
+  (AllValidExprs ps ni es, KnownExprs ps ni es)
+  => SMultiAff ps ni no es
+sMultiAff = MkSMultiAff knownExprs
+
+-- | Evaluate a singleton-carrying multi-aff to an ISL 'MultiAff'.
+evalSMultiAff :: forall ps ni no es m.
+  (MonadIO m, KnownNat ni, KnownNat no, KnownSymbols ps, KnownNat (Length ps))
+  => SMultiAff ps ni no es -> IslT m (MultiAff ps ni no)
+evalSMultiAff (MkSMultiAff sing) =
+  MAOp.toMultiAff @ps @ni @no (reifySTExprsSet sing)

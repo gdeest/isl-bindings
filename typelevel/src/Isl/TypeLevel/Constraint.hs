@@ -15,12 +15,16 @@ module Isl.TypeLevel.Constraint
     -- * Sugar: type-level comparison operators
   , type (>=.), type (<=.), type (==.)
     -- * Validation
-  , ValidConstraint, AllValid, AllValidCSS
+  , ValidConstraint, AllValid, AllValidCSS, AllValidExprs
     -- * Type-level polyhedra
   , TBasicSet(..)
   , TSet(..)
   , TBasicMap(..)
   , TMap(..)
+    -- * Type-level affine functions
+  , TMultiAff(..)
+  , TPwAff(..)
+  , TPwMultiAff(..)
     -- * Set proof obligations (solved by isl-plugin)
   , IslSubset
   , IslNonEmpty
@@ -31,6 +35,8 @@ module Isl.TypeLevel.Constraint
   , IslMapEqual
   , IslRangeOf
   , IslImageSubset
+    -- * Multi-aff proof obligations (solved by isl-plugin)
+  , IslMultiAffEqual
     -- * Type-level ISL computations (plugin-rewritten type families)
   , IslIntersectSet
   , IslComplementSet
@@ -44,6 +50,15 @@ module Isl.TypeLevel.Constraint
   , IslFromString
   , IslToString
   , IslMapToString
+    -- * Multi-aff type families (plugin-rewritten)
+  , IslMultiAffToMap
+  , IslApplyMultiAff
+  , IslComposeMultiAff
+  , IslMultiAffToString
+  , IslMultiAffFromString
+    -- * PwAff type families (plugin-rewritten)
+  , IslSetDimMax
+  , IslSetDimMin
   ) where
 
 import Data.Kind (Constraint, Type)
@@ -255,6 +270,73 @@ type family IslToString (ps :: [Symbol]) (n :: Nat)
 -- | Render a map to its ISL string representation.
 type family IslMapToString (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
   (cs :: [TConstraint ps (ni + no)]) :: Symbol
+
+-- * Type-level affine functions
+
+-- | Validate all expressions in a list.
+type family AllValidExprs (ps :: [Symbol]) (n :: Nat) (es :: [TExpr ps n]) :: Constraint where
+  AllValidExprs _  _ '[]       = ()
+  AllValidExprs ps n (e ': es) = (ValidExpr ps n e, AllValidExprs ps n es)
+
+-- | A multi-affine function: @ni@ input dims to @no@ output dims.
+-- @es@ is a list of output expressions, each a 'TExpr' over the input space.
+-- The list length must equal @no@.
+data TMultiAff (ps :: [Symbol]) (ni :: Nat) (no :: Nat) (es :: [TExpr ps ni]) where
+  MkTMultiAff :: AllValidExprs ps ni es => TMultiAff ps ni no es
+
+-- | A piecewise affine expression: list of @(domain constraints, expression)@ pairs.
+data TPwAff (ps :: [Symbol]) (n :: Nat) (pieces :: [( [TConstraint ps n], TExpr ps n )]) where
+  MkTPwAff :: TPwAff ps n pieces
+
+-- | A piecewise multi-affine function: list of @(domain, output expressions)@ pairs.
+data TPwMultiAff (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+    (pieces :: [( [TConstraint ps ni], [TExpr ps ni] )]) where
+  MkTPwMultiAff :: TPwMultiAff ps ni no pieces
+
+
+-- * Multi-aff proof obligations
+
+-- | @IslMultiAffEqual ps ni no es1 es2@ holds iff the two multi-affs
+-- are semantically equal (as verified by ISL).
+class IslMultiAffEqual (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+    (es1 :: [TExpr ps ni]) (es2 :: [TExpr ps ni])
+
+
+-- * Multi-aff type families (plugin-rewritten)
+
+-- | Convert a multi-aff to map constraints.
+-- For each output dim @j@, emits @dim(ni+j) = expr_j(inputs)@.
+type family IslMultiAffToMap (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+    (es :: [TExpr ps ni]) :: [TConstraint ps (ni + no)]
+
+-- | Apply a multi-aff to a set (functional image). Returns disjunctive result.
+type family IslApplyMultiAff (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+    (es :: [TExpr ps ni]) (setCs :: [TConstraint ps ni]) :: [[TConstraint ps no]]
+
+-- | Compose two multi-affs: @(nk -> no) after (ni -> nk) = (ni -> no)@.
+-- Returns the output expression list for the composed function.
+type family IslComposeMultiAff (ps :: [Symbol]) (ni :: Nat) (nk :: Nat) (no :: Nat)
+    (es1 :: [TExpr ps nk]) (es2 :: [TExpr ps ni]) :: [TExpr ps ni]
+
+-- | Render a multi-aff to its ISL string representation.
+type family IslMultiAffToString (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+    (es :: [TExpr ps ni]) :: Symbol
+
+-- | Parse a multi-aff from its ISL string representation.
+type family IslMultiAffFromString (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+    (s :: Symbol) :: [TExpr ps ni]
+
+
+-- * PwAff type families (plugin-rewritten)
+
+-- | Maximum value of dimension @d@ in a set, as piecewise affine pieces.
+type family IslSetDimMax (ps :: [Symbol]) (n :: Nat) (d :: Nat)
+    (cs :: [[TConstraint ps n]]) :: [( [TConstraint ps n], TExpr ps n )]
+
+-- | Minimum value of dimension @d@ in a set, as piecewise affine pieces.
+type family IslSetDimMin (ps :: [Symbol]) (n :: Nat) (d :: Nat)
+    (cs :: [[TConstraint ps n]]) :: [( [TConstraint ps n], TExpr ps n )]
+
 
 -- * Modular constraint sugar
 --
