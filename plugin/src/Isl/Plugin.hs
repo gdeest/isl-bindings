@@ -45,7 +45,8 @@ import GHC.Core.Type (splitTyConApp_maybe, mkStrLitTy)
 import GHC.Core.Coercion (mkUnivCo)
 import GHC.Core.Reduction (Reduction(..))
 import GHC.Core.DataCon (promoteDataCon)
-import GHC.Builtin.Types (promotedConsDataCon, promotedNilDataCon)
+import GHC.Builtin.Types (promotedConsDataCon, promotedNilDataCon, promotedTupleDataCon)
+import Language.Haskell.Syntax.Basic (Boxity(Boxed))
 import GHC.Types.Unique.FM (UniqFM, listToUFM)
 import GHC.Unit.Finder (FindResult(..))
 import GHC.Unit.Module (Module)
@@ -69,9 +70,14 @@ import qualified Isl.Constraint as C
 import qualified Isl.LocalSpace as LS
 import qualified Isl.Space as Space
 import qualified Isl.Aff as Aff
+import qualified Isl.MultiAff as MA
+import qualified Isl.PwAff as PA
 import qualified Isl.Val as Val
 import Isl.HighLevel.Constraints
-  ( Expr(..), Constraint(..), SetIx(..), MapIx(..), expandExpr )
+  ( Expr(..), Constraint(..), SetIx(..), MapIx(..), expandExpr
+  , rebuildExprWithDivs, extractSetDivs, extractMapDivs
+  , extractSetConstraint, extractMapConstraint
+  , addSetConstraint, addMapConstraint )
 
 -- * Helpers for running ISL operations from the plugin
 
@@ -107,6 +113,14 @@ valRef (Isl.Val p) = Isl.ValRef p
 -- | Construct an AffRef from an owned Aff.
 affRef :: Isl.Aff -> Isl.AffRef
 affRef (Isl.Aff p) = Isl.AffRef p
+
+-- | Construct a MultiAffRef from an owned MultiAff.
+multiAffRef :: Isl.MultiAff -> Isl.MultiAffRef
+multiAffRef (Isl.MultiAff p) = Isl.MultiAffRef p
+
+-- | Construct a PwAffRef from an owned PwAff.
+pwAffRef :: Isl.PwAff -> Isl.PwAffRef
+pwAffRef (Isl.PwAff p) = Isl.PwAffRef p
 
 -- * Plugin entry point
 
@@ -159,6 +173,19 @@ data IslPluginEnv = IslPluginEnv
   , envIslFromString    :: !TyCon
   , envIslToString      :: !TyCon
   , envIslMapToString   :: !TyCon
+    -- Multi-aff proof obligation class
+  , envMultiAffEqualClass :: !Class
+    -- Multi-aff type family TyCons
+  , envIslMultiAffToMap     :: !TyCon
+  , envIslApplyMultiAff     :: !TyCon
+  , envIslComposeMultiAff   :: !TyCon
+  , envIslMultiAffToString  :: !TyCon
+  , envIslMultiAffFromString :: !TyCon
+    -- PwAff type family TyCons
+  , envIslSetDimMax :: !TyCon
+  , envIslSetDimMin :: !TyCon
+    -- TExpr data type TyCon (for building lifted expression lists)
+  , envTExprTC :: !TyCon
   }
 
 islTcPlugin :: TcPlugin
@@ -227,6 +254,23 @@ initPlugin = do
   envIslToString      <- lookupTF constraintMod "IslToString"
   envIslMapToString   <- lookupTF constraintMod "IslMapToString"
 
+  -- Multi-aff proof obligation class
+  envMultiAffEqualClass <- lookupClass constraintMod "IslMultiAffEqual"
+
+  -- Multi-aff type family TyCons
+  envIslMultiAffToMap      <- lookupTF constraintMod "IslMultiAffToMap"
+  envIslApplyMultiAff      <- lookupTF constraintMod "IslApplyMultiAff"
+  envIslComposeMultiAff    <- lookupTF constraintMod "IslComposeMultiAff"
+  envIslMultiAffToString   <- lookupTF constraintMod "IslMultiAffToString"
+  envIslMultiAffFromString <- lookupTF constraintMod "IslMultiAffFromString"
+
+  -- PwAff type family TyCons
+  envIslSetDimMax <- lookupTF constraintMod "IslSetDimMax"
+  envIslSetDimMin <- lookupTF constraintMod "IslSetDimMin"
+
+  -- TExpr data type TyCon (for building lifted expression lists)
+  envTExprTC <- lookupTF exprMod "TExpr"
+
   tcPluginTrace "isl-plugin" (text "Plugin initialized — ISL context allocated")
   pure IslPluginEnv{..}
 
@@ -287,6 +331,8 @@ data IslWanted
   | WantedMapEqual   !Ct !Type !Type !Type !Type !Type   -- ps, ni, no, cs1, cs2
   | WantedRangeOf    !Ct !Type !Type !Type !Type !Type   -- ps, ni, no, mapCs, rangeCs
   | WantedImageSubset !Ct !Type !Type !Type !Type !Type !Type -- ps, ni, no, mapCs, srcCs, dstCs
+  -- Multi-aff obligations
+  | WantedMultiAffEqual !Ct !Type !Type !Type !Type !Type    -- ps, ni, no, es1, es2
 
 classifyWanted :: IslPluginEnv -> Ct -> Maybe IslWanted
 classifyWanted IslPluginEnv{..} ct =
@@ -310,6 +356,9 @@ classifyWanted IslPluginEnv{..} ct =
           [ps, ni, no, mapCs, srcCs, dstCs] ->
             Just $ WantedImageSubset ct ps ni no mapCs srcCs dstCs
           _ -> Nothing
+      -- Multi-aff obligations
+      | cls == envMultiAffEqualClass, [ps, ni, no, es1, es2] <- args ->
+          Just $ WantedMultiAffEqual ct ps ni no es1 es2
     _ -> Nothing
 
 -- * Solving individual constraints
@@ -469,6 +518,28 @@ solveOne env = \case
               pure Nothing
         _ -> traceReifyFail >> pure Nothing
 
+  -- === Multi-aff obligations ===
+
+  WantedMultiAffEqual ct psTy niTy noTy es1Ty es2Ty ->
+    withReifiedMap env psTy niTy noTy $ \paramNames nIn nOut -> do
+      let mEs1 = reifyTExprList env paramNames (unfoldTypeList es1Ty)
+          mEs2 = reifyTExprList env paramNames (unfoldTypeList es2Ty)
+      case (mEs1, mEs2) of
+        (Just es1, Just es2) -> do
+          let ctx = envCtxPtr env
+              ma1 = buildMultiAff ctx (length paramNames) nIn nOut paramNames es1
+              ma2 = buildMultiAff ctx (length paramNames) nIn nOut paramNames es2
+              result = MA.plainIsEqual (multiAffRef ma1) (multiAffRef ma2)
+          if result
+            then traceProved "MultiAffEqual" >> (Just . (, ct) <$> makeEvidence ct)
+            else do
+              traceFailed "MultiAffEqual" $
+                "\n  LHS: " ++ MA.toStr (multiAffRef ma1) ++
+                "\n  is NOT equal to" ++
+                "\n  RHS: " ++ MA.toStr (multiAffRef ma2)
+              pure Nothing
+        _ -> traceReifyFail >> pure Nothing
+
 -- * Reification helpers
 
 -- | Extract param names and nDims for set obligations.
@@ -495,6 +566,16 @@ reifyConstraintList env paramNames = mapM (reifyTConstraint env paramNames)
 -- Dims 0..nIn-1 become InDim, nIn..nIn+nOut-1 become OutDim.
 reifyMapConstraintList :: IslPluginEnv -> [String] -> Int -> [Type] -> Maybe [Constraint MapIx]
 reifyMapConstraintList env paramNames nIn = mapM (reifyTConstraintMap env paramNames nIn)
+
+-- | Reify a list of type-level TExpr to value-level [Expr SetIx].
+reifyTExprList :: IslPluginEnv -> [String] -> [Type] -> Maybe [Expr SetIx]
+reifyTExprList env paramNames = mapM (reifyTExpr env paramNames)
+
+-- | Reify a disjunction (list of conjunctions) from type-level to value-level.
+reifyDisjunction :: IslPluginEnv -> [String] -> Type -> Maybe [[Constraint SetIx]]
+reifyDisjunction env paramNames ty =
+  mapM (\conjTy -> reifyConstraintList env paramNames (unfoldTypeList conjTy))
+       (unfoldTypeList ty)
 
 traceProved :: String -> TcPluginM ()
 traceProved label =
@@ -543,6 +624,15 @@ makeRewriters env = listToUFM
   , (envIslFromString env,   rewriteFromString env)
   , (envIslToString env,     rewriteToString env)
   , (envIslMapToString env,  rewriteMapToString env)
+    -- Multi-aff rewriters
+  , (envIslMultiAffToMap env,      rewriteMultiAffToMap env)
+  , (envIslApplyMultiAff env,      rewriteApplyMultiAff env)
+  , (envIslComposeMultiAff env,    rewriteComposeMultiAff env)
+  , (envIslMultiAffToString env,   rewriteMultiAffToString env)
+  , (envIslMultiAffFromString env, rewriteMultiAffFromString env)
+    -- PwAff rewriters
+  , (envIslSetDimMax env, rewriteSetDimMax env)
+  , (envIslSetDimMin env, rewriteSetDimMin env)
   ]
 
 -- | Helper: run a set computation and lift the result to a type.
@@ -793,111 +883,205 @@ rewriteMapToString env _re _givens args = case args of
       _ -> pure TcPluginNoRewrite
   _ -> pure TcPluginNoRewrite
 
+-- * Multi-aff rewriters
+
+-- | Rewrite IslMultiAffToMap ps ni no es → [TConstraint ps (ni+no)]
+rewriteMultiAffToMap :: IslPluginEnv -> TcPluginRewriter
+rewriteMultiAffToMap env _re _givens args = case args of
+  [psTy, niTy, noTy, esTy] ->
+    case (extractNat niTy, extractNat noTy) of
+      (Just nIn, Just nOut) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            mEs = reifyTExprList env paramNames (unfoldTypeList esTy)
+        case mEs of
+          Just es -> do
+            let ctx = envCtxPtr env
+                nParams = length paramNames
+                ma = buildMultiAff ctx nParams nIn nOut paramNames es
+                bm = runRawIsl ctx $ BM.fromMultiAff ma
+                m  = runRawIsl ctx $ M.fromBasicMap bm
+                mapCs = case decomposeIslMap env paramNames nIn nOut m of
+                  [single] -> single
+                  _        -> error "isl-plugin: IslMultiAffToMap: expected single conjunction from multi_aff"
+                combinedNTy = mkNumLitTy (fromIntegral (nIn + nOut))
+                resultTy = mkPromotedListTy
+                  (mkTyConApp (envTConstraintTC env) [psTy, combinedNTy])
+                  (map (liftMapConstraint env paramNames nIn psTy combinedNTy) mapCs)
+                origTy = mkTyConApp (envIslMultiAffToMap env) args
+                co = mkUnivCo (PluginProv "isl-plugin") Nominal origTy resultTy
+            pure $ TcPluginRewriteTo (Reduction co resultTy) []
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslApplyMultiAff ps ni no es setCs → [[TConstraint ps no]]
+rewriteApplyMultiAff :: IslPluginEnv -> TcPluginRewriter
+rewriteApplyMultiAff env _re _givens args = case args of
+  [psTy, niTy, noTy, esTy, setCsTy] ->
+    case (extractNat niTy, extractNat noTy) of
+      (Just nIn, Just nOut) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mEs = reifyTExprList env paramNames (unfoldTypeList esTy)
+            mSetCs = reifyConstraintList env paramNames (unfoldTypeList setCsTy)
+        case (mEs, mSetCs) of
+          (Just es, Just setCs) ->
+            rewriteSetResult env (envIslApplyMultiAff env) args paramNames nOut psTy noTy $ \ctx ->
+              let ma  = buildMultiAff ctx nParams nIn nOut paramNames es
+                  m   = runRawIsl ctx $ M.fromMultiAff ma
+                  s   = buildSet ctx nParams nIn paramNames setCs
+              in runRawIsl ctx $ S.apply s m
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslComposeMultiAff ps ni nk no es1 es2 → [TExpr ps ni]
+rewriteComposeMultiAff :: IslPluginEnv -> TcPluginRewriter
+rewriteComposeMultiAff env _re _givens args = case args of
+  [psTy, niTy, nkTy, noTy, es1Ty, es2Ty] ->
+    case (extractNat niTy, extractNat nkTy, extractNat noTy) of
+      (Just nIn, Just nK, Just nOut) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mEs1 = reifyTExprList env paramNames (unfoldTypeList es1Ty)
+            mEs2 = reifyTExprList env paramNames (unfoldTypeList es2Ty)
+        case (mEs1, mEs2) of
+          (Just es1, Just es2) -> do
+            let ctx = envCtxPtr env
+                ma1 = buildMultiAff ctx nParams nK nOut paramNames es1
+                ma2 = buildMultiAff ctx nParams nIn nK paramNames es2
+                composed = runRawIsl ctx $ MA.pullbackMultiAff ma1 ma2
+                resultExprs = decomposeIslMultiAff ctx nIn nParams composed
+                resultTy = liftExprList env paramNames psTy niTy resultExprs
+                origTy = mkTyConApp (envIslComposeMultiAff env) args
+                co = mkUnivCo (PluginProv "isl-plugin") Nominal origTy resultTy
+            pure $ TcPluginRewriteTo (Reduction co resultTy) []
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslMultiAffToString ps ni no es → Symbol
+rewriteMultiAffToString :: IslPluginEnv -> TcPluginRewriter
+rewriteMultiAffToString env _re _givens args = case args of
+  [psTy, niTy, noTy, esTy] ->
+    case (extractNat niTy, extractNat noTy) of
+      (Just nIn, Just nOut) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            mEs = reifyTExprList env paramNames (unfoldTypeList esTy)
+        case mEs of
+          Just es -> do
+            let ctx = envCtxPtr env
+                ma = buildMultiAff ctx (length paramNames) nIn nOut paramNames es
+                str = MA.toStr (multiAffRef ma)
+                resultTy = mkStrLitTy (mkFastString str)
+                origTy = mkTyConApp (envIslMultiAffToString env) args
+                co = mkUnivCo (PluginProv "isl-plugin") Nominal origTy resultTy
+            pure $ TcPluginRewriteTo (Reduction co resultTy) []
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslMultiAffFromString ps ni no str → [TExpr ps ni]
+rewriteMultiAffFromString :: IslPluginEnv -> TcPluginRewriter
+rewriteMultiAffFromString env _re _givens args = case args of
+  [psTy, niTy, noTy, strTy] ->
+    case (extractNat niTy, extractNat noTy, extractSymbol strTy) of
+      (Just nIn, Just nOut, Just str) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            ctx = envCtxPtr env
+            ma = runRawIsl ctx $ MA.readFromStr str
+            resultExprs = decomposeIslMultiAff ctx nIn (length paramNames) ma
+            resultTy = liftExprList env paramNames psTy niTy resultExprs
+            origTy = mkTyConApp (envIslMultiAffFromString env) args
+            co = mkUnivCo (PluginProv "isl-plugin") Nominal origTy resultTy
+        pure $ TcPluginRewriteTo (Reduction co resultTy) []
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslSetDimMax ps n d cs → [(  [TConstraint ps n], TExpr ps n )]
+rewriteSetDimMax :: IslPluginEnv -> TcPluginRewriter
+rewriteSetDimMax env = rewriteSetDimOpt env True
+
+-- | Rewrite IslSetDimMin ps n d cs → [( [TConstraint ps n], TExpr ps n )]
+rewriteSetDimMin :: IslPluginEnv -> TcPluginRewriter
+rewriteSetDimMin env = rewriteSetDimOpt env False
+
+-- | Shared implementation for IslSetDimMax and IslSetDimMin.
+rewriteSetDimOpt :: IslPluginEnv -> Bool -> TcPluginRewriter
+rewriteSetDimOpt env isMax _re _givens args = case args of
+  [psTy, nTy, dTy, csTy] ->
+    case (extractNat nTy, extractNat dTy) of
+      (Just nDims, Just d) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mDisj = reifyDisjunction env paramNames csTy
+        case mDisj of
+          Just disj -> do
+            let ctx = envCtxPtr env
+                -- Build union set from disjunction
+                sets = [buildSet ctx nParams nDims paramNames conj | conj <- disj]
+                s = case sets of
+                  []     -> error "isl-plugin: IslSetDimMax/Min: empty disjunction"
+                  [x]    -> x
+                  (x:xs) -> foldl (\acc bs -> runRawIsl ctx $ S.union acc bs) x xs
+                pa = runRawIsl ctx $
+                  if isMax then S.dimMax s (fromIntegral d)
+                           else S.dimMin s (fromIntegral d)
+                -- Decompose PwAff into pieces: each piece is (Set domain, Aff expression)
+                pieces = unsafePerformIO $ PA.foreachPiece (pwAffRef pa) $ \domSet aff -> do
+                  let domCs = decomposeIslSet env paramNames nDims domSet
+                      expr  = decomposeIslAff ctx nDims nParams aff
+                  evaluate (Isl.consume domSet)
+                  evaluate (Isl.consume aff)
+                  pure (domCs, expr)
+                -- Build result: list of tuples (domain constraints, expression)
+                -- Domain is a disjunction of conjunctions; flatten to one entry per conjunction
+                flatPieces = [(conj, expr) | (domDisj, expr) <- pieces, conj <- domDisj]
+                elemKind = mkTyConApp (envTConstraintTC env) [psTy, nTy]
+                exprKind = mkTyConApp (envTExprTC env) [psTy, nTy]
+                conjKind = mkPromotedListTy elemKind []
+                pairKind = mkTyConApp (promotedTupleDataCon Boxed 2) [conjKind, exprKind]
+                resultElems = [mkTyConApp (promotedTupleDataCon Boxed 2)
+                                 [ conjKind, exprKind
+                                 , mkPromotedListTy elemKind
+                                     (map (liftConstraint env paramNames psTy nTy) conj)
+                                 , liftExpr env paramNames psTy nTy expr
+                                 ]
+                              | (conj, expr) <- flatPieces]
+                resultTy = mkPromotedListTy pairKind resultElems
+                tfTyCon = if isMax then envIslSetDimMax env else envIslSetDimMin env
+                origTy = mkTyConApp tfTyCon args
+                co = mkUnivCo (PluginProv "isl-plugin") Nominal origTy resultTy
+            pure $ TcPluginRewriteTo (Reduction co resultTy) []
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
 -- * Decomposing ISL results back to value-level constraints
 
 decomposeIslSet :: IslPluginEnv -> [String] -> Int -> Isl.Set -> [[Constraint SetIx]]
 decomposeIslSet _env paramNames nDims set =
   let nParams = length paramNames
-      ctx = envCtxPtr _env
   in unsafePerformIO $ S.foreachBasicSet (setRef set) $ \bs -> do
-       -- Get number of div dimensions
-       let nDivs = BS.dim (basicSetRef bs) Isl.islDimDiv
-
-       -- Extract div definitions: each div is floor(aff / d)
-       let divExprs = [extractSetDiv ctx bs nDims nParams i | i <- [0..nDivs-1]]
-
+       divExprs <- extractSetDivs (basicSetRef bs) nDims nParams
        constraints <- BS.foreachConstraint (basicSetRef bs) $ \c -> do
-         let isEq = C.isEquality (constraintRef c)
-         -- Regular dim + param coefficients
-         coeffs <- mapM (\i -> do
-           v <- C.constraintGetCoefficientSi c Isl.islDimSet i
-           pure (v, Ix (SetDim i))) [0..nDims-1]
-         paramCoeffs <- mapM (\i -> do
-           v <- C.constraintGetCoefficientSi c Isl.islDimParam i
-           pure (v, Ix (SetParam i))) [0..nParams-1]
-         -- Div coefficients: substitute with FloorDiv expressions
-         divCoeffs <- mapM (\i -> do
-           v <- C.constraintGetCoefficientSi c Isl.islDimDiv i
-           pure (v, divExprs !! i)) [0..nDivs-1]
-         constant <- C.constraintGetConstantSi c
+         result <- extractSetConstraint nParams nDims divExprs c
          evaluate (Isl.consume c)
-         let allTerms = [(v, e) | (v, e) <- coeffs ++ paramCoeffs ++ divCoeffs, v /= 0]
-             expr = rebuildExprWithDivs allTerms constant
-         pure $ if isEq then EqualityConstraint expr else InequalityConstraint expr
+         pure result
        evaluate (Isl.consume bs)
        pure constraints
-
--- | Extract the definition of a div dimension from a BasicSet as a FloorDiv Expr.
--- div_i = floor(aff / d) where aff is an affine expression over dims + params.
-extractSetDiv :: Isl.Ctx -> Isl.BasicSet -> Int -> Int -> Int -> Expr SetIx
-extractSetDiv ctx bs nDims nParams divIdx =
-  let aff = runRawIsl ctx $ BS.getDiv (basicSetRef bs) (fromIntegral divIdx)
-      denom = Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getDenominatorVal (affRef aff)
-      -- ISL quirk: isl_aff from basic set uses isl_dim_in for set dimensions
-      dimCoeffs = [(Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getCoefficientVal (affRef aff) Isl.islDimIn (fromIntegral i), Ix (SetDim i)) | i <- [0..nDims-1]]
-      paramCoeffs = [(Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getCoefficientVal (affRef aff) Isl.islDimParam (fromIntegral i), Ix (SetParam i)) | i <- [0..nParams-1]]
-      constVal = Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getConstantVal (affRef aff)
-      allTerms = [(v, e) | (v, e) <- dimCoeffs ++ paramCoeffs, v /= 0]
-      innerExpr = rebuildExprWithDivs allTerms constVal
-  in FloorDiv innerExpr denom
 
 decomposeIslMap :: IslPluginEnv -> [String] -> Int -> Int -> Isl.Map -> [[Constraint MapIx]]
 decomposeIslMap _env paramNames nIn nOut m =
   let nParams = length paramNames
-      ctx = envCtxPtr _env
   in unsafePerformIO $ M.foreachBasicMap (mapRef m) $ \bm -> do
-       let nDivs = BM.dim (basicMapRef bm) Isl.islDimDiv
-
-       -- Extract div definitions for map space
-       let divExprs = [extractMapDiv ctx bm nIn nOut nParams i | i <- [0..nDivs-1]]
-
+       divExprs <- extractMapDivs (basicMapRef bm) nIn nOut nParams
        constraints <- BM.foreachConstraint (basicMapRef bm) $ \c -> do
-         let isEq = C.isEquality (constraintRef c)
-         inCoeffs <- mapM (\i -> do
-           v <- C.constraintGetCoefficientSi c Isl.islDimIn i
-           pure (v, Ix (InDim i))) [0..nIn-1]
-         outCoeffs <- mapM (\i -> do
-           v <- C.constraintGetCoefficientSi c Isl.islDimOut i
-           pure (v, Ix (OutDim i))) [0..nOut-1]
-         paramCoeffs <- mapM (\i -> do
-           v <- C.constraintGetCoefficientSi c Isl.islDimParam i
-           pure (v, Ix (MapParam i))) [0..nParams-1]
-         divCoeffs <- mapM (\i -> do
-           v <- C.constraintGetCoefficientSi c Isl.islDimDiv i
-           pure (v, divExprs !! i)) [0..nDivs-1]
-         constant <- C.constraintGetConstantSi c
+         result <- extractMapConstraint nParams nIn nOut divExprs c
          evaluate (Isl.consume c)
-         let allTerms = [(v, e) | (v, e) <- inCoeffs ++ outCoeffs ++ paramCoeffs ++ divCoeffs, v /= 0]
-             expr = rebuildExprWithDivs allTerms constant
-         pure $ if isEq then EqualityConstraint expr else InequalityConstraint expr
+         pure result
        evaluate (Isl.consume bm)
        pure constraints
-
--- | Extract a div definition from a BasicMap.
-extractMapDiv :: Isl.Ctx -> Isl.BasicMap -> Int -> Int -> Int -> Int -> Expr MapIx
-extractMapDiv ctx bm nIn nOut nParams divIdx =
-  let aff = runRawIsl ctx $ BM.getDiv (basicMapRef bm) (fromIntegral divIdx)
-      denom = Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getDenominatorVal (affRef aff)
-      inCoeffs = [(Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getCoefficientVal (affRef aff) Isl.islDimIn (fromIntegral i), Ix (InDim i)) | i <- [0..nIn-1]]
-      outCoeffs = [(Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getCoefficientVal (affRef aff) Isl.islDimOut (fromIntegral i), Ix (OutDim i)) | i <- [0..nOut-1]]
-      paramCoeffs = [(Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getCoefficientVal (affRef aff) Isl.islDimParam (fromIntegral i), Ix (MapParam i)) | i <- [0..nParams-1]]
-      constVal = Val.getNumSi $ valRef $ runRawIsl ctx $ Aff.getConstantVal (affRef aff)
-      allTerms = [(v, e) | (v, e) <- inCoeffs ++ outCoeffs ++ paramCoeffs, v /= 0]
-      innerExpr = rebuildExprWithDivs allTerms constVal
-  in FloorDiv innerExpr denom
-
--- | Rebuild an Expr from (coefficient, expression) pairs and a constant.
--- Handles both simple variables (Ix) and complex expressions (FloorDiv).
-rebuildExprWithDivs :: [(Integer, Expr ix)] -> Integer -> Expr ix
-rebuildExprWithDivs coeffs constant =
-  let terms = [if c == 1 then e else if c == -1 then Mul (-1) e else Mul c e
-              | (c, e) <- coeffs]
-      constTerm = [Constant constant | constant /= 0]
-      allTerms = terms ++ constTerm
-  in case allTerms of
-    []     -> Constant 0
-    [t]    -> t
-    (t:ts) -> foldl Add t ts
 
 -- * Lifting value-level constraints to GHC types
 
@@ -984,6 +1168,14 @@ liftZ env k
   | k >= 0    = mkTyConApp (envPos env) [mkNumLitTy k]
   | otherwise = mkTyConApp (envNeg env) [mkNumLitTy (negate k)]
 
+-- | Lift a list of value-level Expr SetIx to a promoted list type @'[e0, e1, ...]@
+-- of kind @[TExpr ps ni]@.
+liftExprList :: IslPluginEnv -> [String] -> Type -> Type -> [Expr SetIx] -> Type
+liftExprList env paramNames psTy nTy exprs =
+  let elemKind = mkTyConApp (envTExprTC env) [psTy, nTy]
+  in mkPromotedListTy elemKind
+       (map (liftExpr env paramNames psTy nTy) exprs)
+
 -- | Build a promoted list type @'[x1, x2, ...]@ from element kind and elements.
 mkPromotedListTy :: Type -> [Type] -> Type
 mkPromotedListTy k = foldr (\x xs -> mkTyConApp promotedConsDataCon [k, x, xs])
@@ -1001,32 +1193,11 @@ buildBasicSet ctx nParams nDims paramNames constraints =
     space  <- foldlM (\sp (i, name) -> Space.setDimName sp Isl.islDimParam i name)
                      space0 (zip [0..] paramNames)
     univ   <- BS.universe space
-    foldlM (addOneSetConstraint ctx) univ constraints
+    foldlM addSetConstraint univ constraints
 
 buildSet :: Isl.Ctx -> Int -> Int -> [String] -> [Constraint SetIx] -> Isl.Set
 buildSet ctx nParams nDims paramNames constraints =
   runRawIsl ctx $ S.fromBasicSet (buildBasicSet ctx nParams nDims paramNames constraints)
-
-addOneSetConstraint :: Isl.Ctx -> Isl.BasicSet -> Constraint SetIx -> IslT IO Isl.BasicSet
-addOneSetConstraint ctx bs constraint = do
-  sp     <- BS.getSpace (basicSetRef bs)
-  ls     <- LS.fromSpace sp
-  let (coeffs, constant) = case constraint of
-        InequalityConstraint e -> expandExpr e
-        EqualityConstraint e   -> expandExpr e
-  emptyC <- case constraint of
-    InequalityConstraint _ -> C.inequalityAlloc ls
-    EqualityConstraint _   -> C.equalityAlloc ls
-  withCoeffs <- foldlM (setSetCoeff ctx) emptyC coeffs
-  finalC     <- C.setConstantSi withCoeffs (fromIntegral constant)
-  BS.addConstraint bs finalC
-
-setSetCoeff :: Isl.Ctx -> Isl.Constraint -> (Integer, SetIx) -> IslT IO Isl.Constraint
-setSetCoeff _ctx c (coeff, ix) =
-  let (dimType, pos) = case ix of
-        SetDim i   -> (Isl.islDimSet, i)
-        SetParam i -> (Isl.islDimParam, i)
-  in C.setCoefficientSi c dimType (fromIntegral pos) (fromIntegral coeff)
 
 -- ** Maps
 
@@ -1038,33 +1209,75 @@ buildBasicMap ctx nParams nIn nOut paramNames constraints =
     space  <- foldlM (\sp (i, name) -> Space.setDimName sp Isl.islDimParam i name)
                      space0 (zip [0..] paramNames)
     univ   <- BM.universe space
-    foldlM (addOneMapConstraint ctx) univ constraints
+    foldlM addMapConstraint univ constraints
 
 buildMap :: Isl.Ctx -> Int -> Int -> Int -> [String] -> [Constraint MapIx] -> Isl.Map
 buildMap ctx nParams nIn nOut paramNames constraints =
   runRawIsl ctx $ M.fromBasicMap (buildBasicMap ctx nParams nIn nOut paramNames constraints)
 
-addOneMapConstraint :: Isl.Ctx -> Isl.BasicMap -> Constraint MapIx -> IslT IO Isl.BasicMap
-addOneMapConstraint ctx bm constraint = do
-  sp     <- BM.getSpace (basicMapRef bm)
-  ls     <- LS.fromSpace sp
-  let (coeffs, constant) = case constraint of
-        InequalityConstraint e -> expandExpr e
-        EqualityConstraint e   -> expandExpr e
-  emptyC <- case constraint of
-    InequalityConstraint _ -> C.inequalityAlloc ls
-    EqualityConstraint _   -> C.equalityAlloc ls
-  withCoeffs <- foldlM (setMapCoeff ctx) emptyC coeffs
-  finalC     <- C.setConstantSi withCoeffs (fromIntegral constant)
-  BM.addConstraint bm finalC
+-- ** Multi-affs
 
-setMapCoeff :: Isl.Ctx -> Isl.Constraint -> (Integer, MapIx) -> IslT IO Isl.Constraint
-setMapCoeff _ctx c (coeff, ix) =
-  let (dimType, pos) = case ix of
-        InDim i    -> (Isl.islDimIn, i)
-        OutDim i   -> (Isl.islDimOut, i)
-        MapParam i -> (Isl.islDimParam, i)
-  in C.setCoefficientSi c dimType (fromIntegral pos) (fromIntegral coeff)
+-- | Build an ISL MultiAff from a list of output expressions.
+-- Each expression is an affine function of the input dims and params.
+buildMultiAff
+  :: Isl.Ctx -> Int -> Int -> Int -> [String] -> [Expr SetIx] -> Isl.MultiAff
+buildMultiAff ctx nParams nIn nOut paramNames exprs =
+  runRawIsl ctx $ do
+    space0 <- Space.alloc (fromIntegral nParams) (fromIntegral nIn) (fromIntegral nOut)
+    space  <- foldlM (\sp (i, name) -> Space.setDimName sp Isl.islDimParam i name)
+                     space0 (zip [0..] paramNames)
+    ma0 <- MA.zero space
+    foldlM (\ma (j, expr) -> do
+      let (coeffs, constant) = expandExpr expr
+      domSpace <- MA.getDomainSpace (multiAffRef ma)
+      ls       <- LS.fromSpace domSpace
+      aff0     <- Aff.zeroOnDomain ls
+      aff1     <- foldlM (\a (coeff, ix) ->
+        let (dimType, pos) = case ix of
+              SetDim i   -> (Isl.islDimIn, i)
+              SetParam i -> (Isl.islDimParam, i)
+        in Aff.setCoefficientSi a dimType (fromIntegral pos) (fromIntegral coeff)
+        ) aff0 coeffs
+      aff2 <- Aff.addConstantSi aff1 (fromIntegral constant)
+      MA.setAff ma (fromIntegral j) aff2
+      ) ma0 (zip [0..] exprs)
+
+-- | Extract output expressions from an ISL MultiAff.
+decomposeIslMultiAff :: Isl.Ctx -> Int -> Int -> Isl.MultiAff -> [Expr SetIx]
+decomposeIslMultiAff ctx nIn nParams ma =
+  let nOut = MA.dim (multiAffRef ma) Isl.islDimOut
+  in [decomposeOneAff ctx nIn nParams ma j | j <- [0..nOut-1]]
+
+-- | Extract a single output aff from a MultiAff and convert to Expr SetIx.
+decomposeOneAff :: Isl.Ctx -> Int -> Int -> Isl.MultiAff -> Int -> Expr SetIx
+decomposeOneAff ctx nIn nParams ma j = unsafePerformIO $ do
+  aff <- MA.multiAffGetAffCopy (multiAffRef ma) (fromIntegral j)
+  let ar = affRef aff
+  dimCoeffs <- mapM (\i -> do
+    v <- Aff.affGetCoefficientSi ar Isl.islDimIn i
+    pure (v, Ix (SetDim i))) [0..nIn-1]
+  paramCoeffs <- mapM (\i -> do
+    v <- Aff.affGetCoefficientSi ar Isl.islDimParam i
+    pure (v, Ix (SetParam i))) [0..nParams-1]
+  constant <- Aff.affGetConstantSi ar
+  evaluate (Isl.consume aff)
+  let allTerms = [(v, e) | (v, e) <- dimCoeffs ++ paramCoeffs, v /= 0]
+  pure $ rebuildExprWithDivs allTerms constant
+
+-- | Extract an Expr SetIx from a standalone Aff (used for PwAff pieces).
+-- The Aff uses isl_dim_in for set dimensions.
+decomposeIslAff :: Isl.Ctx -> Int -> Int -> Isl.Aff -> Expr SetIx
+decomposeIslAff _ctx nDims nParams aff = unsafePerformIO $ do
+  let ar = affRef aff
+  dimCoeffs <- mapM (\i -> do
+    v <- Aff.affGetCoefficientSi ar Isl.islDimIn i
+    pure (v, Ix (SetDim i))) [0..nDims-1]
+  paramCoeffs <- mapM (\i -> do
+    v <- Aff.affGetCoefficientSi ar Isl.islDimParam i
+    pure (v, Ix (SetParam i))) [0..nParams-1]
+  constant <- Aff.affGetConstantSi ar
+  let allTerms = [(v, e) | (v, e) <- dimCoeffs ++ paramCoeffs, v /= 0]
+  pure $ rebuildExprWithDivs allTerms constant
 
 -- (ISL property check functions removed — inlined into solveOne with richer error messages)
 
