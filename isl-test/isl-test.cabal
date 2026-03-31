@@ -115,6 +115,17 @@ executable typelevel-demo
   hs-source-dirs:      src
   default-language:    GHC2021
 
+executable typelevel-multi-aff-demo
+  main-is:             TypeLevelMultiAffDemo.hs
+  build-depends:       base >=4.12.0.0 && <5,
+                       isl-bindings,
+                       isl-bindings-hl,
+                       isl-typelevel,
+                       isl-plugin
+  ghc-options:         -O2 -Wall -fplugin=Isl.Plugin
+  hs-source-dirs:      src
+  default-language:    GHC2021
+
 test-suite isl-tests
   type:                exitcode-stdio-1.0
   main-is:             Main.hs
@@ -125,7 +136,10 @@ test-suite isl-tests
                        Test.BasicMap,
                        Test.Map,
                        Test.Scan,
-                       Test.Multi
+                       Test.Multi,
+                       Test.MultiAff,
+                       Test.PwAff,
+                       Test.Div
   hs-source-dirs:      test
   build-depends:       base >=4.12.0.0 && <5,
                        isl-bindings,
