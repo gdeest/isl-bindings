@@ -342,6 +342,18 @@ hsTypes =
         "C.CBool" "Bool" Nothing
         (Just "return . M.toBool") (Just "return . M.fromBool")
         False)
+    , (LONG, TI
+        "C.CLong" "Integer" Nothing
+        (Just "return . fromIntegral") (Just "return . fromIntegral")
+        False)
+    , (ULONG, TI
+        "C.CULong" "Integer" Nothing
+        (Just "return . fromIntegral") (Just "return . fromIntegral")
+        False)
+    , (SIZE_T, TI
+        "C.CULong" "Int" Nothing
+        (Just "return . fromIntegral") (Just "return . fromIntegral")
+        False)
     ]
 
 -- mlSigTypes = M.union sigList hsTypes
@@ -377,12 +389,18 @@ toPureQueryDecl (ISLFunction annots t name params) hsName = do
   let filteredParams = filter (not . isCtxParam) params
       needsCtx = any isCtxParam params
 
+  -- PureQuery functions that take ctx cannot be generated as pure —
+  -- we have no ctx to pass outside of IslT. Skip and trace a warning.
+  if needsCtx
+    then trace ("Skipping PureQuery with ctx param: " ++ name) Nothing
+    else Just ()
+
   filteredParamsInfo <- sequence $ map (lookupType . paramType) filteredParams
 
   let cFunName = "c_" ++ hsName
 
-      -- Foreign import: isl_keep ISL ptr → Ref type; primitives → C type; ctx → Ctx
-      importParamTypes = (if needsCtx then ["Ctx"] else []) ++
+      -- Foreign import: isl_keep ISL ptr → Ref type; primitives → C type
+      importParamTypes =
         map (ffiParamType PureQuery) (zip filteredParams filteredParamsInfo)
       importType = concat . intersperse " -> " $
         importParamTypes ++ ["IO " ++ cRetType]
@@ -396,6 +414,7 @@ toPureQueryDecl (ISLFunction annots t name params) hsName = do
       hsRetStr = case t of
         INT  -> "Int"; UINT -> "Int"; BOOL -> "Bool"
         CHAR_PTR -> "String"; VOID -> "()"; ISL_DIM_TYPE -> "DimType"
+        LONG -> "Integer"; ULONG -> "Integer"; SIZE_T -> "Int"
         _ -> "Int"
 
       hsTypeStr = concat . intersperse " -> " $
@@ -408,10 +427,12 @@ toPureQueryDecl (ISLFunction annots t name params) hsName = do
       stringParamsPure = [(pn, pn ++ "_c") | ISLParam _ CHAR_PTR pn <- filteredParams]
       hasStringParamPure = not (null stringParamsPure)
 
-      cCallArgs = map (cCallArgPure needsCtx stringParamsPure) (zip filteredParams filteredParamsInfo)
+      cCallArgs = map (cCallArgPure False stringParamsPure) (zip filteredParams filteredParamsInfo)
 
       retConv = case t of
         INT  -> "fromIntegral <$> "; UINT -> "fromIntegral <$> "
+        LONG -> "fromIntegral <$> "; ULONG -> "fromIntegral <$> "
+        SIZE_T -> "fromIntegral <$> "
         BOOL -> "M.toBool <$> "; CHAR_PTR -> ""; VOID -> ""; _ -> ""
 
       body
@@ -612,7 +633,7 @@ writeModule outPath name functions = do
   let name' = (toLower x) : xs
   let dirName = outPath ++ "/src/Isl/" ++ name
   createDirectoryIfMissing True dirName
-  withFile (dirName ++ "/AutoGen.hs") WriteMode $ \coreh -> do
+  withFile (dirName ++ "/Generated.hs") WriteMode $ \coreh -> do
     mapM_ (hPutStrLn coreh) $
       [ "{-# LANGUAGE BangPatterns #-}"
       , "{-# LANGUAGE FlexibleContexts #-}"
@@ -622,7 +643,7 @@ writeModule outPath name functions = do
       , "{-# LANGUAGE ScopedTypeVariables #-}"
       , "{-# LANGUAGE Strict #-}"
       , ""
-      , "module Isl." ++ name ++ ".AutoGen where"
+      , "module Isl." ++ name ++ ".Generated where"
       , ""
       , "import Isl.Types"
       , "import Isl.Monad"
@@ -795,6 +816,8 @@ toISLType t =
         "enum isl_ast_node_type" -> Just ISL_AST_NODE_TYPE
         "enum isl_ast_expr_type" -> Just ISL_AST_EXPR_TYPE
         "isl_bool" -> Just INT
+        "isl_size" -> Just INT
+        "isl_stat" -> Just INT
         "isl_ast_expr *" -> Just ISL_AST_EXPR_PTR
         "isl_vec *" -> Just ISL_VEC_PTR
         "struct isl_hash_table_entry *" -> Just ISL_HASH_TABLE_ENTRY_PTR

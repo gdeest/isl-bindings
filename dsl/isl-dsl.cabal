@@ -1,0 +1,46 @@
+cabal-version:       2.4
+
+name:                isl-dsl
+version:             0.1.0.0
+synopsis:            Imperative polyhedral DSL for ISL
+license:             MIT
+license-file:        LICENSE
+author:              Gaël Deest
+maintainer:          gael.deest@tweag.io
+category:            Math
+extra-source-files:  CHANGELOG.md
+
+library
+  exposed-modules:   Isl.DSL,
+                     Isl.DSL.Types,
+                     Isl.DSL.Builder,
+                     Isl.DSL.Compile,
+                     Isl.DSL.Execute,
+                     Isl.DSL.Transform,
+                     Isl.DSL.Verify
+  build-depends:       base >=4.12.0.0 && <5,
+                       containers,
+                       deepseq,
+                       mtl,
+                       isl-bindings,
+                       isl-bindings-hl,
+                       isl-scan
+  hs-source-dirs:      src
+  default-language:    GHC2024
+  default-extensions:  DataKinds,
+                       GADTs,
+                       TypeFamilies,
+                       RequiredTypeArguments
+  ghc-options:         -Wall -Wno-unused-top-binds
+
+test-suite dsl-test
+  type:                exitcode-stdio-1.0
+  main-is:             Main.hs
+  hs-source-dirs:      test
+  build-depends:       base >=4.12.0.0 && <5,
+                       containers,
+                       isl-dsl,
+                       isl-scan,
+                       isl-bindings-hl
+  default-language:    GHC2024
+  ghc-options:         -Wall
