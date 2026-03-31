@@ -18,6 +18,7 @@ import Isl.Infer.GGUF
 import Isl.Infer.Model
 import Isl.Infer.Tokenizer
 import Isl.Infer.Forward
+import Isl.Infer.Arch (zen5)
 import Isl.Infer.Compile
 import Isl.Infer.Schedule
 import Isl.Infer.Kernel.Elementwise (sampleTopP)
@@ -68,7 +69,7 @@ runChat modelPath sch = do
   putStrLn "\nInitializing inference state..."
   is <- initInferState gf kernels
   putStrLn "Ready.\n"
-  putStrLn "Commands: /quit, /schedule naive|default|large"
+  putStrLn "Commands: /quit, /schedule naive|default|large, /strategy original|packed"
   putStrLn ""
 
   chatLoop is tok gf 0
@@ -84,6 +85,8 @@ chatLoop is tok gf pos = do
     "/schedule small"   -> recompile is tok gf pos scheduleSmall
     "/schedule medium"  -> recompile is tok gf pos scheduleMedium
     "/schedule large"   -> recompile is tok gf pos scheduleLarge
+    "/strategy original" -> recompileStrategy is tok gf pos StrategyOriginal defaultSchedule
+    "/strategy packed"   -> recompileStrategy is tok gf pos StrategyPacked defaultSchedule
     "" -> chatLoop is tok gf pos
     _ -> do
       let userTokens = encode tok (" " ++ input ++ " ")
@@ -115,6 +118,14 @@ recompile :: InferState -> Tokenizer -> GGUFFile -> Int -> MatvecSchedule -> IO 
 recompile is tok gf pos sch = do
   printf "Recompiling with schedule '%s'...\n" (schName sch)
   kernels <- compileKernels (isConfig is) sch
+  let is' = is { isKernels = kernels }
+  putStrLn "Done.\n"
+  chatLoop is' tok gf pos
+
+recompileStrategy :: InferState -> Tokenizer -> GGUFFile -> Int -> MatvecStrategy -> MatvecSchedule -> IO ()
+recompileStrategy is tok gf pos strat sch = do
+  printf "Recompiling with strategy '%s', schedule '%s'...\n" (show strat) (schName sch)
+  kernels <- compileKernelsWith strat zen5 (isConfig is) sch
   let is' = is { isKernels = kernels }
   putStrLn "Done.\n"
   chatLoop is' tok gf pos

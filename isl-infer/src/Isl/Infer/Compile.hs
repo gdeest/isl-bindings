@@ -65,7 +65,7 @@ compileMatvecStrategy StrategyPacked   arch  sch n kb = do
 -- Both use the same schedule parameters for tiling/parallelism;
 -- the packed strategy additionally uses Arch for microkernel tile sizes.
 compileKernels :: LlamaConfig -> MatvecSchedule -> IO KernelSet
-compileKernels = compileKernelsWith StrategyOriginal zen5
+compileKernels = compileKernelsWith StrategyPacked zen5
 
 -- | Like 'compileKernels' but with explicit strategy and architecture.
 compileKernelsWith :: MatvecStrategy -> Arch -> LlamaConfig -> MatvecSchedule -> IO KernelSet
@@ -113,9 +113,11 @@ compileKernelsWith strategy arch cfg sch = do
   outp <- compile (schFor vocab) vocab (kb dim)
   putStr "    Output" >> putStrLn (" [" ++ show dim ++ "→" ++ show vocab ++ "] OK")
 
-  -- Fused layer kernel
+  -- Fused layer kernel (packed version uses panel-packed matvec bodies)
   putStrLn "    Fused layer kernel..."
-  fl <- compileLayer cfg
+  fl <- case strategy of
+    StrategyOriginal -> compileLayer cfg
+    StrategyPacked   -> compileLayerPacked arch cfg
   putStrLn "    Fused layer OK"
 
   return KernelSet
