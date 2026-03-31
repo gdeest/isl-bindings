@@ -7,3 +7,13 @@ dist-newstyle/
 *.dyn_hi
 *.dyn_o
 result
+
+# Personal dotfiles / IDE config
+.bash_profile
+.bashrc
+.gitconfig
+.mcp.json
+.profile
+.ripgreprc
+.zprofile
+.zshrc
