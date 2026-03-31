@@ -22,6 +22,7 @@ library
                    , Isl.Infer.Tokenizer
                    , Isl.Infer.Schedule
                    , Isl.Infer.Kernel.GEMM
+                   , Isl.Infer.Kernel.FusedLayer
                    , Isl.Infer.Compile
   build-depends:     base >=4.12.0.0 && <5
                    , bytestring

@@ -9,7 +9,6 @@
 module Isl.Infer.Compile
   ( KernelSet(..)
   , compileKernels
-    -- * Individual matvec call
   , callMatvec
   ) where
 
@@ -18,6 +17,7 @@ import Foreign.Ptr (Ptr)
 
 import Isl.Infer.Model (LlamaConfig(..))
 import Isl.Infer.Schedule
+import Isl.Infer.Kernel.FusedLayer
 import Isl.Infer.Kernel.GEMM
 import Isl.Infer.Kernel.Elementwise (q8Matvec)
 
@@ -32,6 +32,7 @@ data KernelSet = KernelSet
   , ksUp       :: !CompiledMatvec   -- ^ [dim] → [hidden]    (FFN up)
   , ksDown     :: !CompiledMatvec   -- ^ [hidden] → [dim]    (FFN down)
   , ksOutput   :: !CompiledMatvec   -- ^ [dim] → [vocab]     (final projection)
+  , ksFusedLayer :: !CompiledLayer  -- ^ Fused per-layer kernel
   }
 
 -- | Compile all kernels for a model's dimensions.
@@ -78,9 +79,15 @@ compileKernels cfg sch = do
   outp <- compileMatvec (schFor vocab) vocab (kb dim)
   putStr "    Output" >> putStrLn (" [" ++ show dim ++ "→" ++ show vocab ++ "] OK")
 
+  -- Fused layer kernel
+  putStrLn "    Fused layer kernel..."
+  fl <- compileLayer cfg
+  putStrLn "    Fused layer OK"
+
   return KernelSet
     { ksQProj  = qp, ksKProj = kp, ksVProj = vp, ksOProj = op
     , ksGate   = gp, ksUp    = up, ksDown  = dp, ksOutput = outp
+    , ksFusedLayer = fl
     }
 
 -- | Call a compiled matvec: out = W @ x

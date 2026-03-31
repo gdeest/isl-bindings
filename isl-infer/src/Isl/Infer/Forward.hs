@@ -1,10 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
 
--- | Full Llama forward pass with swappable polyhedral kernels.
---
--- The forward pass uses a 'KernelSet' for all GEMM operations.
--- Changing schedules recompiles the KernelSet; the forward pass
--- code doesn't change.
+-- | Full Llama forward pass with fused per-layer kernel.
 module Isl.Infer.Forward
   ( InferState(..)
   , initInferState
@@ -16,7 +12,7 @@ import Data.Int (Int64)
 import Data.Word (Word8, Word64)
 import qualified Data.Map.Strict as Map
 import Foreign.Marshal.Alloc (mallocBytes, callocBytes)
-import Foreign.Marshal.Array (copyArray, pokeArray)
+import Foreign.Marshal.Array (pokeArray)
 import Foreign.Ptr (Ptr, plusPtr, castPtr)
 import Foreign.ForeignPtr (withForeignPtr)
 import Foreign.Storable (poke)
@@ -25,6 +21,7 @@ import Isl.Infer.GGUF
 import Isl.Infer.Model
 import Isl.Infer.Compile
 import Isl.Infer.Kernel.GEMM (CompiledMatvec(..))
+import Isl.Infer.Kernel.FusedLayer (CompiledLayer(..))
 import Isl.Infer.Kernel.Elementwise
 
 -- | Inference state.
@@ -32,7 +29,7 @@ data InferState = InferState
   { isConfig   :: !LlamaConfig
   , isGGUF     :: !GGUFFile
   , isBasePtr  :: !(Ptr Word8)
-  , isKernels  :: !KernelSet       -- ^ Swappable! Change schedule → recompile → swap.
+  , isKernels  :: !KernelSet
     -- Scratch buffers
   , isX        :: !(Ptr Float)
   , isXB       :: !(Ptr Float)
@@ -44,11 +41,11 @@ data InferState = InferState
   , isHB2      :: !(Ptr Float)
   , isLogits   :: !(Ptr Float)
   , isAttnOut  :: !(Ptr Float)
-  , isScores   :: !(Ptr Float)
+  , isScores   :: !(Ptr Float)    -- [n_heads * max_seq] for head-parallel attention
     -- KV cache
   , isKCache   :: !(Ptr Float)
   , isVCache   :: !(Ptr Float)
-    -- RoPE precomputed inverse frequencies [head_dim/2]
+    -- RoPE precomputed
   , isInvFreq  :: !(Ptr Float)
     -- RNG
   , isRNG      :: !(Ptr Word64)
@@ -63,6 +60,8 @@ initInferState gf kernels = do
       ms  = lcMaxSeqLen cfg
       kvd = lcKVDim cfg
       nl  = lcNLayers cfg
+      nh  = lcNHeads cfg
+      headDim = lcHeadDim cfg
       f4  = 4
 
   basePtr <- withForeignPtr (ggufBasePtr gf) return
@@ -77,13 +76,13 @@ initInferState gf kernels = do
   hb2     <- mallocBytes (hd * f4)
   logits  <- mallocBytes (vs * f4)
   attnOut <- mallocBytes (d * f4)
-  scores  <- mallocBytes (ms * f4)
+  scores  <- mallocBytes (nh * ms * f4)   -- per-head scores for fused kernel
   kCache  <- callocBytes (nl * ms * kvd * f4)
   vCache  <- callocBytes (nl * ms * kvd * f4)
-  -- Precompute RoPE inverse frequencies: inv_freq[i] = 1/(freq_base^(2i/head_dim))
-  let headDim = lcHeadDim cfg
+
+  -- Precompute RoPE inverse frequencies
+  let half = headDim `div` 2
       freqBase = lcRopeFreqBase cfg
-      half = headDim `div` 2
   invFreq <- mallocBytes (half * f4)
   pokeArray invFreq [ 1.0 / (freqBase ** (2.0 * fromIntegral i / fromIntegral headDim))
                     | i <- [0 .. half - 1] :: [Int] ]
@@ -101,10 +100,6 @@ initInferState gf kernels = do
     , isInvFreq = invFreq, isRNG = rng
     }
 
--- | Swap kernels (after recompilation with a new schedule).
-swapKernels :: InferState -> KernelSet -> InferState
-swapKernels is ks = is { isKernels = ks }
-
 -- | Raw tensor pointer.
 tensorPtr :: InferState -> String -> Ptr Word8
 tensorPtr is name =
@@ -115,86 +110,46 @@ tensorPtr is name =
 layerW :: InferState -> Int -> String -> Ptr Word8
 layerW is l suffix = tensorPtr is ("blk." ++ show l ++ "." ++ suffix)
 
--- | Call a specific kernel from the KernelSet.
-mv :: InferState -> (KernelSet -> CompiledMatvec)
-   -> Ptr Float -> Ptr Float -> Ptr Word8 -> IO ()
-mv is sel outPtr xPtr wPtr =
-  callMatvec (sel (isKernels is)) outPtr xPtr wPtr
-
 -- | Forward pass for one token at position pos.
+-- Uses the fused per-layer kernel for all transformer layers.
 forward :: InferState -> Int -> Int -> IO ()
 forward is token pos = do
   let cfg  = isConfig is
       dim  = lcDim cfg
-      hdim = lcHiddenDim cfg
       nl   = lcNLayers cfg
-      nh   = lcNHeads cfg
-      nkv  = lcNKVHeads cfg
-      hd   = lcHeadDim cfg
       kvd  = lcKVDim cfg
       ms   = lcMaxSeqLen cfg
-      eps  = lcRMSNormEps cfg
-      freq = lcRopeFreqBase cfg
-      x    = isX is
-      xb   = isXB is
-      xb2  = isXB2 is
       fi   = fromIntegral
+      fusedFn = clFn (ksFusedLayer (isKernels is))
 
-  -- Token embedding
-  embedToken x (tensorPtr is "token_embd.weight") (fi token) (fi dim)
+  -- 1. Token embedding
+  embedToken (isX is) (tensorPtr is "token_embd.weight") (fi token) (fi dim)
 
-  -- Transformer layers
+  -- 2. Transformer layers via fused kernel
   mapM_ (\l -> do
-    -- Attention norm
-    rmsnorm xb x (castPtr (layerW is l "attn_norm.weight")) (fi dim) eps
-
-    -- QKV via polyhedral kernels
-    mv is ksQProj (isQ is) xb (layerW is l "attn_q.weight")
-    mv is ksKProj (isK is) xb (layerW is l "attn_k.weight")
-    mv is ksVProj (isV is) xb (layerW is l "attn_v.weight")
-
-    -- RoPE
-    ropePrecomputed (isQ is) (isK is) (isInvFreq is) (fi nh) (fi nkv) (fi hd) (fi pos)
-
-    -- Update KV cache
-    let kcPos = isKCache is `plusPtr` ((l * ms * kvd + pos * kvd) * 4)
-        vcPos = isVCache is `plusPtr` ((l * ms * kvd + pos * kvd) * 4)
-    copyArray (castPtr kcPos :: Ptr Float) (isK is) kvd
-    copyArray (castPtr vcPos :: Ptr Float) (isV is) kvd
-
-    -- Multi-head attention
-    let seqLen = pos + 1
-        nGroups = nh `div` nkv
-    mapM_ (\h -> do
-      let kvHead = h `div` nGroups
-          qOff   = isQ is `plusPtr` (h * hd * 4)
-          outOff = isAttnOut is `plusPtr` (h * hd * 4)
-          kcLayer = isKCache is `plusPtr` (l * ms * kvd * 4)
-          vcLayer = isVCache is `plusPtr` (l * ms * kvd * 4)
-          kcHead  = kcLayer `plusPtr` (kvHead * hd * 4)
-          vcHead  = vcLayer `plusPtr` (kvHead * hd * 4)
-      attentionHead outOff (castPtr qOff) (castPtr kcHead) (castPtr vcHead)
-                     (isScores is) (fi seqLen) (fi hd) (fi kvd)
-      ) [0..nh-1]
-
-    -- Output projection
-    mv is ksOProj xb2 (isAttnOut is) (layerW is l "attn_output.weight")
-
-    -- Residual
-    residualAdd x x xb2 (fi dim)
-
-    -- FFN
-    rmsnorm xb x (castPtr (layerW is l "ffn_norm.weight")) (fi dim) eps
-    mv is ksGate (isHB is)  xb (layerW is l "ffn_gate.weight")
-    mv is ksUp   (isHB2 is) xb (layerW is l "ffn_up.weight")
-    siluMul (isHB is) (isHB is) (isHB2 is) (fi hdim)
-    mv is ksDown xb2 (isHB is) (layerW is l "ffn_down.weight")
-    residualAdd x x xb2 (fi dim)
+    let kcLayer = isKCache is `plusPtr` (l * ms * kvd * 4)
+        vcLayer = isVCache is `plusPtr` (l * ms * kvd * 4)
+    fusedFn
+      (isX is) (isXB is) (isXB2 is)
+      (isQ is) (isK is) (isV is)
+      (isHB is) (isHB2 is) (isAttnOut is) (isScores is)
+      (castPtr kcLayer) (castPtr vcLayer)
+      (layerW is l "attn_q.weight")
+      (layerW is l "attn_k.weight")
+      (layerW is l "attn_v.weight")
+      (layerW is l "attn_output.weight")
+      (layerW is l "ffn_gate.weight")
+      (layerW is l "ffn_up.weight")
+      (layerW is l "ffn_down.weight")
+      (castPtr (layerW is l "attn_norm.weight"))
+      (castPtr (layerW is l "ffn_norm.weight"))
+      (isInvFreq is)
+      (fi pos)
     ) [0..nl-1]
 
-  -- Final norm + output projection
-  rmsnorm x x (castPtr (tensorPtr is "output_norm.weight")) (fi dim) eps
-  mv is ksOutput (isLogits is) x (tensorPtr is "output.weight")
+  -- 3. Final norm + output projection (not fused — only runs once)
+  rmsnorm (isX is) (isX is) (castPtr (tensorPtr is "output_norm.weight")) (fi dim) (lcRMSNormEps cfg)
+  callMatvec (ksOutput (isKernels is)) (isLogits is) (isX is) (tensorPtr is "output.weight")
 
 -- | Generate one token.
 generateToken :: InferState -> Int -> Int -> Float -> Float -> IO Int
