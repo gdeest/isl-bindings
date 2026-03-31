@@ -9,16 +9,19 @@
 module Isl.Infer.Compile
   ( KernelSet(..)
   , compileKernels
+  , compileKernelsWith
   , callMatvec
   ) where
 
 import Data.Word (Word8)
 import Foreign.Ptr (Ptr)
 
+import Isl.Infer.Arch
 import Isl.Infer.Model (LlamaConfig(..))
 import Isl.Infer.Schedule
 import Isl.Infer.Kernel.FusedLayer
 import Isl.Infer.Kernel.GEMM
+import Isl.Infer.Kernel.Packed
 import Isl.Infer.Kernel.Elementwise (q8Matvec)
 
 -- | All compiled kernels needed for one model.
@@ -35,13 +38,38 @@ data KernelSet = KernelSet
   , ksFusedLayer :: !CompiledLayer  -- ^ Fused per-layer kernel
   }
 
+-- | Compile a matvec using the selected strategy.
+-- StrategyOriginal: polyhedral scanner + Q8 inner loop (original path).
+-- StrategyPacked: panel-packed microkernel with arch-derived tiles.
+compileMatvecStrategy :: MatvecStrategy -> Arch -> MatvecSchedule -> Int -> Int -> IO CompiledMatvec
+compileMatvecStrategy StrategyOriginal _arch sch n kb = compileMatvec sch n kb
+compileMatvecStrategy StrategyPacked   arch  sch n kb = do
+  cpm <- compilePackedMatvec arch n kb
+  -- Wrap as CompiledMatvec for uniform interface
+  return CompiledMatvec
+    { cmFn       = cpmFn cpm
+    , cmSchedule = sch
+    , cmN        = n
+    , cmKBlocks  = kb
+    , cmKernel   = cpmKernel cpm
+    , cmSource   = cpmSource cpm
+    }
+
 -- | Compile all kernels for a model's dimensions.
 --
 -- Each distinct (N, K) shape gets its own specialized kernel.
 -- The schedule can differ per shape (e.g., small KV projections
 -- don't benefit from parallelism).
+--
+-- The strategy selects between original (ymm) and packed (zmm) kernels.
+-- Both use the same schedule parameters for tiling/parallelism;
+-- the packed strategy additionally uses Arch for microkernel tile sizes.
 compileKernels :: LlamaConfig -> MatvecSchedule -> IO KernelSet
-compileKernels cfg sch = do
+compileKernels = compileKernelsWith StrategyOriginal zen5
+
+-- | Like 'compileKernels' but with explicit strategy and architecture.
+compileKernelsWith :: MatvecStrategy -> Arch -> LlamaConfig -> MatvecSchedule -> IO KernelSet
+compileKernelsWith strategy arch cfg sch = do
   let dim   = lcDim cfg
       kvd   = lcKVDim cfg
       hdim  = lcHiddenDim cfg
@@ -53,30 +81,36 @@ compileKernels cfg sch = do
         | n < 256   = sch { schParallel = False, schName = schName sch ++ "_small" }
         | otherwise  = sch
 
-  putStrLn $ "  Compiling kernels (schedule: " ++ schName sch ++ ")..."
+  let compile = compileMatvecStrategy strategy arch
+      stratLabel = case strategy of
+        StrategyOriginal -> "original"
+        StrategyPacked   -> "packed/" ++ archName arch
 
-  qp <- compileMatvec (schFor dim)   dim   (kb dim)
+  putStrLn $ "  Compiling kernels (schedule: " ++ schName sch
+           ++ ", strategy: " ++ stratLabel ++ ")..."
+
+  qp <- compile (schFor dim)   dim   (kb dim)
   putStr "    Q" >> putStrLn (" [" ++ show dim ++ "→" ++ show dim ++ "] OK")
 
-  kp <- compileMatvec (schFor kvd)   kvd   (kb dim)
+  kp <- compile (schFor kvd)   kvd   (kb dim)
   putStr "    K" >> putStrLn (" [" ++ show dim ++ "→" ++ show kvd ++ "] OK")
 
-  vp <- compileMatvec (schFor kvd)   kvd   (kb dim)
+  vp <- compile (schFor kvd)   kvd   (kb dim)
   putStr "    V" >> putStrLn (" [" ++ show dim ++ "→" ++ show kvd ++ "] OK")
 
-  op <- compileMatvec (schFor dim)   dim   (kb dim)
+  op <- compile (schFor dim)   dim   (kb dim)
   putStr "    O" >> putStrLn (" [" ++ show dim ++ "→" ++ show dim ++ "] OK")
 
-  gp <- compileMatvec (schFor hdim)  hdim  (kb dim)
+  gp <- compile (schFor hdim)  hdim  (kb dim)
   putStr "    Gate" >> putStrLn (" [" ++ show dim ++ "→" ++ show hdim ++ "] OK")
 
-  up <- compileMatvec (schFor hdim)  hdim  (kb dim)
+  up <- compile (schFor hdim)  hdim  (kb dim)
   putStr "    Up" >> putStrLn (" [" ++ show dim ++ "→" ++ show hdim ++ "] OK")
 
-  dp <- compileMatvec (schFor dim)   dim   (kb hdim)
+  dp <- compile (schFor dim)   dim   (kb hdim)
   putStr "    Down" >> putStrLn (" [" ++ show hdim ++ "→" ++ show dim ++ "] OK")
 
-  outp <- compileMatvec (schFor vocab) vocab (kb dim)
+  outp <- compile (schFor vocab) vocab (kb dim)
   putStr "    Output" >> putStrLn (" [" ++ show dim ++ "→" ++ show vocab ++ "] OK")
 
   -- Fused layer kernel

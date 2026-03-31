@@ -7,7 +7,8 @@ author:              Gaël Deest
 category:            Math
 
 library
-  exposed-modules:   Isl.Infer.Codegen
+  exposed-modules:   Isl.Infer.Arch
+                   , Isl.Infer.Codegen
                    , Isl.Infer.Codegen.Bound
                    , Isl.Infer.Codegen.Loop
                    , Isl.Infer.Codegen.OpenMP
@@ -23,6 +24,7 @@ library
                    , Isl.Infer.Schedule
                    , Isl.Infer.Kernel.GEMM
                    , Isl.Infer.Kernel.FusedLayer
+                   , Isl.Infer.Kernel.Packed
                    , Isl.Infer.Compile
   build-depends:     base >=4.12.0.0 && <5
                    , bytestring

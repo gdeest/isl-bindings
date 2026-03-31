@@ -17,6 +17,7 @@
 module Isl.Infer.Schedule
   ( -- * Schedule types
     MatvecSchedule(..)
+  , MatvecStrategy(..)
   , defaultSchedule
   , naiveSchedule
     -- * Presets
@@ -24,6 +25,19 @@ module Isl.Infer.Schedule
   , scheduleMedium    -- for medium (256-2048)
   , scheduleLarge     -- for large (> 2048)
   ) where
+
+-- | Strategy selector: original (polyhedral scanner) or packed (panel microkernel).
+--
+-- This is the top-level switch for A/B benchmarking different kernel strategies
+-- on the same schedule parameters.
+data MatvecStrategy
+  = StrategyOriginal
+    -- ^ Original Q8 body: 32-element inner dot product, vectorized by GCC (ymm).
+    -- Uses the Boulet-Feautrier scanner for loop structure.
+  | StrategyPacked
+    -- ^ Panel-packed microkernel: per-tile dequant + broadcast-FMA.
+    -- SIMD across j-dimension (zmm). Arch-parameterized tile sizes.
+  deriving (Show, Eq)
 
 -- | Schedule for Q8_0 matrix-vector multiply.
 --
