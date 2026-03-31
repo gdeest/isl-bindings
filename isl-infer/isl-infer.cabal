@@ -73,6 +73,13 @@ executable kernel-test
   default-language:  GHC2024
   ghc-options:       -O2 -Wall
 
+executable npu-probe
+  main-is:           NpuProbe.hs
+  hs-source-dirs:    app
+  build-depends:     base, unix
+  default-language:  GHC2024
+  ghc-options:       -O2 -Wall
+
 executable gguf-info
   main-is:           GgufInfo.hs
   hs-source-dirs:    app
