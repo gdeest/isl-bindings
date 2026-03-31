@@ -69,10 +69,9 @@ test path = do
   mapM_ (\l -> putStrLn $ "  " ++ l) (take 1 funcLine)
 
   outGen <- mallocBytes (dim * 4) :: IO (Ptr Float)
-  accBuf <- mallocBytes (dim * 4) :: IO (Ptr Float)
 
   -- Call the generated kernel
-  cmFn cm outGen xBuf wQ accBuf (fromIntegral dim) (fromIntegral kb)
+  cmFn cm outGen xBuf wQ (fromIntegral dim) (fromIntegral kb)
   genVals <- peekArray 10 outGen
   putStrLn $ "Generated kernel first 10:       " ++ show genVals
 
@@ -90,7 +89,7 @@ test path = do
     then putStrLn "PASS: kernels match"
     else putStrLn "FAIL: kernels differ"
 
-  free xBuf; free outRef; free outGen; free accBuf
+  free xBuf; free outRef; free outGen
 
 isPrefixOf :: String -> String -> Bool
 isPrefixOf [] _          = True
