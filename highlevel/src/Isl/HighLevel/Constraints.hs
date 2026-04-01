@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE StandaloneDeriving #-}
@@ -20,6 +21,7 @@ import qualified Isl.BasicSet as BS
 import qualified Isl.BasicMap as BM
 import qualified Isl.Constraint as Constraint
 import qualified Isl.LocalSpace as LS
+import qualified Isl.Space as Space
 import qualified Isl.Val as Val
 
 -- | Dimension index for set constraints, distinguishing dimensions from parameters.
@@ -41,7 +43,7 @@ data Expr ix
   | Mul Integer (Expr ix)        -- ^ Scalar multiplication
   | Add (Expr ix) (Expr ix)      -- ^ Addition
   | FloorDiv (Expr ix) Integer   -- ^ @floor(expr / d)@ — from ISL existentials
-  deriving (Generic)
+  deriving (Generic, Functor)
 
 instance NFData ix => NFData (Expr ix)
 
@@ -209,15 +211,18 @@ extractAffExprIO nParams nIn affR = do
   return $ rebuildExpr allCoeffs constant
 
 -- | Extract an affine expression from a raw ISL AffRef as a value-level 'Expr SetIx'.
--- Uses isl_dim_set for set dims and isl_dim_param for params.
--- Runs in IO; the AffRef is borrowed (not consumed).
+-- Uses isl_dim_in for set dims and isl_dim_param for params.
+--
+-- NOTE: ISL's isl_aff uses isl_dim_in for dimension coefficients, even when
+-- created from a set's local space. Using isl_dim_set (== isl_dim_out) would
+-- trigger "output/set dimension does not have a coefficient" warnings.
 extractSetAffExprIO :: Int -> Int -> Isl.AffRef -> IO (Expr SetIx)
 extractSetAffExprIO nParams nDims affR = do
   paramCoeffs <- forM [0 .. nParams - 1] $ \i -> do
     c <- Aff.affGetCoefficientSi affR Isl.islDimParam (fromIntegral i)
     return (c, SetParam i)
   dimCoeffs <- forM [0 .. nDims - 1] $ \i -> do
-    c <- Aff.affGetCoefficientSi affR Isl.islDimSet (fromIntegral i)
+    c <- Aff.affGetCoefficientSi affR Isl.islDimIn (fromIntegral i)
     return (c, SetDim i)
   constant <- Aff.affGetConstantSi affR
   let allCoeffs = filter (\(c, _) -> c /= 0) (paramCoeffs ++ dimCoeffs)
@@ -358,8 +363,23 @@ extractMapConstraint nParams nIn nOut divExprs c = do
 -- | Build an ISL Aff from a set expression, handling FloorDiv recursively.
 -- Uses isl_aff_floor + isl_aff_scale_down for floor division terms.
 -- The local space pointer is borrowed (copied internally as needed).
+--
+-- NOTE: uses 'islDimIn' (not 'islDimSet') because ISL's isl_aff is always
+-- internally a "map aff" where coefficients live on isl_dim_in.
+-- isl_dim_set == isl_dim_out, which would trigger warnings from ISL.
 exprToSetAff :: MonadIO m => Isl.LocalSpace -> Expr SetIx -> IslT m Isl.Aff
-exprToSetAff ls = go
+exprToSetAff ls = exprToAff Isl.islDimIn ls
+
+-- | Build an ISL Aff from an expression for a multi-aff output dimension.
+-- Like 'exprToSetAff' but uses 'islDimIn' for dimensions (multi-aff domain context).
+exprToMultiAffAff :: MonadIO m => Isl.LocalSpace -> Expr SetIx -> IslT m Isl.Aff
+exprToMultiAffAff ls = exprToAff Isl.islDimIn ls
+
+-- | Build an ISL Aff from a SetIx expression with a configurable dim type.
+-- Factored out of exprToSetAff/exprToMultiAffAff — the only difference
+-- between set and multi-aff contexts is how SetDim indices map to ISL dim types.
+exprToAff :: MonadIO m => Isl.DimType -> Isl.LocalSpace -> Expr SetIx -> IslT m Isl.Aff
+exprToAff setDimType ls = go
   where
     -- Each zeroOnDomain consumes a LocalSpace, so copy for each leaf.
     mkZero = unsafeIslFromIO $ \_ -> do
@@ -368,7 +388,7 @@ exprToSetAff ls = go
 
     go (Ix (SetDim d)) = do
       aff <- mkZero
-      Aff.setCoefficientSi aff Isl.islDimSet (fromIntegral d) 1
+      Aff.setCoefficientSi aff setDimType (fromIntegral d) 1
     go (Ix (SetParam p)) = do
       aff <- mkZero
       Aff.setCoefficientSi aff Isl.islDimParam (fromIntegral p) 1
@@ -485,6 +505,10 @@ addSetConstraint bs constraint = do
       BS.addConstraint bs' finalC
 
 -- | Add a map constraint (possibly containing FloorDiv) to a BasicMap.
+--
+-- For FloorDiv constraints, wraps the map to a set (combined domain×range
+-- space), adds the constraint in set space where isl_aff_floor works,
+-- then unwraps back to map space.
 addMapConstraint :: MonadIO m => Isl.BasicMap -> Constraint MapIx -> IslT m Isl.BasicMap
 addMapConstraint bm constraint = do
   let !(ref, bm') = Isl.borrow bm (\r -> r)
@@ -493,10 +517,22 @@ addMapConstraint bm constraint = do
   let e = case constraint of
         EqualityConstraint ex   -> ex
         InequalityConstraint ex -> ex
+  let !nIn = BM.dim ref Isl.islDimIn
   if hasFloorDiv e
     then do
-      c <- constraintFromMapExpr ls constraint
-      BM.addConstraint bm' c
+      -- isl_aff_floor requires a set-space domain. Wrap the basic map to a
+      -- basic set in the product space [in_0..in_{ni-1}, out_0..out_{no-1}],
+      -- remap MapIx → SetIx, add the constraint via the set path (which
+      -- handles FloorDiv correctly), then unwrap back.
+      let toSetIx (InDim i)    = SetDim i
+          toSetIx (OutDim j)   = SetDim (nIn + j)
+          toSetIx (MapParam k) = SetParam k
+          setConstraint = case constraint of
+            EqualityConstraint ex   -> EqualityConstraint (fmap toSetIx ex)
+            InequalityConstraint ex -> InequalityConstraint (fmap toSetIx ex)
+      wrapped <- BM.wrap bm'
+      wrapped' <- addSetConstraint wrapped setConstraint
+      BS.unwrap wrapped'
     else do
       (emptyC, ex) <- case constraint of
         InequalityConstraint ex -> do

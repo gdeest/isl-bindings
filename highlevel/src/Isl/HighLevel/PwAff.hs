@@ -138,9 +138,11 @@ decomposePwAff = unsafeCoerce go
             return constraints
           -- For each piece, there's usually one basic set
           let domainConstrs = Conjunction (concat basicSets)
-          -- Extract the affine expression
+          -- Extract the affine expression.
+          -- PwAff pieces use isl_dim_in (not isl_dim_set) for set dimensions,
+          -- so we must use extractAffExprIO (which uses islDimIn).
           let affR = let Isl.Aff ptr = aff in Isl.AffRef ptr
-          expr <- extractSetAffExprIO nParams nDims affR
+          expr <- extractAffExprIO nParams nDims affR
           evaluate (consume domainSet)
           evaluate (consume aff)
           return (domainConstrs, expr)

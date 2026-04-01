@@ -8,11 +8,16 @@ category:            Math
 
 library
   exposed-modules:   Isl.Infer.Arch
+                   , Isl.Infer.Autotune
+                   , Isl.Infer.Autotune.Bench
+                   , Isl.Infer.Autotune.Search
                    , Isl.Infer.Codegen
                    , Isl.Infer.Codegen.Bound
                    , Isl.Infer.Codegen.Loop
                    , Isl.Infer.Codegen.OpenMP
                    , Isl.Infer.Codegen.Emit
+                   , Isl.Infer.Codegen.Multi
+                   , Isl.Infer.Codegen.Fused
                    , Isl.Infer.Runtime
                    , Isl.Infer.Specialize
                    , Isl.Infer.GGUF
@@ -25,7 +30,10 @@ library
                    , Isl.Infer.Kernel.GEMM
                    , Isl.Infer.Kernel.FusedLayer
                    , Isl.Infer.Kernel.Packed
+                   , Isl.Infer.Kernel.PackedPoly
                    , Isl.Infer.Compile
+                   , Isl.Infer.Downquant
+                   , Isl.Infer.Tune
   build-depends:     base >=4.12.0.0 && <5
                    , bytestring
                    , containers
@@ -72,6 +80,20 @@ executable kernel-test
   main-is:           KernelTest.hs
   hs-source-dirs:    app
   build-depends:     base, containers, isl-infer
+  default-language:  GHC2024
+  ghc-options:       -O2 -Wall
+
+executable fused-test
+  main-is:           FusedTest.hs
+  hs-source-dirs:    app
+  build-depends:     base, isl-infer
+  default-language:  GHC2024
+  ghc-options:       -O2 -Wall
+
+executable poly-test
+  main-is:           PolyTest.hs
+  hs-source-dirs:    app
+  build-depends:     base, isl-infer
   default-language:  GHC2024
   ghc-options:       -O2 -Wall
 

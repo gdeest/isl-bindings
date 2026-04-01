@@ -19,7 +19,8 @@ import Data.List (partition)
 import GHC.TypeLits (Nat, Symbol)
 
 import Isl.HighLevel.Constraints
-  ( Conjunction(..), Constraint(..), SetIx(..), Expr, expandExpr )
+  ( Conjunction(..), Constraint(..), SetIx(..), Expr(..), expandExpr
+  , hasFloorDiv )
 import Isl.HighLevel.Pure (PConjunction(..), PDisjunction(..))
 
 import Isl.Scan.Types
@@ -59,10 +60,15 @@ buildLevels constraints =
   in (levels, nParams, nDims)
   where
     buildLevel :: Int -> Int -> LoopLevel
-    buildLevel _nDims dim =
-      let -- Get constraints that involve this dimension AND only reference
-          -- outer dimensions (< dim) or parameters — not inner dimensions (> dim).
-          usable = filter (\c -> involvesDim dim c && onlyOuterDims dim c) constraints
+    buildLevel nDims dim =
+      let -- Drop constraints with FloorDiv (existential relationships from
+          -- tiling maps — the useful bounds come from the simplified constraints).
+          linear = filter (not . constraintHasFloorDiv) constraints
+          -- Fourier-Motzkin: eliminate all inner dimensions (> dim) to derive
+          -- implied bounds that only reference dim, outer dims, and params.
+          projected = fmEliminateInner dim nDims linear
+          -- Now filter for constraints involving this dimension with outer-only refs.
+          usable = filter (\c -> involvesDim dim c && onlyOuterDims dim c) projected
           -- Classify: equalities with this dim, inequalities with this dim
           (eqs, ineqs) = partition isEquality usable
           -- For equalities: extract the bound
@@ -78,6 +84,117 @@ buildLevels constraints =
           , llEquality = eqBound
           , llStride = 1
           }
+
+-- | Fourier-Motzkin elimination of all inner dimensions (> dim).
+--
+-- For each inner dimension j (from innermost to dim+1), eliminate j by
+-- combining pairs of constraints with opposite-sign coefficients on j.
+-- This derives implied bounds that only reference dim, outer dims, and params.
+fmEliminateInner :: Int -> Int -> [Constraint SetIx] -> [Constraint SetIx]
+fmEliminateInner dim nDims cs = foldr fmEliminate cs [nDims - 1, nDims - 2 .. dim + 1]
+
+-- | Eliminate a single variable (SetDim j) from a constraint set.
+--
+-- Partition constraints into: those with positive coeff on j (lower bounds),
+-- negative coeff (upper bounds), and those not involving j (passthrough).
+-- Combine each (lower, upper) pair to produce a new constraint without j.
+-- Equalities are split into two inequalities first.
+fmEliminate :: Int -> [Constraint SetIx] -> [Constraint SetIx]
+fmEliminate j cs =
+  let -- Only split equalities that involve dimension j into inequality pairs.
+      -- Equalities not involving j pass through unchanged, preserving them
+      -- for later detection by buildLevel.
+      expanded = concatMap splitIfInvolves cs
+      -- Partition by coefficient sign on dimension j
+      (pos, neg, pass) = partitionByCoeff j expanded
+      -- Combine each (pos, neg) pair: scale to eliminate j
+      combined = [combineFM j p n | p <- pos, n <- neg]
+  in pass ++ combined
+  where
+    splitIfInvolves :: Constraint SetIx -> [Constraint SetIx]
+    splitIfInvolves c@(EqualityConstraint e)
+      | involvesVar j e = [InequalityConstraint e, InequalityConstraint (negateExpr e)]
+      | otherwise       = [c]  -- preserve equality if it doesn't involve j
+    splitIfInvolves c = [c]
+
+    involvesVar :: Int -> Expr SetIx -> Bool
+    involvesVar d e =
+      let (coeffs, _) = expandExpr e
+      in any (\(_, ix) -> ix == SetDim d) coeffs
+
+-- | Partition constraints by coefficient sign on dimension j.
+-- Returns (positive-coeff, negative-coeff, not-involving-j).
+partitionByCoeff :: Int -> [Constraint SetIx] -> ([Constraint SetIx], [Constraint SetIx], [Constraint SetIx])
+partitionByCoeff j = go [] [] []
+  where
+    go pos neg pass [] = (pos, neg, pass)
+    go pos neg pass (c:cs) =
+      let (coeffs, _) = expandConstraintExpr c
+      in case lookupCoeff (SetDim j) coeffs of
+           Nothing -> go pos neg (c:pass) cs
+           Just k
+             | k > 0     -> go (c:pos) neg pass cs
+             | k < 0     -> go pos (c:neg) pass cs
+             | otherwise -> go pos neg (c:pass) cs  -- zero coeff, treat as pass
+
+-- | Combine two inequality constraints to eliminate dimension j.
+--
+-- Given: a_j * x_j + rest_a >= 0  (a_j > 0)
+--        b_j * x_j + rest_b >= 0  (b_j < 0)
+-- Multiply first by |b_j|, second by a_j, and add:
+--        |b_j| * rest_a + a_j * rest_b >= 0
+combineFM :: Int -> Constraint SetIx -> Constraint SetIx -> Constraint SetIx
+combineFM j (InequalityConstraint ePos) (InequalityConstraint eNeg) =
+  let (posCoeffs, posConst) = expandExpr ePos
+      (negCoeffs, negConst) = expandExpr eNeg
+      aJ = case lookupCoeff (SetDim j) posCoeffs of
+             Just k -> k
+             Nothing -> error "combineFM: missing pos coeff"
+      bJ = case lookupCoeff (SetDim j) negCoeffs of
+             Just k -> k
+             Nothing -> error "combineFM: missing neg coeff"
+      scalePosBy = abs bJ
+      scaleNegBy = aJ    -- aJ > 0
+      -- Scale and sum all coefficients except j
+      posOthers = [(c * scalePosBy, ix) | (c, ix) <- posCoeffs, ix /= SetDim j]
+      negOthers = [(c * scaleNegBy, ix) | (c, ix) <- negCoeffs, ix /= SetDim j]
+      combinedConst = posConst * scalePosBy + negConst * scaleNegBy
+      combinedCoeffs = mergeCoeffs (posOthers ++ negOthers)
+  in InequalityConstraint (rebuildExpr combinedCoeffs combinedConst)
+combineFM _ _ _ = error "combineFM: expected two inequality constraints"
+
+-- | Merge coefficient lists by summing coefficients for the same index.
+mergeCoeffs :: [(Integer, SetIx)] -> [(Integer, SetIx)]
+mergeCoeffs = foldl addCoeff []
+  where
+    addCoeff [] (c, ix) = [(c, ix)]
+    addCoeff ((c1, ix1):rest) (c2, ix2)
+      | ix1 == ix2 = (c1 + c2, ix1) : rest
+      | otherwise  = (c1, ix1) : addCoeff rest (c2, ix2)
+
+-- | Negate all terms in an expression.
+negateExpr :: Expr SetIx -> Expr SetIx
+negateExpr e =
+  let (coeffs, constant) = expandExpr e
+  in rebuildExpr [(-c, ix) | (c, ix) <- coeffs] (-constant)
+
+-- | Rebuild an Expr from coefficients and constant.
+rebuildExpr :: [(Integer, SetIx)] -> Integer -> Expr SetIx
+rebuildExpr coeffs constant =
+  let terms = [mkTerm c ix | (c, ix) <- coeffs, c /= 0]
+      base = if constant /= 0 || null terms
+             then Constant constant
+             else head terms
+      rest = if constant /= 0 || null terms then terms else tail terms
+  in foldl Add base rest
+  where
+    mkTerm 1 ix = Ix ix
+    mkTerm c ix = Mul c (Ix ix)
+
+-- | Check if a constraint contains FloorDiv expressions.
+constraintHasFloorDiv :: Constraint SetIx -> Bool
+constraintHasFloorDiv (EqualityConstraint e) = hasFloorDiv e
+constraintHasFloorDiv (InequalityConstraint e) = hasFloorDiv e
 
 -- | Check if a constraint involves a given set dimension.
 involvesDim :: Int -> Constraint SetIx -> Bool
@@ -104,9 +221,18 @@ isEquality :: Constraint SetIx -> Bool
 isEquality (EqualityConstraint _) = True
 isEquality _ = False
 
--- | Get all indices referenced by a constraint.
+-- | Get all indices referenced by a constraint (handles FloorDiv).
 constraintIxs :: Constraint SetIx -> [SetIx]
-constraintIxs c = map snd (fst (expandConstraintExpr c))
+constraintIxs (EqualityConstraint e) = exprIxs e
+constraintIxs (InequalityConstraint e) = exprIxs e
+
+-- | Extract all variable indices from an expression, including inside FloorDiv.
+exprIxs :: Expr SetIx -> [SetIx]
+exprIxs (Ix ix)         = [ix]
+exprIxs (Constant _)    = []
+exprIxs (Mul _ e)       = exprIxs e
+exprIxs (Add a b)       = exprIxs a ++ exprIxs b
+exprIxs (FloorDiv e _)  = exprIxs e
 
 -- | Extract an 'AffineBound' from a constraint for a given dimension.
 --

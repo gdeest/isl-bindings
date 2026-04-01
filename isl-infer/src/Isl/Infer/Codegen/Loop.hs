@@ -102,9 +102,9 @@ emitNest depth collapse par simd (code : rest) body =
           parPragma
             | collapseCount > 1
               = [ind depth ++ "#pragma omp parallel for collapse("
-                 ++ show collapseCount ++ ") schedule(static, 16)"]
+                 ++ show collapseCount ++ ") schedule(static)"]
             | collapseCount == 1
-              = [ind depth ++ "#pragma omp parallel for schedule(static, 16)"]
+              = [ind depth ++ "#pragma omp parallel for schedule(static)"]
             | otherwise = []  -- inside collapse or not parallel
 
           simdPragma
