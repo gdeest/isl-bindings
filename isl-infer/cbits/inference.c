@@ -11,6 +11,7 @@
 #include <math.h>
 #include <string.h>
 #include <omp.h>
+#include <immintrin.h>
 
 /* ----------------------------------------------------------------
  * Q8_0 dequantization helpers
@@ -21,9 +22,13 @@ typedef struct {
     int8_t   qs[32]; /* quantized values */
 } block_q8_0;
 
-/* Convert f16 (stored as uint16_t) to f32. */
+/* Convert f16 (stored as uint16_t) to f32 using F16C hardware instruction. */
 static inline float f16_to_f32(uint16_t h) {
-    /* IEEE 754 half → float conversion */
+    return _cvtsh_ss(h);
+}
+
+/* Legacy software f16→f32 (kept for reference):
+static inline float f16_to_f32_sw(uint16_t h) {
     uint32_t sign = (uint32_t)(h >> 15) << 31;
     uint32_t exp  = (h >> 10) & 0x1F;
     uint32_t mant = h & 0x3FF;
@@ -32,7 +37,6 @@ static inline float f16_to_f32(uint16_t h) {
         if (mant == 0) {
             f = sign;
         } else {
-            /* denormalized */
             exp = 1;
             while (!(mant & 0x400)) { mant <<= 1; exp--; }
             mant &= 0x3FF;
@@ -46,7 +50,7 @@ static inline float f16_to_f32(uint16_t h) {
     float result;
     memcpy(&result, &f, 4);
     return result;
-}
+} */
 
 /* ----------------------------------------------------------------
  * Q8_0 matrix-vector multiply: out[j] = sum_k x[k] * W[j,k]
@@ -165,13 +169,19 @@ void rope_precomputed(
     int64_t pos
 ) {
     const int64_t half = head_dim / 2;
+    /* Precompute trig table once — all heads use same cos/sin values */
+    float cos_tbl[half], sin_tbl[half];
+    for (int64_t i = 0; i < half; i++) {
+        float theta = (float)pos * inv_freq[i];
+        cos_tbl[i] = cosf(theta);
+        sin_tbl[i] = sinf(theta);
+    }
     /* Apply to Q */
     for (int64_t h = 0; h < n_heads; h++) {
         float* qh = q + h * head_dim;
         for (int64_t i = 0; i < half; i++) {
-            float theta = (float)pos * inv_freq[i];
-            float cos_t = cosf(theta);
-            float sin_t = sinf(theta);
+            float cos_t = cos_tbl[i];
+            float sin_t = sin_tbl[i];
             float q0 = qh[2*i];
             float q1 = qh[2*i + 1];
             qh[2*i]     = q0 * cos_t - q1 * sin_t;
@@ -182,9 +192,8 @@ void rope_precomputed(
     for (int64_t h = 0; h < n_kv_heads; h++) {
         float* kh = k + h * head_dim;
         for (int64_t i = 0; i < half; i++) {
-            float theta = (float)pos * inv_freq[i];
-            float cos_t = cosf(theta);
-            float sin_t = sinf(theta);
+            float cos_t = cos_tbl[i];
+            float sin_t = sin_tbl[i];
             float k0 = kh[2*i];
             float k1 = kh[2*i + 1];
             kh[2*i]     = k0 * cos_t - k1 * sin_t;
@@ -223,43 +232,189 @@ void softmax(float* x, int64_t n) {
  *
  * k_cache, v_cache: [max_seq, head_dim] (contiguous per head)
  * ---------------------------------------------------------------- */
+/* Tiled flash attention with online softmax.
+ * Tiles the QK^T + softmax + V accumulation over the sequence length,
+ * using the log-sum-exp trick for numerically stable incremental softmax.
+ * Never materializes the full scores array — only ATTN_TILE scores at a time.
+ * This keeps the working set in L1/L2 for long sequences. */
+#define ATTN_TILE 64
+
 void attention_head(
     float* restrict out,          /* [head_dim] output */
     const float* restrict q,      /* [head_dim] query */
     const float* restrict k_cache,/* [max_seq, head_dim] */
     const float* restrict v_cache,/* [max_seq, head_dim] */
-    float* restrict scores,       /* [max_seq] scratch */
+    float* restrict scores,       /* [ATTN_TILE] scratch (only tile-sized now) */
     int64_t seq_len,              /* current sequence length */
     int64_t head_dim,
     int64_t kv_stride              /* stride between positions in cache */
 ) {
     float scale = 1.0f / sqrtf((float)head_dim);
+    float m_prev = -1e30f;  /* running max */
+    float l_prev = 0.0f;    /* running sum of exp */
 
-    /* QK^T */
-    for (int64_t t = 0; t < seq_len; t++) {
-        float dot = 0.0f;
-        const float* kt = k_cache + t * kv_stride;
-        #pragma omp simd reduction(+:dot)
-        for (int64_t d = 0; d < head_dim; d++) {
-            dot += q[d] * kt[d];
+    for (int64_t d = 0; d < head_dim; d++) out[d] = 0.0f;
+
+    for (int64_t t0 = 0; t0 < seq_len; t0 += ATTN_TILE) {
+        int64_t t1 = t0 + ATTN_TILE;
+        if (t1 > seq_len) t1 = seq_len;
+        int64_t tile_len = t1 - t0;
+
+        /* QK^T for this tile */
+        float m_tile = -1e30f;
+        for (int64_t t = 0; t < tile_len; t++) {
+            float dot = 0.0f;
+            const float* kt = k_cache + (t0 + t) * kv_stride;
+            #pragma omp simd reduction(+:dot)
+            for (int64_t d = 0; d < head_dim; d++)
+                dot += q[d] * kt[d];
+            scores[t] = dot * scale;
+            if (scores[t] > m_tile) m_tile = scores[t];
         }
-        scores[t] = dot * scale;
-    }
 
-    /* Softmax */
-    softmax(scores, seq_len);
+        /* Online softmax: correct previous accumulations */
+        float m_new = m_prev > m_tile ? m_prev : m_tile;
+        float correction = expf(m_prev - m_new);
+        float l_new = correction * l_prev;
 
-    /* Weighted sum of V */
-    for (int64_t d = 0; d < head_dim; d++) {
-        out[d] = 0.0f;
-    }
-    for (int64_t t = 0; t < seq_len; t++) {
-        float w = scores[t];
-        const float* vt = v_cache + t * kv_stride;
+        /* Scale previous output by correction factor */
         #pragma omp simd
-        for (int64_t d = 0; d < head_dim; d++) {
-            out[d] += w * vt[d];
+        for (int64_t d = 0; d < head_dim; d++)
+            out[d] *= correction;
+
+        /* Add this tile's contribution */
+        for (int64_t t = 0; t < tile_len; t++) {
+            float w = expf(scores[t] - m_new);
+            l_new += w;
+            const float* vt = v_cache + (t0 + t) * kv_stride;
+            #pragma omp simd
+            for (int64_t d = 0; d < head_dim; d++)
+                out[d] += w * vt[d];
         }
+
+        m_prev = m_new;
+        l_prev = l_new;
+    }
+
+    /* Final normalize */
+    if (l_prev > 0.0f) {
+        float inv_l = 1.0f / l_prev;
+        #pragma omp simd
+        for (int64_t d = 0; d < head_dim; d++)
+            out[d] *= inv_l;
+    }
+}
+
+/* ================================================================
+ * Batched helpers for prefill (eliminate FFI call overhead)
+ * ================================================================ */
+
+/* RMSNorm for B tokens. */
+void rmsnorm_batch(
+    float* restrict out,         /* [B, dim] */
+    const float* restrict inp,   /* [B, dim] */
+    const float* restrict weight,/* [dim] */
+    int64_t dim, float eps, int64_t B
+) {
+    #pragma omp parallel for schedule(static)
+    for (int64_t b = 0; b < B; b++) {
+        rmsnorm(out + b * dim, inp + b * dim, weight, dim, eps);
+    }
+}
+
+/* SiLU(gate) * up for B tokens. */
+void silu_mul_batch(
+    float* restrict out,       /* [B, hid] */
+    const float* restrict gate,/* [B, hid] */
+    const float* restrict up,  /* [B, hid] */
+    int64_t hid, int64_t B
+) {
+    #pragma omp parallel for schedule(static)
+    for (int64_t b = 0; b < B; b++) {
+        silu_mul(out + b * hid, gate + b * hid, up + b * hid, hid);
+    }
+}
+
+/* Residual add for B tokens. */
+void residual_add_batch(
+    float* restrict out,       /* [B, dim] */
+    const float* restrict a,   /* [B, dim] */
+    const float* restrict b_,  /* [B, dim] */
+    int64_t dim, int64_t B
+) {
+    #pragma omp parallel for schedule(static)
+    for (int64_t b = 0; b < B; b++) {
+        residual_add(out + b * dim, a + b * dim, b_ + b * dim, dim);
+    }
+}
+
+/* RoPE for B tokens at consecutive positions [start_pos, start_pos+B). */
+void rope_batch(
+    float* restrict Q,           /* [B, dim] */
+    float* restrict K,           /* [B, kvd] */
+    const float* restrict inv_freq,
+    int64_t n_heads, int64_t n_kv_heads, int64_t head_dim,
+    int64_t dim, int64_t kvd,
+    int64_t start_pos, int64_t B
+) {
+    #pragma omp parallel for schedule(static)
+    for (int64_t b = 0; b < B; b++) {
+        rope_precomputed(Q + b * dim, K + b * kvd, inv_freq,
+                         n_heads, n_kv_heads, head_dim, start_pos + b);
+    }
+}
+
+/* Write B tokens' K and V into KV cache at positions [start_pos..start_pos+B).
+ * KV cache layout: [n_kv_heads, max_seq, head_dim] (float32 only for now). */
+void kv_cache_write_batch(
+    float* restrict kc,          /* layer's K cache */
+    float* restrict vc,          /* layer's V cache */
+    const float* restrict K,     /* [B, kvd] */
+    const float* restrict V,     /* [B, kvd] */
+    int64_t n_kv_heads, int64_t head_dim, int64_t max_seq,
+    int64_t kvd, int64_t start_pos, int64_t B
+) {
+    #pragma omp parallel for collapse(2) schedule(static)
+    for (int64_t b = 0; b < B; b++) {
+        for (int64_t h = 0; h < n_kv_heads; h++) {
+            int64_t pos = start_pos + b;
+            memcpy(kc + (h * max_seq + pos) * head_dim,
+                   K + (b * kvd + h * head_dim),
+                   head_dim * sizeof(float));
+            memcpy(vc + (h * max_seq + pos) * head_dim,
+                   V + (b * kvd + h * head_dim),
+                   head_dim * sizeof(float));
+        }
+    }
+}
+
+/* Batched multi-head causal attention for B tokens.
+ * Parallel over (head, batch) pairs via thread-local score scratch.
+ * scores must be [max_threads * max_seq] (one scratch per OMP thread). */
+void attention_prefill_batch(
+    float* restrict attn_out,    /* [B, dim] */
+    const float* restrict Q,     /* [B, dim] */
+    const float* restrict kc,    /* layer's K cache [n_kv_heads, max_seq, hd] */
+    const float* restrict vc,    /* layer's V cache */
+    float* restrict scores,      /* [max_threads, max_seq] scratch */
+    int64_t NH, int64_t NKV, int64_t HD, int64_t max_seq,
+    int64_t dim, int64_t start_pos, int64_t B
+) {
+    int64_t NG = NH / NKV;
+    int64_t total = NH * B;
+    #pragma omp parallel for schedule(static)
+    for (int64_t idx = 0; idx < total; idx++) {
+        int64_t h = idx / B;
+        int64_t b = idx % B;
+        int tid = omp_get_thread_num();
+        float* sc = scores + tid * max_seq;
+        int64_t kvh = h / NG;
+        const float* kc_h = kc + kvh * max_seq * HD;
+        const float* vc_h = vc + kvh * max_seq * HD;
+        int64_t sl = start_pos + b + 1;
+        const float* qh = Q + b * dim + h * HD;
+        float* oh = attn_out + b * dim + h * HD;
+        attention_head(oh, qh, kc_h, vc_h, sc, sl, HD, HD);
     }
 }
 

@@ -52,7 +52,7 @@ data Tiles = Tiles
     -- Panel size = tileJ × tileK × 4 bytes, must fit in L1.
   , nAccum :: !Int
     -- ^ Number of SIMD-width accumulators (= tileJ / archSimdWidth).
-  } deriving (Show)
+  } deriving (Show, Eq)
 
 -- | Derive tile sizes from architecture parameters and matrix dimensions.
 --

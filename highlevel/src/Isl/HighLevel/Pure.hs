@@ -6,6 +6,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
@@ -47,7 +48,7 @@ module Isl.HighLevel.Pure
   , mkNamedPMapConjunction
   ) where
 
-import Control.DeepSeq (NFData)
+import Control.DeepSeq (NFData(..))
 import Data.Proxy (Proxy(..))
 import GHC.Generics (Generic)
 import GHC.TypeLits (Nat, KnownNat, natVal, Symbol, KnownSymbol, symbolVal)
@@ -63,6 +64,9 @@ newtype PConjunction (ps :: [Symbol]) (n :: Nat) = PConjunction (Conjunction Set
 deriving instance Show (PConjunction ps n)
 deriving instance Eq (PConjunction ps n)
 
+instance NFData (PConjunction ps n) where
+  rnf (PConjunction c) = rnf c
+
 -- | A union of convex polyhedra (disjunction of conjunctions) with
 -- parameter names @ps@ and @n@ set dimensions.
 -- Represents the same thing as an ISL 'Set'.
@@ -70,6 +74,9 @@ newtype PDisjunction (ps :: [Symbol]) (n :: Nat) = PDisjunction [PConjunction ps
 
 deriving instance Show (PDisjunction ps n)
 deriving instance Eq (PDisjunction ps n)
+
+instance NFData (PDisjunction ps n) where
+  rnf (PDisjunction cs) = rnf cs
 
 -- | A single convex polyhedron in map space with parameter names @ps@,
 -- @nIn@ input dimensions and @nOut@ output dimensions.

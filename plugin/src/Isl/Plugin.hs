@@ -74,7 +74,7 @@ import qualified Isl.MultiAff as MA
 import qualified Isl.PwAff as PA
 import qualified Isl.Val as Val
 import Isl.HighLevel.Constraints
-  ( Expr(..), Constraint(..), SetIx(..), MapIx(..), expandExpr
+  ( Expr(..), Constraint(..), SetIx(..), MapIx(..), expandExpr, exprToMultiAffAff
   , rebuildExprWithDivs, extractSetDivs, extractMapDivs
   , extractSetConstraint, extractMapConstraint
   , addSetConstraint, addMapConstraint )
@@ -1228,18 +1228,10 @@ buildMultiAff ctx nParams nIn nOut paramNames exprs =
                      space0 (zip [0..] paramNames)
     ma0 <- MA.zero space
     foldlM (\ma (j, expr) -> do
-      let (coeffs, constant) = expandExpr expr
       domSpace <- MA.getDomainSpace (multiAffRef ma)
       ls       <- LS.fromSpace domSpace
-      aff0     <- Aff.zeroOnDomain ls
-      aff1     <- foldlM (\a (coeff, ix) ->
-        let (dimType, pos) = case ix of
-              SetDim i   -> (Isl.islDimIn, i)
-              SetParam i -> (Isl.islDimParam, i)
-        in Aff.setCoefficientSi a dimType (fromIntegral pos) (fromIntegral coeff)
-        ) aff0 coeffs
-      aff2 <- Aff.addConstantSi aff1 (fromIntegral constant)
-      MA.setAff ma (fromIntegral j) aff2
+      aff      <- exprToMultiAffAff ls expr
+      MA.setAff ma (fromIntegral j) aff
       ) ma0 (zip [0..] exprs)
 
 -- | Extract output expressions from an ISL MultiAff.

@@ -21,6 +21,13 @@ module Isl.Infer.Kernel.Elementwise
   , softmax
     -- * Sampling
   , sampleTopP
+    -- * Batched helpers (prefill)
+  , rmsnormBatch
+  , siluMulBatch
+  , residualAddBatch
+  , ropeBatch
+  , kvCacheWriteBatch
+  , attentionPrefillBatch
   ) where
 
 import Data.Int (Int64)
@@ -67,3 +74,36 @@ foreign import ccall unsafe "softmax"
 -- Top-p sampling
 foreign import ccall unsafe "sample_top_p"
   sampleTopP :: Ptr Float -> Int64 -> Float -> Float -> Ptr Word64 -> IO Int64
+
+-- ---------------------------------------------------------------------------
+-- Batched helpers (prefill) — one FFI call instead of B*NH
+-- ---------------------------------------------------------------------------
+
+-- RMSNorm for B tokens
+foreign import ccall "rmsnorm_batch"
+  rmsnormBatch :: Ptr Float -> Ptr Float -> Ptr Float -> Int64 -> Float -> Int64 -> IO ()
+
+-- SiLU(gate) * up for B tokens
+foreign import ccall "silu_mul_batch"
+  siluMulBatch :: Ptr Float -> Ptr Float -> Ptr Float -> Int64 -> Int64 -> IO ()
+
+-- Residual add for B tokens
+foreign import ccall "residual_add_batch"
+  residualAddBatch :: Ptr Float -> Ptr Float -> Ptr Float -> Int64 -> Int64 -> IO ()
+
+-- RoPE for B tokens at consecutive positions
+foreign import ccall "rope_batch"
+  ropeBatch :: Ptr Float -> Ptr Float -> Ptr Float
+            -> Int64 -> Int64 -> Int64 -> Int64 -> Int64
+            -> Int64 -> Int64 -> IO ()
+
+-- KV cache write for B tokens (float32 only)
+foreign import ccall "kv_cache_write_batch"
+  kvCacheWriteBatch :: Ptr Float -> Ptr Float -> Ptr Float -> Ptr Float
+                    -> Int64 -> Int64 -> Int64 -> Int64 -> Int64 -> Int64 -> IO ()
+
+-- Batched multi-head causal attention (parallel over heads)
+foreign import ccall "attention_prefill_batch"
+  attentionPrefillBatch :: Ptr Float -> Ptr Float -> Ptr Float -> Ptr Float
+                        -> Ptr Float -> Int64 -> Int64 -> Int64 -> Int64
+                        -> Int64 -> Int64 -> Int64 -> IO ()

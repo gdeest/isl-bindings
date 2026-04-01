@@ -188,16 +188,22 @@ reassembleUTF8 (c:cs)
              .|. (ord c2 .&. 0x3F) `shiftL` 6 .|. (ord c3 .&. 0x3F)) : reassembleUTF8 rest
       _ -> c : reassembleUTF8 cs
 
--- | Replace SentencePiece sentinel characters.
--- '▁' (U+2581) stored as raw bytes 0xE2 0x96 0x81 → ' '
--- Also handle single-char U+2581 if vocab was UTF-8 decoded.
+-- | Replace tokenizer sentinel characters back to their intended bytes.
+--
+-- SentencePiece: '▁' (U+2581) → ' '
+-- GPT-2 BPE: Uses codepoints U+0100–U+01FF as byte-level markers.
+--   Ġ (U+0120) = byte 0x20 = space, Ċ (U+010A) = byte 0x0A = newline, etc.
+--   Any char in U+0100–U+01FF is decoded as chr(ord c - 0x100).
 replaceSentinels :: String -> String
 replaceSentinels [] = []
 -- Raw UTF-8 bytes for ▁: 0xE2=226, 0x96=150, 0x81=129
 replaceSentinels ('\xe2':'\x96':'\x81':rest) = ' ' : replaceSentinels rest
 -- Single char (if vocab was UTF-8 decoded)
 replaceSentinels ('\x2581':rest) = ' ' : replaceSentinels rest
-replaceSentinels (c:rest) = c : replaceSentinels rest
+-- GPT-2 byte-level marker: U+0100–U+01FF → byte (c - 0x100)
+replaceSentinels (c:rest)
+  | ord c >= 0x100 && ord c <= 0x1FF = chr (ord c - 0x100) : replaceSentinels rest
+  | otherwise = c : replaceSentinels rest
 
 readHex :: String -> Maybe Int
 readHex = go 0

@@ -8,6 +8,7 @@ module Isl.Infer.Specialize
   ( specialize
   , specializeDis
   , specializeExpr
+  , specializePartial
   ) where
 
 import Isl.HighLevel.Constraints
@@ -26,6 +27,38 @@ specialize params (PConjunction (Conjunction cs)) =
 specializeDis :: [Integer] -> PDisjunction ps n -> PDisjunction '[] n
 specializeDis params (PDisjunction pcs) =
   PDisjunction (map (specialize params) pcs)
+
+-- | Partial specialization: substitute some parameters, keep others symbolic.
+-- @Just v@ replaces the parameter with a constant, @Nothing@ keeps it.
+-- Remaining parameter indices are renumbered to close gaps.
+specializePartial :: [Maybe Integer] -> PConjunction ps n -> PConjunction '[] n
+specializePartial params (PConjunction (Conjunction cs)) =
+  PConjunction (Conjunction (map (specializeConstraintPartial params) cs))
+
+specializeConstraintPartial :: [Maybe Integer] -> Constraint SetIx -> Constraint SetIx
+specializeConstraintPartial params (EqualityConstraint e) =
+  EqualityConstraint (specializeExprPartial params e)
+specializeConstraintPartial params (InequalityConstraint e) =
+  InequalityConstraint (specializeExprPartial params e)
+
+-- | Like 'specializeExpr' but only substitutes @Just@ entries.
+-- Remaining @SetParam@ indices are renumbered based on how many
+-- earlier params were specialized away.
+specializeExprPartial :: [Maybe Integer] -> Expr SetIx -> Expr SetIx
+specializeExprPartial params = go
+  where
+    -- Build renumbering: for param i that is Nothing, its new index
+    -- is i minus the count of Just entries before it
+    renumber i = i - length [() | Just _ <- take i params]
+
+    go (Ix (SetParam i))
+      | i < length params, Just v <- params !! i = Constant v
+      | otherwise = Ix (SetParam (renumber i))
+    go (Ix (SetDim d))   = Ix (SetDim d)
+    go (Constant k)      = Constant k
+    go (Add a b)         = simplifyAdd (go a) (go b)
+    go (Mul k e)         = simplifyMul k (go e)
+    go (FloorDiv e d)    = simplifyFloorDiv (go e) d
 
 specializeConstraint :: [Integer] -> Constraint SetIx -> Constraint SetIx
 specializeConstraint params (EqualityConstraint e) =

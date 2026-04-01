@@ -36,6 +36,7 @@ import qualified Isl.Set as RawSet
 import qualified Isl.Aff as Aff
 import qualified Isl.LocalSpace as LS
 import qualified Isl.Space as Space
+import qualified Isl.Val as Val
 
 -- | Owned, parameter- and dimension-indexed MultiAff.
 -- A functional map: ni input dims → no output dims, each output being
@@ -95,16 +96,9 @@ toMultiAff exprs = do
     setOneAff ma (j, expr) = do
       let !(ref, ma') = borrow ma (\r -> r)
       domSp <- MA.getDomainSpace ref
-      aff0 <- Aff.zeroOnDomainSpace domSp
-      let (coeffs, constant) = expandExpr expr
-          setCoeff aff (coeff, dim) = do
-            let (dimType, pos) = case dim of
-                  SetDim i   -> (Isl.islDimIn, i)
-                  SetParam k -> (Isl.islDimParam, k)
-            Aff.setCoefficientSi aff dimType (fromIntegral pos) (fromIntegral coeff)
-      aff1 <- foldM setCoeff aff0 coeffs
-      aff2 <- Aff.addConstantSi aff1 (fromIntegral constant)
-      MA.setAff ma' (fromIntegral j) aff2
+      ls <- LS.fromSpace domSp
+      aff <- exprToMultiAffAff ls expr
+      MA.setAff ma' (fromIntegral j) aff
 
 fromString :: forall m ps ni no. MonadIO m => String -> IslT m (MultiAff ps ni no)
 fromString str = MultiAff <$> MA.readFromStr str

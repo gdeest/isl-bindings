@@ -104,6 +104,18 @@ executable multi-stmt
   hs-source-dirs:      src
   default-language:    Haskell2010
 
+executable flash-attn-demo
+  main-is:          FlashAttentionDemo.hs
+  build-depends:    base >=4.12.0.0 && <5,
+                    isl-bindings,
+                    isl-bindings-hl,
+                    isl-typelevel,
+                    isl-plugin,
+                    isl-scan
+  ghc-options:      -O2 -Wall -fplugin=Isl.Plugin
+  hs-source-dirs:   src
+  default-language: GHC2021
+
 executable typelevel-demo
   main-is:             TypeLevelDemo.hs
   build-depends:       base >=4.12.0.0 && <5,

@@ -110,6 +110,12 @@ ggmlTypeSize GGML_Q5_0 = 22
 ggmlTypeSize GGML_Q5_1 = 24
 ggmlTypeSize GGML_Q8_0 = 34  -- 2 (f16 delta) + 32 (32 × int8)
 ggmlTypeSize GGML_Q8_1 = 40
+ggmlTypeSize GGML_Q2_K = 256 `div` 16 + 256 `div` 4 + 2 + 2  -- 84
+ggmlTypeSize GGML_Q3_K = 256 `div` 8 + 256 `div` 4 + 12 + 2  -- 110
+ggmlTypeSize GGML_Q4_K = 2 + 2 + 12 + 128                     -- 144
+ggmlTypeSize GGML_Q5_K = 2 + 2 + 12 + 128 + 32                -- 176
+ggmlTypeSize GGML_Q6_K = 128 + 64 + 16 + 2                    -- 210
+ggmlTypeSize GGML_Q8_K = 256 + 2 + 32                         -- 290
 ggmlTypeSize _         = 0
 
 -- | Elements per quantization block.
@@ -122,4 +128,10 @@ ggmlBlockSize GGML_Q5_0 = 32
 ggmlBlockSize GGML_Q5_1 = 32
 ggmlBlockSize GGML_Q8_0 = 32
 ggmlBlockSize GGML_Q8_1 = 32
+ggmlBlockSize GGML_Q2_K = 256
+ggmlBlockSize GGML_Q3_K = 256
+ggmlBlockSize GGML_Q4_K = 256
+ggmlBlockSize GGML_Q5_K = 256
+ggmlBlockSize GGML_Q6_K = 256
+ggmlBlockSize GGML_Q8_K = 256
 ggmlBlockSize _         = 1

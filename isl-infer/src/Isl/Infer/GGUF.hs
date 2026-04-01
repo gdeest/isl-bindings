@@ -38,15 +38,26 @@ import Isl.Infer.GGUF.Types
 foreign import ccall unsafe "sys/mman.h mmap"
   c_mmap :: Ptr () -> CSize -> CInt -> CInt -> CInt -> COff -> IO (Ptr ())
 
+foreign import ccall unsafe "sys/mman.h madvise"
+  c_madvise :: Ptr () -> CSize -> CInt -> IO CInt
+
 -- | Load and parse a GGUF file.
+--
+-- Uses MAP_POPULATE to prefault all pages at load time (no demand-paging
+-- faults during first token) and MADV_HUGEPAGE to request 2MB pages
+-- (reduces TLB entries from ~1.8M to ~3750 for a 7B model).
 loadGGUF :: FilePath -> IO GGUFFile
 loadGGUF path = do
   size <- withBinaryFile path ReadMode hFileSize
   fd <- openFd path ReadOnly defaultFileFlags
-  basePtr <- c_mmap nullPtr (fromIntegral size) 1 2 (fromIntegral fd) 0
+  let mapPopulate = 0x008000 :: CInt
+  basePtr <- c_mmap nullPtr (fromIntegral size) 1 (2 .|. mapPopulate) (fromIntegral fd) 0
   closeFd fd
   when (basePtr == nullPtr || basePtr == plusPtr nullPtr (-1)) $
     error $ "loadGGUF: mmap failed for " ++ path
+  -- Request transparent huge pages (2MB) to reduce TLB pressure
+  let madvHugepage = 14 :: CInt
+  _ <- c_madvise basePtr (fromIntegral size) madvHugepage
   fptr <- newForeignPtr_ (castPtr basePtr :: Ptr Word8)
   parseGGUF basePtr fptr
 
