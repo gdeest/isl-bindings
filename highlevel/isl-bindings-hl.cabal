@@ -28,7 +28,11 @@ library
                      Isl.HighLevel.PwMultiAff,
                      Isl.HighLevel.Set,
                      Isl.HighLevel.UnionMap,
-                     Isl.HighLevel.UnionSet
+                     Isl.HighLevel.UnionSet,
+                     Isl.HighLevel.Stencil,
+                     Isl.HighLevel.Schedule,
+                     Isl.HighLevel.Contraction,
+                     Isl.HighLevel.FlowAnalysis
   -- other-modules:
   -- other-extensions:
   build-depends:       base >=4.12.0.0 && <5,

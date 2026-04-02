@@ -45,6 +45,11 @@ data Expr ix
   | FloorDiv (Expr ix) Integer   -- ^ @floor(expr / d)@ — from ISL existentials
   deriving (Generic, Functor)
 
+-- | @modExpr a b@ = @a mod b@, expressed as @a - b * floor(a / b)@.
+-- No new constructor needed — composes from existing 'FloorDiv'.
+modExpr :: Expr ix -> Integer -> Expr ix
+modExpr a b = Add a (Mul (-b) (FloorDiv a b))
+
 instance NFData ix => NFData (Expr ix)
 
 infixl 4 -:

@@ -13,6 +13,7 @@ library
                    , Isl.Infer.Autotune.Search
                    , Isl.Infer.Codegen
                    , Isl.Infer.Codegen.Bound
+                   , Isl.Infer.Codegen.Expr
                    , Isl.Infer.Codegen.Loop
                    , Isl.Infer.Codegen.OpenMP
                    , Isl.Infer.Codegen.Emit
