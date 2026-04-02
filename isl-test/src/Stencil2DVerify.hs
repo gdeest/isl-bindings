@@ -20,7 +20,9 @@ import Data.Time.Clock (getCurrentTime, diffUTCTime)
 
 import Unsafe.Coerce (unsafeCoerce)
 import Isl.HighLevel.Context
+import Data.List (intercalate)
 import Isl.HighLevel.Constraints (Expr(..), MapIx(..))
+import Isl.Infer.Codegen.ArrayAccess (mkStencilBody)
 import qualified Isl.HighLevel.UnionMap as UM
 import qualified Isl.HighLevel.UnionSet as US
 import Isl.HighLevel.Stencil
@@ -71,23 +73,30 @@ checkValidity deps sched schedCopy nOut = do
 -- ISL AST Codegen (reusable)
 -- =========================================================================
 
-wrapKernel :: String -> Int -> String -> String
-wrapKernel funcName k cSkeleton = unlines
-  [ "#include <stdint.h>"
-  , "#include <math.h>"
-  , "#define floord(n,d) (((n)<0) ? -((-(n)+(d)-1)/(d)) : (n)/(d))"
-  , "#define min(x,y)    (((x)<(y)) ? (x) : (y))"
-  , "#define max(x,y)    (((x)>(y)) ? (x) : (y))"
-  , "#define S(_t_, _i_, _j_) do { \\"
-  , "    buf[(((_t_) % " ++ show k ++ ") + " ++ show k ++ ") % " ++ show k ++ "][(_i_) * stride + (_j_)] = \\"
-  , "      (buf[((((_t_)-1) % " ++ show k ++ ") + " ++ show k ++ ") % " ++ show k ++ "][((_i_)-1) * stride + (_j_)] \\"
-  , "     + buf[((((_t_)-1) % " ++ show k ++ ") + " ++ show k ++ ") % " ++ show k ++ "][((_i_)+1) * stride + (_j_)] \\"
-  , "     + buf[((((_t_)-1) % " ++ show k ++ ") + " ++ show k ++ ") % " ++ show k ++ "][(_i_) * stride + ((_j_)-1)] \\"
-  , "     + buf[((((_t_)-1) % " ++ show k ++ ") + " ++ show k ++ ") % " ++ show k ++ "][(_i_) * stride + ((_j_)+1)]) * 0.25; \\"
-  , "} while(0)"
-  , "void " ++ funcName ++ "(double** buf, int64_t N, int64_t M, int64_t T, int64_t stride) {"
-  ] ++ unlines ["    " ++ l | l <- lines cSkeleton, not (null l)]
-  ++ "}\n#undef floord\n#undef min\n#undef max\n#undef S\n"
+-- | Generate a complete C kernel from ISL-generated loop skeleton + stencil body.
+-- The macro body is DERIVED from the StencilDef + StorageMap — not ad-hoc.
+wrapKernel :: String             -- ^ C function name
+           -> StencilDef ps n    -- ^ stencil definition (offsets)
+           -> StorageMap         -- ^ physical storage mapping
+           -> [String]           -- ^ macro param names (one per iter dim)
+           -> ([String] -> String)  -- ^ combination function
+           -> String             -- ^ ISL-generated loop skeleton
+           -> String
+wrapKernel funcName stencil storage macroParams combine cSkeleton =
+  let macroBody = mkStencilBody storage macroParams "buf" "stride"
+                    (sdOffsets stencil) combine
+      macroArgs = intercalate ", " macroParams
+  in unlines
+    [ "#include <stdint.h>"
+    , "#include <math.h>"
+    , "#define floord(n,d) (((n)<0) ? -((-(n)+(d)-1)/(d)) : (n)/(d))"
+    , "#define ISL_FLOOR_DIV(a, b) (((a) >= 0) ? ((a) / (b)) : -((-(a) + (b) - 1) / (b)))"
+    , "#define min(x,y)    (((x)<(y)) ? (x) : (y))"
+    , "#define max(x,y)    (((x)>(y)) ? (x) : (y))"
+    , "#define " ++ sdName stencil ++ "(" ++ macroArgs ++ ") do { " ++ macroBody ++ " } while(0)"
+    , "void " ++ funcName ++ "(double** buf, int64_t N, int64_t M, int64_t T, int64_t stride) {"
+    ] ++ unlines ["    " ++ l | l <- lines cSkeleton, not (null l)]
+    ++ "}\n#undef floord\n#undef min\n#undef max\n#undef " ++ sdName stencil ++ "\n"
 
 type StencilKernelC = Ptr (Ptr Double) -> CLong -> CLong -> CLong -> CLong -> IO ()
 foreign import ccall "dynamic"
@@ -122,6 +131,12 @@ main = do
       noSkewTiled   = tile 0 4 . tile 1 32 . tile 2 32 $ identity 3
 
       buffers = 5 :: Int   -- K for modular contraction
+
+      -- Stencil combination operator (application-specific)
+      combine reads = "(" ++ intercalate " + " reads ++ ") * 0.25"
+
+      -- Macro parameter names (one per iteration dimension)
+      macroParams = ["_t_", "_i_", "_j_"]
 
   putStrLn "── Design Knobs ──"
   putStrLn $ "  Stencil offsets: " ++ show (sdOffsets stencil)
@@ -224,25 +239,24 @@ main = do
 
   putStrLn "── 4. ISL AST codegen ──"
 
-  let genKernel label funcName sched k = do
+  let genKernel label funcName sched stor = do
         let nm = schedToNamedMap @'["M","N","T"] "S" domain sched
-            dom = domain  -- use the user-supplied domain
         cSkel <- runIslT $ do
           schedUM <- UM.toUnionMapFromNamed nm
-          domUS <- US.toUnionSetFromNamed dom
+          domUS <- US.toUnionSetFromNamed domain
           (UM.UnionMap rawSched) <- UM.intersectDomain schedUM domUS
           build <- astBuildAlloc
           node <- astBuildNodeFromScheduleMap build rawSched
           cCode <- astNodeToC node
           astNodeFree node
           pure (Ur cCode)
-        let src = wrapKernel funcName k cSkel
+        let src = wrapKernel funcName stencil stor macroParams combine cSkel
         putStrLn $ "  " ++ label ++ ":"
         putStrLn src
         return src
 
-  naiveSrc <- genKernel "naive" "stencil_naive" naiveSched 2
-  tiledSrc <- genKernel "tiled+skewed" "stencil_tiled" tiledSched buffers
+  naiveSrc <- genKernel "naive" "stencil_naive" naiveSched (modularTime 3 2)
+  tiledSrc <- genKernel "tiled+skewed" "stencil_tiled" tiledSched (modularTime 3 (fromIntegral buffers))
   hFlush stdout
 
   -- ────────────────────────────────────────────────────────────────────────
