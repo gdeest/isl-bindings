@@ -33,7 +33,7 @@ module Isl.HighLevel.Schedule
 
 import GHC.TypeLits (Symbol)
 
-import Isl.HighLevel.Constraints (Expr(..), MapIx(..), Constraint(..), Conjunction(..))
+import Isl.HighLevel.Constraints (Expr(..), SetIx(..), MapIx(..), Constraint(..), Conjunction(..))
 import Isl.HighLevel.Pure (NamedMap(..))
 import Isl.HighLevel.Params (KnownSymbols(symbolVals))
 import Isl.HighLevel.Params (KnownSymbols)
@@ -92,38 +92,56 @@ shift dim offset (ScheduleDef es) =
 
 -- | Convert a schedule to a 'NamedMap' for ISL operations.
 --
--- The resulting map is: @{ stmtName[in_dims] → [sched_exprs] : domain }@
--- where domain constraints are @1 <= d_k <= param_k@.
+-- Domain constraints are supplied explicitly — no hardcoded domain shape.
+-- The resulting map is: @{ stmtName[in_dims] → [sched_exprs] : user_domain }@
 schedToNamedMap :: forall ps. KnownSymbols ps
-  => String        -- ^ statement name
-  -> Int           -- ^ number of input dimensions
-  -> ScheduleDef   -- ^ schedule
+  => String              -- ^ statement name
+  -> [Constraint SetIx]  -- ^ domain constraints (user-supplied)
+  -> ScheduleDef         -- ^ schedule
   -> NamedMap
-schedToNamedMap stmtName nIn (ScheduleDef outExprs) =
-  let nOut = length outExprs
+schedToNamedMap stmtName domConstrs (ScheduleDef outExprs) =
+  let nIn = case domConstrs of
+              [] -> 0
+              _  -> maximum [d + 1 | c <- domConstrs, d <- setDimsIn c]
+      nOut = length outExprs
       params = symbolVals @ps
-      nParams = length params
       -- Output constraints: out_k = expr_k(in_dims)
-      -- Express as: out_k - expr_k = 0 (equality)
       schedConstrs =
-        [ EqualityConstraint (Add (Ix (OutDim k)) (negateExpr (liftExpr (outExprs !! k))))
+        [ EqualityConstraint (Add (Ix (OutDim k)) (negateExpr (outExprs !! k)))
         | k <- [0..nOut-1]
         ]
-      -- Domain: 1 <= in_k <= param_k
-      domConstrs = concat
-        [ [ InequalityConstraint (Add (Ix (InDim k)) (Constant (-1)))
-          , InequalityConstraint (Add (Ix (MapParam k)) (Mul (-1) (Ix (InDim k))))
-          ]
-        | k <- [0..nIn-1], k < nParams
-        ]
+      -- Domain constraints converted from SetIx to MapIx
+      mapDomConstrs = map (mapConstraint setToMapIx) domConstrs
   in NamedMap
     { nmDomainName = Just stmtName
-    , nmRangeName  = Nothing  -- schedule range is unnamed time-space
+    , nmRangeName  = Nothing
     , nmParams     = params
     , nmNIn        = nIn
     , nmNOut       = nOut
-    , nmConjs      = [Conjunction (schedConstrs ++ domConstrs)]
+    , nmConjs      = [Conjunction (schedConstrs ++ mapDomConstrs)]
     }
+
+-- | Convert SetIx to MapIx.
+setToMapIx :: SetIx -> MapIx
+setToMapIx (SetDim d)   = InDim d
+setToMapIx (SetParam p) = MapParam p
+
+mapConstraint :: (a -> b) -> Constraint a -> Constraint b
+mapConstraint f (EqualityConstraint e)   = EqualityConstraint (fmap f e)
+mapConstraint f (InequalityConstraint e) = InequalityConstraint (fmap f e)
+
+-- | Extract set dimension indices from a constraint.
+setDimsIn :: Constraint SetIx -> [Int]
+setDimsIn (EqualityConstraint e)   = exprSetDims e
+setDimsIn (InequalityConstraint e) = exprSetDims e
+
+exprSetDims :: Expr SetIx -> [Int]
+exprSetDims (Ix (SetDim d))  = [d]
+exprSetDims (Ix _)           = []
+exprSetDims (Constant _)     = []
+exprSetDims (Add a b)        = exprSetDims a ++ exprSetDims b
+exprSetDims (Mul _ e)        = exprSetDims e
+exprSetDims (FloorDiv e _)   = exprSetDims e
 
 -- | Lift an expr that references InDim only (from ScheduleDef context)
 -- into the combined (InDim + OutDim) MapIx space. InDim stays InDim.

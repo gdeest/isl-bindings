@@ -137,9 +137,11 @@ main = do
   -- ────────────────────────────────────────────────────────────────────────
 
   putStrLn "── 1. Dataflow: auto dep derivation ──"
-  let reads  = mkReadAccess  @'["M","N","T"] @3 stencil
-      writes = mkWriteAccess @'["M","N","T"] @3 stencil
-      idSched = schedToNamedMap @'["M","N","T"] "S" 3 naiveSched
+  let domain  = rectangularDomain @'["M","N","T"] @3 "S"
+      domCstr = domainConstrs domain
+      reads   = mkReadAccess  @'["M","N","T"] @3 stencil domCstr
+      writes  = mkWriteAccess @'["M","N","T"] @3 stencil domCstr
+      idSched = schedToNamedMap @'["M","N","T"] "S" domCstr naiveSched
 
   flowDeps <- runIslT $ do
     deps <- FA.computeFlowDeps reads writes idSched
@@ -158,7 +160,7 @@ main = do
 
   let checkSched label sched = do
         let nOut = length (schedExprs sched)
-            nm = schedToNamedMap @'["M","N","T"] "S" 3 sched
+            nm = schedToNamedMap @'["M","N","T"] "S" domCstr sched
         (valid, vStr) <- runIslT $ do
           deps <- FA.computeFlowDeps reads writes idSched
           schedA <- UM.toUnionMapFromNamed nm
@@ -182,18 +184,29 @@ main = do
 
   putStrLn "── 3. Memory contraction: A[t,i,j] → buf[t mod K, i, j] ──"
 
+  let storage = modularTime 3 (fromIntegral buffers)
+      storageNM = storageToNamedMap @'["M","N","T"] "A" "buf" storage 3
+      writesNM = mkWriteAccess @'["M","N","T"] @3 stencil domCstr
+
   let checkContr label k sched = do
         let nOut = length (schedExprs sched)
-            nm = schedToNamedMap @'["M","N","T"] "S" 3 sched
-            antiDeps = contractionAntiDeps @'["M","N","T"] stencil (fromIntegral k)
+            nm = schedToNamedMap @'["M","N","T"] "S" domCstr sched
+            stor = modularTime 3 (fromIntegral k)
+            storNM = storageToNamedMap @'["M","N","T"] "A" "buf" stor 3
         (safe, vStr) <- runIslT $ do
-          antiUM <- mapM UM.toUnionMapFromNamed antiDeps
-          allAnti <- case antiUM of
-            [] -> error "no anti-deps"
-            (x:xs) -> foldUM x xs
+          -- Derive flow deps
+          deps <- FA.computeFlowDeps reads writesNM idSched
+          -- Build write and storage union maps (need 2 copies each for composition)
+          w1 <- UM.toUnionMapFromNamed writesNM
+          w2 <- UM.toUnionMapFromNamed writesNM
+          s1 <- UM.toUnionMapFromNamed storNM
+          s2 <- UM.toUnionMapFromNamed storNM
+          -- Derive contraction anti-deps via ISL composition
+          antiDeps <- contractionAntiDeps deps w1 w2 s1 s2
+          -- Check anti-deps against schedule
           schedA <- UM.toUnionMapFromNamed nm
           schedB <- UM.toUnionMapFromNamed nm
-          checkValidity allAnti schedA schedB nOut
+          checkValidity antiDeps schedA schedB nOut
         putStrLn $ "  " ++ label ++ ":"
         putStrLn $ "    " ++ (if safe then "SAFE ✓" else "UNSAFE ✗")
         when (not safe) $
@@ -213,8 +226,8 @@ main = do
   putStrLn "── 4. ISL AST codegen ──"
 
   let genKernel label funcName sched k = do
-        let nm = schedToNamedMap @'["M","N","T"] "S" 3 sched
-            dom = mkDomain @'["M","N","T"] @3 stencil
+        let nm = schedToNamedMap @'["M","N","T"] "S" domCstr sched
+            dom = domain  -- use the user-supplied domain
         cSkel <- runIslT $ do
           schedUM <- UM.toUnionMapFromNamed nm
           domUS <- US.toUnionSetFromNamed dom
