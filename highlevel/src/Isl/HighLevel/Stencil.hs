@@ -47,19 +47,19 @@ data StencilDef (ps :: [Symbol]) (n :: Nat) = StencilDef
 
 
 -- | Build read access relations, one per offset.
--- Domain constraints are supplied explicitly — no hardcoded domain shape.
+-- Domain is a 'NamedSet' — its constraints are embedded into each access map.
 mkReadAccess :: forall ps n.
   (KnownNat n, KnownSymbols ps, KnownNat (Length ps))
-  => StencilDef ps n -> [Constraint SetIx] -> [NamedMap]
-mkReadAccess sd domConstrs =
-  [ mkOneAccess sd off domConstrs | off <- sdOffsets sd ]
+  => StencilDef ps n -> NamedSet -> [NamedMap]
+mkReadAccess sd dom =
+  [ mkOneAccess sd off (domainConstrs dom) | off <- sdOffsets sd ]
 
 -- | Build the write access relation (identity: A[d0,..,d_{n-1}]).
 mkWriteAccess :: forall ps n.
   (KnownNat n, KnownSymbols ps, KnownNat (Length ps))
-  => StencilDef ps n -> [Constraint SetIx] -> NamedMap
-mkWriteAccess sd domConstrs =
-  mkOneAccess sd (replicate nDims 0) domConstrs
+  => StencilDef ps n -> NamedSet -> NamedMap
+mkWriteAccess sd dom =
+  mkOneAccess sd (replicate nDims 0) (domainConstrs dom)
   where nDims = fromIntegral (natVal (Proxy @n))
 
 

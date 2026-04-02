@@ -34,7 +34,7 @@ module Isl.HighLevel.Schedule
 import GHC.TypeLits (Symbol)
 
 import Isl.HighLevel.Constraints (Expr(..), SetIx(..), MapIx(..), Constraint(..), Conjunction(..))
-import Isl.HighLevel.Pure (NamedMap(..))
+import Isl.HighLevel.Pure (NamedMap(..), NamedSet(..))
 import Isl.HighLevel.Params (KnownSymbols(symbolVals))
 import Isl.HighLevel.Params (KnownSymbols)
 
@@ -92,17 +92,18 @@ shift dim offset (ScheduleDef es) =
 
 -- | Convert a schedule to a 'NamedMap' for ISL operations.
 --
--- Domain constraints are supplied explicitly — no hardcoded domain shape.
+-- Domain is a 'NamedSet' — its shape drives the input dimensions.
 -- The resulting map is: @{ stmtName[in_dims] → [sched_exprs] : user_domain }@
 schedToNamedMap :: forall ps. KnownSymbols ps
   => String              -- ^ statement name
-  -> [Constraint SetIx]  -- ^ domain constraints (user-supplied)
+  -> NamedSet            -- ^ iteration domain (provides constraints + nDims)
   -> ScheduleDef         -- ^ schedule
   -> NamedMap
-schedToNamedMap stmtName domConstrs (ScheduleDef outExprs) =
-  let nIn = case domConstrs of
-              [] -> 0
-              _  -> maximum [d + 1 | c <- domConstrs, d <- setDimsIn c]
+schedToNamedMap stmtName dom (ScheduleDef outExprs) =
+  let domConstrs = case nsConjs dom of
+        (Conjunction cs : _) -> cs
+        []                   -> []
+      nIn = nsNDims dom
       nOut = length outExprs
       params = symbolVals @ps
       -- Output constraints: out_k = expr_k(in_dims)

@@ -138,10 +138,9 @@ main = do
 
   putStrLn "── 1. Dataflow: auto dep derivation ──"
   let domain  = rectangularDomain @'["M","N","T"] @3 "S"
-      domCstr = domainConstrs domain
-      reads   = mkReadAccess  @'["M","N","T"] @3 stencil domCstr
-      writes  = mkWriteAccess @'["M","N","T"] @3 stencil domCstr
-      idSched = schedToNamedMap @'["M","N","T"] "S" domCstr naiveSched
+      reads   = mkReadAccess  @'["M","N","T"] @3 stencil domain
+      writes  = mkWriteAccess @'["M","N","T"] @3 stencil domain
+      idSched = schedToNamedMap @'["M","N","T"] "S" domain naiveSched
 
   flowDeps <- runIslT $ do
     deps <- FA.computeFlowDeps reads writes idSched
@@ -160,7 +159,7 @@ main = do
 
   let checkSched label sched = do
         let nOut = length (schedExprs sched)
-            nm = schedToNamedMap @'["M","N","T"] "S" domCstr sched
+            nm = schedToNamedMap @'["M","N","T"] "S" domain sched
         (valid, vStr) <- runIslT $ do
           deps <- FA.computeFlowDeps reads writes idSched
           schedA <- UM.toUnionMapFromNamed nm
@@ -186,11 +185,11 @@ main = do
 
   let storage = modularTime 3 (fromIntegral buffers)
       storageNM = storageToNamedMap @'["M","N","T"] "A" "buf" storage 3
-      writesNM = mkWriteAccess @'["M","N","T"] @3 stencil domCstr
+      writesNM = mkWriteAccess @'["M","N","T"] @3 stencil domain
 
   let checkContr label k sched = do
         let nOut = length (schedExprs sched)
-            nm = schedToNamedMap @'["M","N","T"] "S" domCstr sched
+            nm = schedToNamedMap @'["M","N","T"] "S" domain sched
             stor = modularTime 3 (fromIntegral k)
             storNM = storageToNamedMap @'["M","N","T"] "A" "buf" stor 3
         (safe, vStr) <- runIslT $ do
@@ -226,7 +225,7 @@ main = do
   putStrLn "── 4. ISL AST codegen ──"
 
   let genKernel label funcName sched k = do
-        let nm = schedToNamedMap @'["M","N","T"] "S" domCstr sched
+        let nm = schedToNamedMap @'["M","N","T"] "S" domain sched
             dom = domain  -- use the user-supplied domain
         cSkel <- runIslT $ do
           schedUM <- UM.toUnionMapFromNamed nm
