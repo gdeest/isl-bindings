@@ -194,7 +194,10 @@ toUnionMapFromNamed nm = do
       space2 <- case domName of
                   Just name -> Space.setTupleName space1 Isl.islDimIn name
                   Nothing   -> return space1
-      univ <- BM.universe space2
+      space3 <- case nmRangeName nm of
+                  Just name -> Space.setTupleName space2 Isl.islDimOut name
+                  Nothing   -> return space2
+      univ <- BM.universe space3
       bm <- foldM addMapConstraint univ constraints
       M.fromBasicMap bm
 

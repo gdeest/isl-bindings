@@ -35,7 +35,8 @@ library
                        Isl.Space,
                        Isl.UnionMap,
                        Isl.UnionSet,
-                       Isl.Val
+                       Isl.Val,
+                       Isl.AstBuild
 
   other-modules:       Isl.Foreach,
                        Isl.Aff.Generated,

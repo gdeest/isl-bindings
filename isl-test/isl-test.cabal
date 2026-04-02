@@ -138,6 +138,32 @@ executable typelevel-multi-aff-demo
   hs-source-dirs:      src
   default-language:    GHC2021
 
+executable stencil-2d-verify
+  main-is:          Stencil2DVerify.hs
+  build-depends:    base >=4.12.0.0 && <5,
+                    array,
+                    containers,
+                    time,
+                    isl-bindings,
+                    isl-bindings-hl,
+                    isl-scan,
+                    isl-infer
+  ghc-options:      -O2 -Wall -Wno-incomplete-uni-patterns
+  hs-source-dirs:   src
+  default-language: GHC2021
+
+executable stencil-2d-typelevel
+  main-is:          Stencil2DTypeLevel.hs
+  build-depends:    base >=4.12.0.0 && <5,
+                    isl-bindings,
+                    isl-bindings-hl,
+                    isl-typelevel,
+                    isl-plugin,
+                    isl-scan
+  ghc-options:      -O2 -Wall -fplugin=Isl.Plugin
+  hs-source-dirs:   src
+  default-language: GHC2021
+
 test-suite isl-tests
   type:                exitcode-stdio-1.0
   main-is:             Main.hs

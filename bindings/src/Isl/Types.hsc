@@ -81,6 +81,21 @@ newtype PwMultiAffRef = PwMultiAffRef (Ptr PwMultiAff)
 newtype AffListRef = AffListRef (Ptr AffList)
   deriving (Storable)
 
+-- AST code generation types
+newtype AstBuild = AstBuild { unAstBuild :: Ptr AstBuild }
+  deriving (Storable)
+newtype AstNode = AstNode { unAstNode :: Ptr AstNode }
+  deriving (Storable)
+newtype AstExpr = AstExpr { unAstExpr :: Ptr AstExpr }
+  deriving (Storable)
+
+newtype AstBuildRef = AstBuildRef (Ptr AstBuild)
+  deriving (Storable)
+newtype AstNodeRef = AstNodeRef (Ptr AstNode)
+  deriving (Storable)
+newtype AstExprRef = AstExprRef (Ptr AstExpr)
+  deriving (Storable)
+
 -- Typeclasses for linear resource management
 
 class Borrow owned ref | owned -> ref where

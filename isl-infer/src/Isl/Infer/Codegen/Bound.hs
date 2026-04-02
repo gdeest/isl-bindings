@@ -62,6 +62,6 @@ joinTerms [] = "0"
 joinTerms [t] = t
 joinTerms (t:ts) = t ++ concatMap addTerm ts
   where
-    addTerm s@('(':'-':_) = " " ++ s        -- (-x) renders as " (-x)" i.e. subtraction
-    addTerm s@('-':_)     = " " ++ s
+    addTerm s@('(':'-':_) = " + " ++ s      -- (-x) renders as " + (-x)"
+    addTerm s@('-':_)     = " + " ++ s     -- -x renders as " + -x" (C handles unary minus)
     addTerm s             = " + " ++ s
