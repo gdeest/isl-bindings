@@ -23,8 +23,6 @@ module Isl.AstBuild
     -- * C output
   , astNodeToC
   , astNodeToStr
-    -- * High-level
-  , scheduleMapToC
     -- * Cleanup
   , astBuildFree
   , astNodeFree
@@ -32,7 +30,7 @@ module Isl.AstBuild
   , Consumable(..)
   ) where
 
-import Foreign.C.String (peekCString, withCString)
+import Foreign.C.String (peekCString)
 import Foreign.C.Types (CChar)
 import Foreign.Marshal.Alloc (free)
 import Foreign.Ptr (Ptr)
@@ -67,27 +65,6 @@ foreign import ccall "isl_ast_build_free"
 foreign import ccall "isl_ast_node_free"
   c_ast_node_free :: AstNode -> IO ()
 
-
--- Raw union map import (for scheduleMapToC)
-foreign import ccall "isl_union_map_read_from_str"
-  c_union_map_read_from_str :: Ctx -> Ptr CChar -> IO UnionMap
-
--- | Convert a schedule map (ISL string) to C code in one shot.
--- All ISL objects are created and freed within this call — no ownership leaks.
--- The schedule map string should include domain constraints, e.g.:
--- @"{ S0[t,i,j] -> [t,0,i,j] : 1 <= t <= T and 1 <= i <= N and 1 <= j <= M; ... }"@
-scheduleMapToC :: forall m. MonadIO m => String -> IslT m String
-scheduleMapToC schedStr = unsafeIslFromIO $ \ctx -> do
-  umap <- withCString schedStr $ \cstr ->
-    c_union_map_read_from_str ctx cstr
-  build <- c_ast_build_alloc ctx
-  node <- c_ast_build_node_from_schedule_map build umap
-  let nodeRef = AstNodeRef (unAstNode node)
-  cCodePtr <- c_ast_node_to_C_str nodeRef
-  cCode <- peekCString cCodePtr
-  free cCodePtr
-  c_ast_node_free node
-  return cCode
 
 
 -- Consumable instances
