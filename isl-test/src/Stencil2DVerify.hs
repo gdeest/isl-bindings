@@ -168,64 +168,43 @@ checkValidity deps sched schedCopy nOut = do
 -- Section 3: Memory Contraction Safety Checker
 -- =========================================================================
 
--- | Check whether a memory contraction is safe under a given schedule.
+-- | Build contraction-induced anti-deps for modular storage A[t,i,j] → buf[t mod K].
 --
--- A contraction A[t,i,j] → buf[f(t,i,j)] is safe iff no two values that
--- are simultaneously live under the schedule map to the same buf location.
+-- For each flow dep S[t,i,j] → S[t+1,i',j'] (meaning A[t,i,j] is read at t+1),
+-- the next write to buf[t mod K, i, j] is S[t+K, i, j].
+-- Anti-dep: S[t+1, i', j'] must execute before S[t+K, i, j].
 --
--- We check this by:
---   1. Composing the dep with contraction: for each dep S[a] → S[b],
---      the value at A[write(a)] is live from a to b.
---   2. Building the "conflict" relation: pairs of writes that map to
---      the same contracted location.
---   3. Checking that no conflict pair has overlapping lifetimes.
+-- Equivalently: for each stencil read offset (dt, di, dj) where dt = -1,
+-- S[t, i, j] reads A[t-1, i+di, j+dj], and the next write to
+-- buf[(t-1) mod K, i+di, j+dj] is S[t-1+K, i+di, j+dj].
+-- Anti-dep: { S[t, i, j] → S[t+K-1, i+di, j+dj] }
+contractionAntiDepsStr :: Int -> String
+contractionAntiDepsStr k =
+  "[M, N, T] -> { " ++ commas
+    [ "S[t, i, j] -> S[t" ++ off (k + dt) ++ ", i" ++ off di ++ ", j" ++ off dj ++ "]"
+      ++ " : 1 <= t <= T and 1 <= i <= N and 1 <= j <= M"
+      ++ " and 1 <= t" ++ off (k + dt) ++ " <= T"
+      ++ " and 1 <= i" ++ off di ++ " <= N"
+      ++ " and 1 <= j" ++ off dj ++ " <= M"
+    | (dt, di, dj) <- stencilOffsets
+    ] ++ " }"
+  where off n | n == 0 = "" | n > 0 = " + " ++ show n | otherwise = " - " ++ show (abs n)
+
+-- | Check contraction safety under a given schedule.
 --
--- Simplified check: contraction is safe if for every flow dep
--- S[t1,...] → S[t2,...], the writes A[t1,...] and any other write A[t3,...]
--- that maps to the same buf slot has t3's value already dead at t2's read.
---
--- For modular contraction A[t,i,j] → buf[t mod K, i, j]:
--- safe iff K > max_time_reuse_distance, where max_time_reuse_distance
--- is the maximum |t2 - t1| across all deps.
-checkContraction :: MonadIO m
-  => String        -- ^ contraction map (ISL string, e.g. "{ A[t,i,j] -> buf[t mod K, i, j] }")
-  -> UM.UnionMap   -- ^ write access (consumed) { S[t,i,j] → A[t,i,j] }
-  -> UM.UnionMap   -- ^ write access copy (consumed)
-  -> UM.UnionMap   -- ^ flow deps (consumed) { S[...] → S[...] }
+-- Generates contraction-induced anti-deps and validates them against
+-- the schedule using the same checkValidity machinery.
+-- Safe ⟺ all anti-deps are satisfied by the schedule.
+checkContractionSafety :: MonadIO m
+  => Int           -- ^ K (number of buffers)
+  -> String        -- ^ schedule map string
+  -> Int           -- ^ schedule output dimensionality
   -> IslT m (Ur (Bool, String))
-checkContraction contrStr writes writesCopy deps = do
-  -- Contracted write: { S[t,i,j] → buf[t mod K, i, j] }
-  contr <- UM.fromString contrStr
-  cWrite <- UM.applyRange writes contr
-
-  -- Contracted write (copy): { S[t,i,j] → buf[t mod K, i, j] }
-  contr2 <- UM.fromString contrStr
-  cWrite2 <- UM.applyRange writesCopy contr2
-
-  -- Conflict: pairs of instances that write to the same buf location
-  -- { S[a] → S[b] : contracted_write(a) = contracted_write(b) and a ≠ b }
-  -- This is: reverse(cWrite) ∘ cWrite2 minus identity
-  cWriteRev <- UM.reverse cWrite
-  conflict <- UM.applyRange cWriteRev cWrite2
-
-  -- Only keep conflicting pairs where one is live when the other writes.
-  -- A value written by S[a] is live until its last read, which is
-  -- the latest S[b] with a dep S[a] → S[b].
-  -- Conflict is dangerous iff: exists S[a] → S[b] (dep) and S[a] → S[c] (conflict)
-  -- such that c is scheduled between a and b (c overwrites while a is still live).
-  --
-  -- Sufficient condition: conflict ∩ deps⁺ is non-empty
-  -- (some conflicting pair is also in the transitive closure of deps)
-  --
-  -- Simpler: conflict ∩ (deps ∪ deps⁻¹) ≠ ∅
-  -- If ANY dep connects two conflicting instances, the contraction is unsafe.
-  depsRev <- UM.reverse deps
-  -- No need for full transitive closure — if a conflict pair has ANY dep path, it's unsafe
-  violations <- UM.intersect conflict depsRev
-  (Ur empty, violations') <- UM.isEmpty violations
-  (Ur vStr, violations'') <- UM.borrowUM violations' UM.umapToString
-  UM.freeUnionMap violations''
-  pure (Ur (empty, vStr))
+checkContractionSafety k schedStr nOut = do
+  antiDeps <- UM.fromString (contractionAntiDepsStr k)
+  schedA <- UM.fromString schedStr
+  schedB <- UM.fromString schedStr
+  checkValidity antiDeps schedA schedB nOut
 
 
 -- =========================================================================
@@ -352,28 +331,26 @@ main = do
 
   -- ── 3. Memory contraction verification ─────────────────────────────────
   putStrLn "── 3. Memory contraction: A[t,i,j] → buf[t mod K, i, j] ──"
+  putStrLn "  Contraction-induced anti-deps: for each stencil read at t,"
+  putStrLn "  the next write to the same buf slot is at t+K-1."
+  putStrLn "  These must be satisfied by the schedule."
+  putStrLn ""
 
-  let checkContr label k = do
-        (safe, vStr) <- runIslT $ do
-          writes1 <- UM.fromString writeAccessStr
-          writes2 <- UM.fromString writeAccessStr
-          -- Re-derive deps
-          reads1 <- UM.fromString readAccessStr
-          writes3 <- UM.fromString writeAccessStr
-          sched1 <- UM.fromString identitySchedStr
-          let !(UM.UnionMap r1) = reads1
-              !(UM.UnionMap w3) = writes3
-              !(UM.UnionMap s1) = sched1
-          rawDeps <- computeFlowDeps r1 w3 s1
-          let deps = UM.UnionMap rawDeps
-          checkContraction (contractionStr k) writes1 writes2 deps
+  let checkContr label k schedStr nOut = do
+        (safe, vStr) <- runIslT $ checkContractionSafety k schedStr nOut
         putStrLn $ "  " ++ label ++ ":"
         putStrLn $ "    " ++ (if safe then "SAFE ✓" else "UNSAFE ✗")
         when (not safe) $
-          putStrLn $ "    conflicts: " ++ take 200 vStr ++ "..."
+          putStrLn $ "    violations: " ++ take 200 vStr ++ "..."
 
-  checkContr ("K=2 (standard double-buffering)") 2
-  checkContr ("K=" ++ show numBuffers ++ " (tile height + 1)") numBuffers
+  -- K=2 with different schedules
+  checkContr "K=2, identity schedule" 2 identitySchedStr 3
+  checkContr "K=2, skewed schedule" 2 skewedSchedStr 3
+  checkContr "K=2, tiled+skewed schedule" 2 tiledSchedStr 6
+  -- K=tileT+1 with tiled schedule
+  checkContr ("K=" ++ show numBuffers ++ ", tiled+skewed schedule") numBuffers tiledSchedStr 6
+  -- K=2 with tiled-no-skew (both flow deps AND contraction fail)
+  checkContr "K=2, tiled NO skew (EXPECT UNSAFE)" 2 tiledNoSkewStr 6
   putStrLn ""
   hFlush stdout
 
