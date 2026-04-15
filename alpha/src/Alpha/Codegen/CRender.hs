@@ -30,31 +30,43 @@ import Alpha.Schedule (DimAnnotation(..))
 -- The annotation map keys are schedule dimension indices (0-based,
 -- matching 'CFor' nesting depth).
 renderCNodeToC :: Map Int DimAnnotation -> CNode -> String
-renderCNodeToC anns tree = rn 2 0 tree
+renderCNodeToC anns tree = fst (rn 2 0 tree)
   where
-    rn :: Int -> Int -> CNode -> String
+    -- Returns (rendered text, next dimIdx after this subtree)
+    rn :: Int -> Int -> CNode -> (String, Int)
     rn d dimIdx (CFor iter ini cond inc body) =
       let pragma = case Map.lookup dimIdx anns of
             Just Parallel  -> ind d ++ "#pragma omp parallel for schedule(static)\n"
             Just Vectorize -> ind d ++ "#pragma omp simd\n"
             Nothing        -> ""
-      in pragma
-         ++ ind d ++ "for (int " ++ iter ++ " = " ++ ini ++ "; "
-         ++ cond ++ "; " ++ iter ++ " += " ++ inc ++ ") {\n"
-         ++ rn (d + 2) (dimIdx + 1) body
-         ++ ind d ++ "}\n"
+          (bodyStr, dimIdx') = rn (d + 2) (dimIdx + 1) body
+      in ( pragma
+           ++ ind d ++ "for (int " ++ iter ++ " = " ++ ini ++ "; "
+           ++ cond ++ "; " ++ iter ++ " += " ++ inc ++ ") {\n"
+           ++ bodyStr
+           ++ ind d ++ "}\n"
+         , dimIdx' )
 
     rn d dimIdx (CIf cond thn mels) =
-      ind d ++ "if (" ++ cond ++ ") {\n"
-      ++ rn (d + 2) dimIdx thn
-      ++ ind d ++ "}"
-      ++ maybe "\n" (\e -> " else {\n" ++ rn (d + 2) dimIdx e ++ ind d ++ "}\n") mels
+      let (thnStr, dimIdx') = rn (d + 2) dimIdx thn
+          (elsStr, dimIdx'') = case mels of
+            Just e  -> let (s, di) = rn (d + 2) dimIdx' e in (ind d ++ "} else {\n" ++ s, di)
+            Nothing -> ("", dimIdx')
+      in ( ind d ++ "if (" ++ cond ++ ") {\n"
+           ++ thnStr
+           ++ elsStr
+           ++ ind d ++ "}\n"
+         , dimIdx'' )
 
     rn d dimIdx (CBlock children) =
-      concatMap (rn d dimIdx) children
+      let go di [] = ("", di)
+          go di (c:cs) = let (s, di') = rn d di c
+                             (rest, di'') = go di' cs
+                         in (s ++ rest, di'')
+      in go dimIdx children
 
-    rn d _dimIdx (CUser stmt) =
-      ind d ++ stmt ++ "\n"
+    rn d dimIdx (CUser stmt) =
+      (ind d ++ stmt ++ "\n", dimIdx)
 
     ind :: Int -> String
     ind n = replicate n ' '

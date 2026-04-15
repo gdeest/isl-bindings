@@ -29,7 +29,8 @@ import Data.List (intercalate)
 import Data.Maybe (mapMaybe)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
-import GHC.TypeLits (KnownNat, KnownSymbol, natVal, symbolVal)
+import GHC.TypeLits (KnownSymbol, natVal, symbolVal)
+import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.Typed.Constraints (NamedSet(..), NamedMap(..), buildUnionMapFromNamed)
 import qualified Isl.Typed.Constraints as C
@@ -39,16 +40,13 @@ import Isl.Monad (IslT, Ur(..), runIslT, unsafeIslFromIO)
 import qualified Isl.Linear as Isl
 import Isl.Types (AstNode(..), Ctx)
 import Isl.AstBuild (astBuildAlloc, astBuildNodeFromScheduleMap, CNode(..), walkAstNode, astNodeFree)
-import Control.Exception (evaluate)
-import Unsafe.Coerce (unsafeCoerce)
 
-import Isl.TypeLevel.Reflection (DomTag, reflectDomConstraints)
+import Isl.TypeLevel.Reflection (reflectDomConstraints)
 import Alpha.Core
 import Alpha.Lower (lowerSystem)
 import Alpha.Schedule (Schedule(..), EqSchedule(..), DimAnnotation(..))
 import Alpha.Allocation (Allocation(..), EqStorage(..))
 import qualified Alpha.Polyhedral.Schedule as S
-import Alpha.Codegen.COp (ReduceOp(..))
 import Alpha.Codegen.CRender (renderCNodeToC)
 import Alpha.Codegen.ExprRender (RenderCtx(..), renderEquationMacro, extractOneBound)
 import Alpha.Codegen.FunctionMapping (CFunctionMapping(..), ArgPassing(..))
@@ -321,19 +319,19 @@ assembleCSource params fmap' alloc macros skeleton =
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | Walk an ISL AST node to a pure 'CNode' tree and free the node.
--- Consumes the node exactly once. Uses 'unsafeCoerce' to present a
--- linear-safe interface around two sequential ISL operations.
+-- Consumes the node exactly once. Uses 'unsafeCoerce' for two reasons:
+--   1. Present a linear-safe wrapper (inner @go@ uses node twice:
+--      walk borrows, free consumes).
+--   2. Run IslT actions inside unsafeIslFromIO's callback by cracking
+--      open the opaque IslT newtype (IslT m a ~ Ctx -> m a internally).
 walkAndFree :: AstNode %1 -> IslT IO (Ur CNode)
 walkAndFree = unsafeCoerce go
   where
     go :: AstNode -> IslT IO (Ur CNode)
     go node = unsafeIslFromIO $ \ctx -> do
-      -- Run walkAstNode (borrows internally, doesn't free)
       ct <- runIslAction ctx (walkAstNode node)
-      -- Free the node (run astNodeFree in IO via unsafeCoerce)
       runIslAction ctx (astNodeFree node)
       pure (Ur ct)
 
-    -- Run an IslT action given a context. Unsafe: extracts the IO action.
-    runIslAction :: Isl.Types.Ctx -> IslT IO a -> IO a
+    runIslAction :: Ctx -> IslT IO a -> IO a
     runIslAction ctx action = unsafeCoerce action ctx
