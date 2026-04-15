@@ -57,6 +57,7 @@ test-suite alpha-test
                    , Examples.Const3D
                    , Examples.TiledConst3D
                    , Examples.UnionCompose
+                   , Examples.Heat3DElsewhere
                    , Examples.Cholesky
                    , Examples.FloydWarshall
                    , Examples.LU

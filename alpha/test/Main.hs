@@ -69,6 +69,7 @@ import qualified Examples.ReflectedMatmulFails as ReflFail
 import qualified Examples.DepReindex as DepReindex
 import qualified Examples.TiledZero1D as TiledZero1D
 import qualified Examples.TiledConst3D as TiledConst3D
+import qualified Examples.Heat3DElsewhere as H3E
 import qualified Examples.UnionCompose as UC
 import qualified Negative.Cases as Neg
 import qualified Reference.Cholesky as RefChol
@@ -429,6 +430,14 @@ main = defaultMain $ testGroup "alpha-test"
 
       , testCase "IslToStringU on composed union result" $ do
           assertBool "projected string is non-empty" (not $ null UC.projectedStr)
+      ]
+
+  , testGroup "elsewhere combinator"
+      [ testCase "testElsewhereDom computes boundary via IslDifferenceSetU" $ do
+          assertBool "boundary string non-empty" (not $ null H3E.testElsewhereDom)
+
+      -- TODO: enable once IslPartitionsU is solved for caseWithElsewhere
+      -- , testCase "heat3DElsewhere interpreter" $ do ...
       ]
 
   , testGroup "phase-B reflected route end-to-end"

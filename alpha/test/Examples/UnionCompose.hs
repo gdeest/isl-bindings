@@ -20,6 +20,7 @@ module Examples.UnionCompose
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (symbolVal)
 import Isl.TypeLevel
+import Isl.TypeLevel.Sing (KnownDisjunction, knownDisjunction, STDisjunction)
 
 -- A triangle: { [i,j] : 0 <= j <= i <= N }
 type Triangle = '[ 'TDim (D 0) >=. 'TConst ('Pos 0)
@@ -61,6 +62,10 @@ _proofEqual = ()
 -- UpperTriangle is non-empty
 _proofNonEmpty :: IslNonEmptyU '["N"] 2 UpperTriangle => ()
 _proofNonEmpty = ()
+
+-- Test: can GHC derive KnownDisjunction for a plugin-computed union type?
+_testKD :: STDisjunction '["N"] 2 UpperTriangle
+_testKD = knownDisjunction
 
 -- This function forces GHC to solve all proof constraints above.
 proofCompiles :: Bool

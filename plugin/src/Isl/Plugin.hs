@@ -48,7 +48,7 @@ import GHC.Core.Reduction (Reduction(..))
 import GHC.Core (CoreExpr)
 import GHC.Core.Make (mkCoreConApps)
 import GHC.Core.DataCon (promoteDataCon, dataConRepArity)
-import GHC.Builtin.Types (promotedConsDataCon, promotedNilDataCon, promotedTupleDataCon, unitDataCon)
+import GHC.Builtin.Types (listTyCon, promotedConsDataCon, promotedNilDataCon, promotedTupleDataCon, unitDataCon)
 import Language.Haskell.Syntax.Basic (Boxity(Boxed))
 import GHC.Types.Unique.FM (UniqFM, listToUFM)
 import GHC.Unit.Finder (FindResult(..))
@@ -1955,8 +1955,8 @@ decomposeIslMap _env paramNames nIn nOut mRef =
 liftDisjunction :: IslPluginEnv -> [String] -> Type -> Type -> [[Constraint SetIx]] -> Type
 liftDisjunction env paramNames psTy nTy css =
   let elemKind = mkTyConApp (envTConstraintTC env) [psTy, nTy]
-      listKind = mkPromotedListTy elemKind []
-  in mkPromotedListTy listKind
+      innerListKind = mkTyConApp listTyCon [elemKind]
+  in mkPromotedListTy innerListKind
        [mkPromotedListTy elemKind
           (map (liftConstraint env paramNames psTy nTy) cs)
        | cs <- css]
@@ -1966,8 +1966,8 @@ liftDisjunction env paramNames psTy nTy css =
 liftMapDisjunction :: IslPluginEnv -> [String] -> Int -> Type -> Type -> [[Constraint MapIx]] -> Type
 liftMapDisjunction env paramNames nIn psTy combinedNTy css =
   let elemKind = mkTyConApp (envTConstraintTC env) [psTy, combinedNTy]
-      listKind = mkPromotedListTy elemKind []
-  in mkPromotedListTy listKind
+      innerListKind = mkTyConApp listTyCon [elemKind]
+  in mkPromotedListTy innerListKind
        [mkPromotedListTy elemKind
           (map (liftMapConstraint env paramNames nIn psTy combinedNTy) cs)
        | cs <- css]
