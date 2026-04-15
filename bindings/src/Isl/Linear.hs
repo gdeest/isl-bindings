@@ -184,3 +184,4 @@ urWrap :: forall m a. Monad m => a %1 -> IslT m (Ur a)
 urWrap = unsafeCoerce go where
   go :: a -> IslT m (Ur a)
   go x = IslT $ \_ -> Prelude.return (Ur x)
+

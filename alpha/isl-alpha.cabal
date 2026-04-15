@@ -16,6 +16,7 @@ category:            Math
 
 library
   exposed-modules:   Alpha.Core
+                   , Alpha.Core.Lemmas
                    , Alpha.Surface
                    , Alpha.Lower
                    , Alpha.Schedule

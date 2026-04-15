@@ -80,7 +80,8 @@ squareN :: DomExpr '["i", "j"] _
 squareN = range0 @"N" #i /\ range0 @"N" #j
 
 cubeN :: DomExpr '["i", "j", "k"] _
-cubeN = range0 @"N" #i /\ range0 @"N" #j /\ range0 @"N" #k
+cubeN = between (lit @0) (par @"N" +. lit @1) #k
+-- cubeN = range0 @"N" #i /\ range0 @"N" #j /\ range0 @"N" #k
 
 matmul :: System '["N"] _ _ _
 matmul = system

@@ -17,6 +17,7 @@ module Alpha.Compile
   ) where
 
 import Control.DeepSeq (NFData(..))
+import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Map.Strict as Map
 
 import Isl.Typed.Constraints
@@ -30,8 +31,6 @@ import qualified Isl.Space as Space
 import Isl.Monad (IslT, Ur(..), runIslT)
 import Isl.Linear (query_, freeM, dup, urWrap)
 import qualified Isl.Linear as Isl
-import Unsafe.Coerce (unsafeCoerce)
-
 import Alpha.Core (System)
 import Alpha.Lower (lowerSystem)
 import Alpha.Schedule (Schedule(..), EqSchedule(esDef))
@@ -71,10 +70,13 @@ compile sys sched _alloc = runIslT $ Isl.do
   Ur schedUMs <- Isl.mapM buildUnionMapFromNamed schedMaps
   case schedUMs of
     [] -> Isl.pure (Ur (Right ()))
-    (first':rest') -> Isl.do
-      schedUM <- Isl.foldM (\acc x -> UM.union acc x) first' rest'
-      Ur result <- validateDeps flowDeps schedUM (schedNOut schedMaps) "flow"
-      Isl.pure (Ur result)
+    (first':rest') ->
+      let mkSched = Isl.foldM (\acc x -> UM.union acc x) first' rest'
+      in case flowDeps of
+        []     -> Isl.do schedUM <- mkSched; freeM schedUM; Isl.pure (Ur (Right ()))
+        (d:ds) -> Isl.do
+          Ur result <- validateDeps (d :| ds) mkSched (schedNOut schedMaps) "flow"
+          Isl.pure (Ur result)
 
 -- | Validate a schedule without an allocation (flow deps only).
 validateSchedule
@@ -180,23 +182,16 @@ checkLexPositivity deps sched schedCopy nOut = Isl.do
     then Isl.pure (Ur Nothing)
     else Isl.pure (Ur (Just "schedule violates dependence ordering"))
 
-validateDeps :: [Isl.UnionMap] -> Isl.UnionMap %1 -> Int -> String
+validateDeps :: NonEmpty Isl.UnionMap -> IslT IO Isl.UnionMap -> Int -> String
              -> IslT IO (Ur (Either CompileError ()))
-validateDeps = unsafeCoerce go where
-  go :: [Isl.UnionMap] -> Isl.UnionMap -> Int -> String
-     -> IslT IO (Ur (Either CompileError ()))
-  go [] sched _nOut _label = Isl.do
-    freeM sched
-    Isl.pure (Ur (Right ()))
-  go deps sched nOut label = Isl.do
-    allDeps <- case deps of
-      (d:ds) -> Isl.foldM (\acc x -> UM.union acc x) d ds
-      []     -> error "validateDeps: unreachable"
-    let (sched1, sched2) = dup sched
-    Ur result <- checkLexPositivity allDeps sched1 sched2 nOut
-    case result of
-      Nothing  -> Isl.pure (Ur (Right ()))
-      Just vio -> Isl.pure (Ur (Left (ScheduleViolation (label <> " deps violated: " <> vio))))
+validateDeps (d :| ds) mkSched nOut label = Isl.do
+  allDeps <- Isl.foldM (\acc x -> UM.union acc x) d ds
+  sched <- mkSched
+  let !(sched1, sched2) = dup sched
+  Ur result <- checkLexPositivity allDeps sched1 sched2 nOut
+  case result of
+    Nothing  -> Isl.pure (Ur (Right ()))
+    Just vio -> Isl.pure (Ur (Left (ScheduleViolation (label <> " deps violated: " <> vio))))
 
 
 -- ═══════════════════════════════════════════════════════════════════════

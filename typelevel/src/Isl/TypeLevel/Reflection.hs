@@ -88,6 +88,8 @@ module Isl.TypeLevel.Reflection
   , IslCoversD
   , IslPartitionsD
   , LiteralBranches, LiteralBranchesU
+    -- * D-from-U evidence combinators
+  , withPartitionsD
     -- * Reflected route
   , reifyDomFromString
     -- * Proof tokens (v6 — see deviation D3)
@@ -318,6 +320,25 @@ instance IslCoversU ps n '[cs] (LiteralBranchesU branches)
 
 instance IslCoversU ps n css (LiteralBranchesU branches)
   => IslCoversD ps n ('LiteralU css) branches
+
+
+-- | Construct 'IslPartitionsD' evidence from 'IslPartitionsU'.
+--
+-- Sound: 'IslPartitionsD' is method-less; its instances require exactly
+-- 'IslPartitionsU' as premise; the runtime dictionary is a pointer to
+-- the superclass evidence already in scope.
+--
+-- Needed because GHC does not reliably present superclass wanteds from
+-- instance heads to the plugin solver (see caseWithElsewhere path).
+withPartitionsD
+  :: forall ps n d branchDoms r.
+     IslPartitionsU ps n (DomToUnion d) (LiteralBranchesU branchDoms)
+  => (IslPartitionsD ps n d branchDoms => r)
+  -> r
+withPartitionsD f =
+  case unsafeCoerce (Dict @()) :: Dict (IslPartitionsD ps n d branchDoms) of
+    Dict -> f
+{-# INLINE withPartitionsD #-}
 
 
 -- | Extract branch constraint lists (flat, for legacy use).

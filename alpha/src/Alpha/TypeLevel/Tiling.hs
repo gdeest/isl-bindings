@@ -9,9 +9,10 @@
 --   * 'TileMapExprs' — generates the forward multi-aff for strip-mine
 --     tiling (new coords → old coords), consumed by 'reindex'
 --   * 'Length', 'CountJust' — list helpers for computing the new rank
---   * Re-exports of 'ReplaceDecl', 'lookupReplaceDecl' from "Alpha.Core"
+--   * Re-exports of 'ReplaceDecl' from "Alpha.Core" and
+--     'lookupReplaceDecl' from "Alpha.Core.Lemmas"
 module Alpha.TypeLevel.Tiling
-  ( -- * Decls list substitution (re-exported from Alpha.Core)
+  ( -- * Decls list substitution (re-exported)
     ReplaceDecl
   , ReplaceDeclStep
   , lookupReplaceDecl
@@ -25,7 +26,8 @@ module Alpha.TypeLevel.Tiling
 
 import GHC.TypeLits ( Nat, type (+) )
 
-import Alpha.Core (ReplaceDecl, ReplaceDeclStep, lookupReplaceDecl)
+import Alpha.Core (ReplaceDecl, ReplaceDeclStep)
+import Alpha.Core.Lemmas (lookupReplaceDecl)
 import Isl.TypeLevel.Expr (Idx(..), TExpr(..), Z(..))
 
 
