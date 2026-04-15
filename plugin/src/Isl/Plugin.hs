@@ -396,10 +396,6 @@ lookupTF md name = do
 
 solveIsl :: IslPluginEnv -> EvBindsVar -> [Ct] -> [Ct] -> TcPluginM TcPluginSolveResult
 solveIsl env _evBinds givens wanteds = do
-  -- Extract any HasParamCtx givens once per solver invocation (v3 / D19);
-  -- the result is threaded into every ISL set/map build so that
-  -- assumptions like @N >= 1@ are available to the underlying subset /
-  -- image / coverage check.
   let paramCtx   = extractParamCtx env givens
       classified = mapMaybe (classifyWanted env) wanteds
   if null classified
@@ -436,7 +432,7 @@ data IslWanted
   | WantedMultiAffEqual !Ct !Type !Type !Type !Type !Type    -- ps, ni, no, es1, es2
 
 classifyWanted :: IslPluginEnv -> Ct -> Maybe IslWanted
-classifyWanted IslPluginEnv{..} ct =
+classifyWanted env@IslPluginEnv{..} ct =
   case classifyPredType (ctPred ct) of
     ClassPred cls args
       -- Set obligations
@@ -1044,23 +1040,24 @@ reifyTExprList :: IslPluginEnv -> [String] -> [Type] -> Maybe [Expr SetIx]
 reifyTExprList env paramNames = mapM (reifyTExpr env paramNames)
 
 -- | Reify a disjunction (list of conjunctions) from type-level to value-level.
+-- Returns 'Nothing' if the type is a stuck type family application.
 reifyDisjunction :: IslPluginEnv -> [String] -> Type -> Maybe [[Constraint SetIx]]
-reifyDisjunction env paramNames ty =
-  mapM (\conjTy -> reifyConstraintList env paramNames (unfoldTypeList conjTy))
-       (unfoldTypeList ty)
+reifyDisjunction env paramNames ty = do
+  outerList <- unfoldTypeListMaybe ty
+  mapM (\conjTy -> reifyConstraintList env paramNames (unfoldTypeList conjTy)) outerList
 
 -- | Reify a grouped disjunction (list of disjunctions) from type-level to value-level.
 -- Parses @[[[TConstraint ps n]]]@ — a list of per-branch disjunctions.
 reifyGroupedDisjunction :: IslPluginEnv -> [String] -> Type -> Maybe [[[Constraint SetIx]]]
-reifyGroupedDisjunction env paramNames ty =
-  mapM (\branchTy -> reifyDisjunction env paramNames branchTy)
-       (unfoldTypeList ty)
+reifyGroupedDisjunction env paramNames ty = do
+  outerList <- unfoldTypeListMaybe ty
+  mapM (\branchTy -> reifyDisjunction env paramNames branchTy) outerList
 
 -- | Reify a map disjunction from type-level to value-level.
 reifyMapDisjunction :: IslPluginEnv -> [String] -> Int -> Type -> Maybe [[Constraint MapIx]]
-reifyMapDisjunction env paramNames nIn ty =
-  mapM (\conjTy -> reifyMapConstraintList env paramNames nIn (unfoldTypeList conjTy))
-       (unfoldTypeList ty)
+reifyMapDisjunction env paramNames nIn ty = do
+  outerList <- unfoldTypeListMaybe ty
+  mapM (\conjTy -> reifyMapConstraintList env paramNames nIn (unfoldTypeList conjTy)) outerList
 
 -- | Build an ISL union set from a disjunction of conjunctions.
 -- Empty disjunction = empty set.

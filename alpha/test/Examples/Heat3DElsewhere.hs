@@ -15,7 +15,7 @@
 
 -- | Heat3D rewritten with 'caseWithElsewhere': 3 branches instead of 8.
 -- The boundary (zero Dirichlet) is the elsewhere catch-all.
-module Examples.Heat3DElsewhere (testElsewhereDom) where
+module Examples.Heat3DElsewhere (heat3DElsewhere, testElsewhereDom) where
 
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (symbolVal)
@@ -76,19 +76,13 @@ leftPt = #i .==. lit @0
 midDom :: DomExpr '["i"] _
 midDom = between (lit @1) (par @"N" -. lit @2) #i
 
--- TODO: IslPartitionsU not being solved for caseWithElsewhere.
--- The plugin's classifyWanted matches IslPartitionsU but the solver
--- isn't being invoked. Needs investigation: the IslPartitionsD
--- instance dispatches to IslPartitionsU which is plugin-solved,
--- but GHC may not be presenting it as a wanted to the plugin.
---
--- heat3DElsewhere :: System '["N"] _ _ _
--- heat3DElsewhere = system
---   ( Decls
---       { dInputs  = Nil
---       , dOutputs = output @"x" lineDom (Proxy @Double) :> Nil
---       , dLocals  = Nil } )
---   ( def @"x" @'["i"]
---       (caseWithElsewhere $ elsewhere (litB 0)
---        $ when_ leftPt (litB 42) $ when_ midDom (litB 1) SBNil)
---   :& EqNil )
+heat3DElsewhere :: System '["N"] _ _ _
+heat3DElsewhere = system
+  ( Decls
+      { dInputs  = Nil
+      , dOutputs = output @"x" lineDom (Proxy @Double) :> Nil
+      , dLocals  = Nil } )
+  ( def @"x" @'["i"]
+      (caseWithElsewhere $ elsewhere (litB 0)
+       $ when_ leftPt (litB 42) $ when_ midDom (litB 1) SBNil)
+  :& EqNil )

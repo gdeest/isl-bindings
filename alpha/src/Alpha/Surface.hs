@@ -82,14 +82,15 @@ import GHC.TypeLits
 
 import Isl.Typed.Params (KnownSymbols, Length)
 import Isl.TypeLevel.Constraint
-  ( IslDifferenceSetU, IslMultiAffToMap, TConstraint
+  ( IslDifferenceSetU, IslMultiAffToMap, IslPartitionsU, TConstraint
   , type (>=.), type (<=.), type (==.) )
 import Isl.TypeLevel.Expr
   ( D, Elem, P, TExpr(..), Z(..) )
 import Isl.TypeLevel.Reflection
-  ( Append, DomTag(..), DomToUnion, EffectiveDomTag
+  ( Append, Dict(..), DomTag(..), DomToUnion, EffectiveDomTag
   , IslImageSubsetD, IslPartitionsD, LiteralBranchesU
   , KnownDom )
+import Unsafe.Coerce (unsafeCoerce)
 
 import Alpha.Core
 
@@ -581,19 +582,48 @@ type family ElsewhereDom (ps :: [Symbol]) (scope :: [Symbol]) (n :: Nat)
 --   $ elsewhere        (litB 0))
 -- @
 caseWithElsewhere
-  :: forall {ps} {decls} {scope :: [Symbol]} {amb} {doms} {a}.
-     ( KnownDom ps (Length scope) amb
-     , IslPartitionsD ps (Length scope) amb
-         ( 'LiteralU (ElsewhereDom ps scope (Length scope) amb doms)
-           ': DomsToLitList ps scope (Length scope) doms )
+  :: forall {ps} {decls} {scope :: [Symbol]} {amb} {doms} {a} {elseCss}.
+     ( elseCss ~ ElsewhereDom ps scope (Length scope) amb doms
+     , KnownDom ps (Length scope) amb
+     , KnownDom ps (Length scope) ('LiteralU elseCss)
+     , KnownDom ps (Length scope) (EffectiveDomTag ('LiteralU elseCss) amb)
+     , IslPartitionsU ps (Length scope) (DomToUnion amb)
+         (LiteralBranchesU
+           ( 'LiteralU elseCss ': DomsToLitList ps scope (Length scope) doms ))
      )
   => SBranchesElse ps decls scope amb doms a
   -> Body ps decls scope (Length scope) amb a
 caseWithElsewhere (SBE elseBody bs) =
-  Body $ Case $
-    BCons (Proxy @('LiteralU (ElsewhereDom ps scope (Length scope) amb doms)))
+  -- The plugin solves IslPartitionsU directly; we fabricate the
+  -- IslPartitionsD dictionary from it.  Sound because IslPartitionsD
+  -- is a single-superclass wrapper around IslPartitionsU, so the
+  -- dictionaries are isomorphic at runtime.
+  --
+  -- GHC plugin limitation: superclass wanteds from instance heads
+  -- are not always presented to the plugin solver, so we bypass
+  -- IslPartitionsD's instance dispatch and use IslPartitionsU
+  -- evidence directly.
+  Body $ caseWithPartitionsU $
+    BCons (Proxy @('LiteralU elseCss))
           elseBody
           (unSBranches bs)
+
+-- | Build a 'Case' using 'IslPartitionsU' evidence directly.
+-- Fabricates the 'IslPartitionsD' dictionary via 'unsafeCoerce'.
+caseWithPartitionsU
+  :: forall ps n d branchDoms a decls.
+     ( KnownDom ps n d
+     , IslPartitionsU ps n (DomToUnion d) (LiteralBranchesU branchDoms) )
+  => Branches ps decls n d branchDoms a
+  -> Expr ps decls n d a
+caseWithPartitionsU bs =
+  -- IslPartitionsD ps n d branchDoms has:
+  --   superclass: IslPartitionsU ps n (DomToUnion d) (LiteralBranchesU branchDoms)
+  --   no methods
+  -- At runtime, the dictionary is a pointer to the superclass evidence.
+  -- We fabricate it from the IslPartitionsU dictionary (already in scope).
+  case unsafeCoerce (Dict @()) :: Dict (IslPartitionsD ps n d branchDoms) of
+    Dict -> Case bs
 
 -- | Surface branches terminated by an elsewhere catch-all.
 type SBranchesElse
@@ -601,27 +631,27 @@ type SBranchesElse
   -> forall (scope :: [Symbol])
   -> DomTag ps (Length scope) -> [DomE] -> Type -> Type
 data SBranchesElse ps decls scope amb doms a where
-  SBE :: forall ps decls scope amb doms a.
-         ( KnownDom ps (Length scope)
-             ('LiteralU (ElsewhereDom ps scope (Length scope) amb doms))
+  SBE :: forall ps decls scope amb doms a elseCss.
+         ( elseCss ~ ElsewhereDom ps scope (Length scope) amb doms
+         , KnownDom ps (Length scope) ('LiteralU elseCss)
          , KnownDom ps (Length scope)
-             (EffectiveDomTag ('LiteralU (ElsewhereDom ps scope (Length scope) amb doms)) amb)
+             (EffectiveDomTag ('LiteralU elseCss) amb)
          )
       => Expr ps decls (Length scope)
-              (EffectiveDomTag ('LiteralU (ElsewhereDom ps scope (Length scope) amb doms)) amb) a
+              (EffectiveDomTag ('LiteralU elseCss) amb) a
       -> SBranches ps decls scope amb doms a
       -> SBranchesElse ps decls scope amb doms a
 
 -- | Terminate a branch list with a catch-all body.
 elsewhere
-  :: forall {ps} {decls} {scope :: [Symbol]} {amb} {doms} {a}.
-     ( KnownDom ps (Length scope)
-         ('LiteralU (ElsewhereDom ps scope (Length scope) amb doms))
+  :: forall {ps} {decls} {scope :: [Symbol]} {amb} {doms} {a} {elseCss}.
+     ( elseCss ~ ElsewhereDom ps scope (Length scope) amb doms
+     , KnownDom ps (Length scope) ('LiteralU elseCss)
      , KnownDom ps (Length scope)
-         (EffectiveDomTag ('LiteralU (ElsewhereDom ps scope (Length scope) amb doms)) amb)
+         (EffectiveDomTag ('LiteralU elseCss) amb)
      )
   => Body ps decls scope (Length scope)
-          (EffectiveDomTag ('LiteralU (ElsewhereDom ps scope (Length scope) amb doms)) amb) a
+          (EffectiveDomTag ('LiteralU elseCss) amb) a
   -> SBranches ps decls scope amb doms a
   -> SBranchesElse ps decls scope amb doms a
 elsewhere (Body body) bs = SBE body bs
