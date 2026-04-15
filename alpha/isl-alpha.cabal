@@ -81,6 +81,7 @@ test-suite alpha-test
   hs-source-dirs:    test
   build-depends:     base >= 4.20 && < 5
                    , containers
+                   , process
                    , vector
                    , tasty
                    , tasty-hunit

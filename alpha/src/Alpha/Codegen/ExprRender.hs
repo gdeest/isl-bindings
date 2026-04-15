@@ -32,6 +32,7 @@ import Data.Maybe (mapMaybe)
 import Data.Ord (comparing)
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownNat, natVal, symbolVal, type (+))
+import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.Typed.Constraints
   ( Constraint(..), MapIx(..), SetIx(..) )
@@ -113,7 +114,12 @@ renderExprToC ctx (Var (Proxy :: Proxy name)) =
   let varName = symbolVal (Proxy @name)
   in renderArrayAccess varName (rcIterVars ctx) ctx
 
-renderExprToC _ctx (Const _) = "0.0"
+renderExprToC _ctx (Const v) =
+  -- All current Alpha examples use Double. Use unsafeCoerce to extract.
+  let d = unsafeCoerce v :: Double
+  in if d == fromIntegral (round d :: Integer)
+    then show (round d :: Integer) ++ ".0"
+    else show d
 
 renderExprToC ctx (Pw op e1 e2) =
   renderBinOp op (renderExprToC ctx e1) (renderExprToC ctx e2)

@@ -47,6 +47,8 @@ module Main where
 import Control.Exception (SomeException, try)
 import Control.Monad (forM_)
 import qualified Data.Map.Strict as Map
+import System.Exit (ExitCode(..))
+import System.Process (system)
 import Data.Proxy (Proxy(..))
 import Test.Tasty
 import Test.Tasty.HUnit
@@ -546,6 +548,10 @@ main = defaultMain $ testGroup "alpha-test"
                 (isInfixOf' "for (int c2" cSrc)
               assertBool "contains statement macro with strides"
                 (isInfixOf' "N * c0" cSrc)
+              -- Verify generated C compiles with gcc
+              writeFile "/tmp/matmul_test.c" cSrc
+              exitCode <- system "gcc -O2 -c /tmp/matmul_test.c -o /dev/null 2>/dev/null"
+              assertBool "generated C compiles with gcc" (exitCode == ExitSuccess)
               assertBool "contains for loop"
                 (isInfixOf' "for (int" cSrc)
               assertBool "contains statement macro"
