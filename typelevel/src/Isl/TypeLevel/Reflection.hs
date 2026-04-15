@@ -283,11 +283,9 @@ class IslPartitionsD (ps :: [Symbol]) (n :: Nat)
                      (d :: DomTag ps n)
                      (branches :: [DomTag ps n])
 
--- Literal ambient: legacy route via IslPartitions
-instance ( IslPartitions ps n '[cs] (LiteralBranches branches) )
+instance IslPartitionsU ps n '[cs] (LiteralBranchesU branches)
   => IslPartitionsD ps n ('Literal cs) branches
 
--- LiteralU ambient: grouped route via IslPartitionsU
 instance IslPartitionsU ps n css (LiteralBranchesU branches)
   => IslPartitionsD ps n ('LiteralU css) branches
 
@@ -315,7 +313,7 @@ class IslCoversD (ps :: [Symbol]) (n :: Nat)
                  (d :: DomTag ps n)
                  (branches :: [DomTag ps n])
 
-instance ( IslCovers ps n '[cs] (LiteralBranches branches) )
+instance IslCoversU ps n '[cs] (LiteralBranchesU branches)
   => IslCoversD ps n ('Literal cs) branches
 
 instance IslCoversU ps n css (LiteralBranchesU branches)

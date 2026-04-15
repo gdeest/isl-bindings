@@ -865,50 +865,77 @@ solveOne env paramCtx = \case
   -- === Branch-grouped obligations ===
 
   WantedPartitionsU ct psTy nTy fullDomTy branchesTy ->
-    withReified env psTy nTy $ \paramNames nDims -> do
-      let nParams = length paramNames
-          pCs    = paramCtxSetCs env paramCtx paramNames
-          mFullDom  = reifyDisjunction env paramNames fullDomTy
-          mBranches = reifyGroupedDisjunction env paramNames branchesTy
-      case (mFullDom, mBranches) of
-        (Just fullDisj, Just branchGroups) -> do
-          let ctx = envCtxPtr env
-              mkFD = buildUnionSetFromDisj ctx nParams nDims paramNames pCs fullDisj
-              mkBranch disj = buildUnionSetFromDisj ctx nParams nDims paramNames pCs disj
-              -- Coverage check
-              allSets = map mkBranch branchGroups
-              branchesUnion = case allSets of
-                []     -> buildUnionSetFromDisj ctx nParams nDims paramNames pCs []
-                [x]    -> x
-                (x:xs) -> foldl (\acc s -> runRawIsl1 ctx $ S.union acc s) x xs
-              coverage = S.isSubset (setRef mkFD) (setRef branchesUnion)
-          if not coverage
-            then do
-              let uncovered = runRawIsl1 ctx $
-                    S.subtract (buildUnionSetFromDisj ctx nParams nDims paramNames pCs fullDisj)
-                               branchesUnion
-              traceFailed "PartitionsU" $
-                "\n  Domain:    " ++ islSetToStr mkFD ++
-                "\n  Branches:  " ++ islSetToStr branchesUnion ++
-                "\n  Uncovered: " ++ islSetToStr uncovered
-              pure Nothing
-            else do
-              -- Pairwise disjointness at branch level (rebuild per pair)
-              let n = length branchGroups
-                  pairs = [(i, j) | i <- [0..n-1], j <- [i+1..n-1]]
-                  checkPair (i, j) =
-                    let bi = mkBranch (branchGroups !! i)
-                        bj = mkBranch (branchGroups !! j)
-                        fd = buildUnionSetFromDisj ctx nParams nDims paramNames pCs fullDisj
-                        inter = runRawIsl1 ctx $ S.intersect bi bj
-                        withFD = runRawIsl1 ctx $ S.intersect inter fd
-                    in S.isEmpty (setRef withFD)
-              if all checkPair pairs
+    case branchesTy of
+      TyVarTy _ -> pure Nothing
+      _ -> withReified env psTy nTy $ \paramNames nDims -> do
+        let nParams = length paramNames
+            pCs    = paramCtxSetCs env paramCtx paramNames
+            mFullDom  = reifyDisjunction env paramNames fullDomTy
+            mBranches = reifyGroupedDisjunction env paramNames branchesTy
+        tcPluginTrace "isl-plugin" (text $ "PartitionsU: fullDom=" ++ show (fmap length mFullDom)
+                                       ++ " branches=" ++ show (fmap (map length) mBranches))
+        case (mFullDom, mBranches) of
+          (Just _fullDisj, Just []) ->
+            traceProved "PartitionsU (direct)" >> (Just . (, ct) <$> makeEvidence ct)
+          (Just fullDisj, Just branchGroups) -> do
+            tcPluginTrace "isl-plugin" (text $ "PartitionsU: " ++ show (length branchGroups) ++ " branches")
+            -- Mirror the WantedPartitions solver structure exactly,
+            -- but build each branch as a union set (for LiteralU support).
+            let ctx = envCtxPtr env
+                rawBranches = [buildUnionSetFromDisj ctx nParams nDims paramNames pCs disj | disj <- branchGroups]
+                n = length rawBranches
+                nPerBranchCopy = n + 1
+                branchCopies = map (duplicateN nPerBranchCopy) rawBranches
+                unionInputs = map head branchCopies
+                failureUnionInputs = map (!! 1) branchCopies
+                disjStacks = map (drop 2) branchCopies
+                nPairs = (n * (n - 1)) `div` 2
+                nFullDomCopies = 2 + nPairs
+                rawFullDom = buildUnionSetFromDisj ctx nParams nDims paramNames pCs fullDisj
+                fullDomCopies = duplicateN nFullDomCopies rawFullDom
+                fullDomCoverage = fullDomCopies !! 0
+                fullDomFailure = fullDomCopies !! 1
+                fullDomForPairs = drop 2 fullDomCopies
+                buildUnionFromList = \case
+                  []     -> buildUnionSetFromDisj ctx nParams nDims paramNames pCs []
+                  [x]    -> x
+                  (x:xs) -> foldl (\acc s -> runRawIsl1 ctx $ S.union acc s) x xs
+                branchesCoverage = buildUnionFromList unionInputs
+                coverage = S.isSubset (setRef fullDomCoverage) (setRef branchesCoverage)
+            if not coverage
+              then do
+                let branchesFailure = buildUnionFromList failureUnionInputs
+                    uncovered = runRawIsl1 ctx $ S.subtract fullDomFailure branchesFailure
+                traceFailed "PartitionsU" $
+                  "\n  Domain:    " ++ islSetToStr fullDomCoverage ++
+                  "\n  Branches:  " ++ islSetToStr branchesCoverage ++
+                  "\n  Uncovered: " ++ islSetToStr uncovered
+                pure Nothing
+              else if n < 2
                 then traceProved "PartitionsU" >> (Just . (, ct) <$> makeEvidence ct)
                 else do
-                  traceFailed "PartitionsU" "\n  Branches are not pairwise disjoint within the domain"
-                  pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                  let pairs = [(i, j) | i <- [0 .. n - 2], j <- [i + 1 .. n - 1]]
+                      replaceAt idx v xs = take idx xs ++ [v] ++ drop (idx + 1) xs
+                      takeCopy stacks idx = case stacks !! idx of
+                        (x : xs) -> (x, replaceAt idx xs stacks)
+                        []       -> error "isl-plugin: PartitionsU: exhausted dup copies"
+                      go [] _ _ = pure True
+                      go ((i, j) : rest) stacks (fd : fds) = do
+                        let (bi, stacks1) = takeCopy stacks i
+                            (bj, stacks2) = takeCopy stacks1 j
+                            inter = runRawIsl1 ctx $ S.intersect bi bj
+                            withFD = runRawIsl1 ctx $ S.intersect inter fd
+                        if S.isEmpty (setRef withFD)
+                          then go rest stacks2 fds
+                          else pure False
+                      go _ _ [] = error "isl-plugin: PartitionsU: exhausted fullDom copies"
+                  allDisjoint <- go pairs disjStacks fullDomForPairs
+                  if allDisjoint
+                    then traceProved "PartitionsU" >> (Just . (, ct) <$> makeEvidence ct)
+                    else do
+                      traceFailed "PartitionsU" "\n  Branches are not pairwise disjoint"
+                      pure Nothing
+          _ -> traceReifyFail >> pure Nothing
 
   WantedCoversU ct psTy nTy fullDomTy branchesTy ->
     withReified env psTy nTy $ \paramNames nDims -> do
