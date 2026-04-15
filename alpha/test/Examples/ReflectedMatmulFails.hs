@@ -49,7 +49,6 @@ import Isl.TypeLevel.Reflection
   , islIntersect
   , reflectDomString
   )
-import Isl.TypeLevel.Sing (ParamIndex(..))
 
 
 -- "Top half rows": { (i, j) | 0 ≤ i ≤ N/2, 0 ≤ j ≤ N - 1 }.

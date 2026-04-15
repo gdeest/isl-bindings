@@ -54,7 +54,6 @@ import Isl.TypeLevel.Reflection
   , islUnion
   , reflectDomString
   )
-import Isl.TypeLevel.Sing (ParamIndex(..))
 
 
 -- A "padding row" extension of A: { (i, j) | i = N, 0 ≤ j ≤ N - 1 }.

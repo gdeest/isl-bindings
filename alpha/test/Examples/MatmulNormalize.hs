@@ -40,7 +40,6 @@ import Alpha.Core
   , pattern System
   , VarDecl(..)
   )
-import Examples.Matmul ()  -- for the ParamIndex "N" orphan instance
 import Isl.TypeLevel.Constraint
   ( IslMultiAffToMap, TConstraint, type (>=.), type (<=.) )
 import Isl.TypeLevel.Expr

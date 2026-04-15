@@ -6,6 +6,7 @@
 {-# LANGUAGE QualifiedDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- | Singleton-based type-level polyhedral DSL.
 --
@@ -42,8 +43,6 @@
 module Isl.TypeLevel.Sing
   ( -- * Type-level integers
     KnownZ(..), zValOf
-    -- * Parameter name → index mapping
-  , ParamIndex(..), paramIndexOf
     -- * Singletons
   , STExpr(..)
   , STConstraint(..)
@@ -110,24 +109,6 @@ zValOf _ = zVal @z
 
 
 -- =========================================================================
--- Parameter name → index mapping
--- =========================================================================
-
--- | Maps a parameter name to its positional index in a parameter list.
--- Users must provide instances for each parameter name they use.
---
--- @
--- instance ParamIndex "N" where paramIndex = 0
--- instance ParamIndex "M" where paramIndex = 1
--- @
-class ParamIndex (s :: Symbol) where
-  paramIndex :: Int
-
-paramIndexOf :: forall s. ParamIndex s => Proxy s -> Int
-paramIndexOf _ = paramIndex @s
-
-
--- =========================================================================
 -- Singletons
 -- =========================================================================
 
@@ -135,7 +116,7 @@ paramIndexOf _ = paramIndex @s
 data STExpr (ps :: [Symbol]) (n :: Nat) (e :: TExpr ps n) where
   STDim   :: KnownNat d
           => Proxy d -> STExpr ps n ('TDim ('MkIdx d))
-  STParam :: (KnownSymbol s, ParamIndex s)
+  STParam :: (KnownSymbol s, KnownNat (FindIndex s ps))
           => Proxy s -> STExpr ps n ('TParam ('MkPIdx s))
   STConst :: KnownZ z
           => Proxy z -> STExpr ps n ('TConst z)
@@ -169,7 +150,7 @@ class KnownExpr (ps :: [Symbol]) (n :: Nat) (e :: TExpr ps n) where
 instance KnownNat d => KnownExpr ps n ('TDim ('MkIdx d)) where
   knownExpr = STDim Proxy
 
-instance (KnownSymbol s, ParamIndex s) => KnownExpr ps n ('TParam ('MkPIdx s)) where
+instance (KnownSymbol s, KnownNat (FindIndex s ps)) => KnownExpr ps n ('TParam ('MkPIdx s)) where
   knownExpr = STParam Proxy
 
 instance KnownZ z => KnownExpr ps n ('TConst z) where
@@ -273,17 +254,19 @@ evalSBasicMap (MkSBasicMap sing) = Isl.do
 -- Singleton reification (internal)
 -- =========================================================================
 
-reifySTExprSet :: STExpr ps n e -> Expr SetIx
+reifySTExprSet :: forall ps n e. STExpr ps n e -> Expr SetIx
 reifySTExprSet (STDim p)        = Ix (SetDim (fromIntegral (natVal p)))
-reifySTExprSet (STParam p)      = Ix (SetParam (paramIndexOf p))
+reifySTExprSet (STParam (_ :: Proxy s)) =
+  Ix (SetParam (fromIntegral (natVal (Proxy @(FindIndex s ps)))))
 reifySTExprSet (STConst p)      = Constant (zValOf p)
 reifySTExprSet (STAdd a b)      = Add (reifySTExprSet a) (reifySTExprSet b)
 reifySTExprSet (STMul p a)      = Mul (zValOf p) (reifySTExprSet a)
 reifySTExprSet (STFloorDiv a p) = FloorDiv (reifySTExprSet a) (zValOf p)
 
-reifySTExprMap :: STExpr ps n e -> Expr MapIx
+reifySTExprMap :: forall ps n e. STExpr ps n e -> Expr MapIx
 reifySTExprMap (STDim p)        = Ix (InDim (fromIntegral (natVal p)))
-reifySTExprMap (STParam p)      = Ix (MapParam (paramIndexOf p))
+reifySTExprMap (STParam (_ :: Proxy s)) =
+  Ix (MapParam (fromIntegral (natVal (Proxy @(FindIndex s ps)))))
 reifySTExprMap (STConst p)      = Constant (zValOf p)
 reifySTExprMap (STAdd a b)      = Add (reifySTExprMap a) (reifySTExprMap b)
 reifySTExprMap (STMul p a)      = Mul (zValOf p) (reifySTExprMap a)
@@ -313,11 +296,12 @@ reifySTConstraintsMapSplit nIn (STCons (STGe e) cs) =
   InequalityConstraint (reifySTExprMapSplit nIn e) : reifySTConstraintsMapSplit nIn cs
 
 -- | Reify an expression for a map space, splitting dim indices at @nIn@.
-reifySTExprMapSplit :: Int -> STExpr ps n e -> Expr MapIx
+reifySTExprMapSplit :: forall ps n e. Int -> STExpr ps n e -> Expr MapIx
 reifySTExprMapSplit nIn (STDim p) =
   let d = fromIntegral (natVal p)
   in Ix $ if d < nIn then InDim d else OutDim (d - nIn)
-reifySTExprMapSplit _   (STParam p) = Ix (MapParam (paramIndexOf p))
+reifySTExprMapSplit _   (STParam (_ :: Proxy s)) =
+  Ix (MapParam (fromIntegral (natVal (Proxy @(FindIndex s ps)))))
 reifySTExprMapSplit _   (STConst p) = Constant (zValOf p)
 reifySTExprMapSplit nIn (STAdd a b) =
   Add (reifySTExprMapSplit nIn a) (reifySTExprMapSplit nIn b)
@@ -458,8 +442,8 @@ liftDim d = case someNatVal (fromIntegral d) of
 liftParam :: forall ps n. Integer -> SomeSTExpr ps n
 liftParam p = case someNatVal (fromIntegral p) of
   Just (SomeNat (_ :: Proxy p')) ->
-    -- Fabricate an STParam. The ParamIndex dictionary is fake (unsafeCoerce).
-    -- Sound because the index value is correct; only the class dict is fabricated.
+    -- Fabricate via STDim + unsafeCoerce (we don't know the Symbol here).
+    -- Sound because reification goes through the STDim path anyway.
     SomeSTExpr (unsafeCoerce (STDim (Proxy @p')) :: STExpr ps n e)
   Nothing -> error $ "liftParam: negative param index " ++ show p
 

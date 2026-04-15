@@ -54,21 +54,6 @@ import Isl.TypeLevel.Constraint (TConstraint, type (>=.), type (<=.), type (==.)
 import Isl.TypeLevel.Expr (D, P, TExpr(..), Z(..), type (-.))
 
 import Isl.TypeLevel.Reflection (DomTag(..))
-import Isl.TypeLevel.Sing (ParamIndex(..))
-
--- Import 'Examples.Matmul' for its 'ParamIndex "N"' orphan instance.
-import Examples.Matmul ()
-
-
--- ═══════════════════════════════════════════════════════════════════════
--- Parameter indices
--- ═══════════════════════════════════════════════════════════════════════
-
--- "N" is index 0 (imported transitively from Examples.Matmul).
--- "T" is new; ISL convention is alphabetical, so "N" < "T" => "T" = 1.
-instance ParamIndex "T" where paramIndex = 1
-
-
 -- ═══════════════════════════════════════════════════════════════════════
 -- Type-level domain synonyms (kept for test-harness imports)
 -- ═══════════════════════════════════════════════════════════════════════

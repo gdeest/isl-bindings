@@ -15,7 +15,6 @@
 --    , 'TDim (D 1)  '<=.' 'TDim (D 0)
 --    ]
 --
--- instance ParamIndex "N" where paramIndex = 0
 --
 -- -- The plugin proves this at compile time:
 -- _ :: 'IslSubset' '["N"] 2 Triangle Rectangle => ()
@@ -44,6 +43,8 @@ module Isl.TypeLevel
   , type (>=.), type (<=.), type (==.)
     -- * Validation
   , ValidExpr, AllValid, AllValidCSS, ValidConstraint, AllValidExprs
+    -- * Parameter index computation
+  , FindIndex
     -- * Type-level polyhedra
   , TBasicSet(..), TSet(..), TBasicMap(..), TMap(..)
     -- * Type-level affine functions
@@ -72,7 +73,7 @@ module Isl.TypeLevel
   , STExpr(..), STConstraint(..), STConstraints(..)
   , STExprs(..)
     -- * Auto-derivation
-  , KnownZ(..), ParamIndex(..)
+  , KnownZ(..)
   , KnownExpr(..), KnownConstraint(..), KnownConstraints(..)
   , KnownExprs(..)
     -- * Singleton-carrying polyhedra

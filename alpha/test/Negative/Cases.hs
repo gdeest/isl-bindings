@@ -105,7 +105,6 @@ import Isl.TypeLevel.Expr
   , type (+.)
   )
 import Isl.TypeLevel.Reflection (DomTag(..))
-import Isl.TypeLevel.Sing (ParamIndex(..))
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -160,8 +159,6 @@ type BrokenCausalMaskInv =
    , 'TDim (D 1)     >=. 'TDim (D 0)
    ] :: [TConstraint '["S","W"] 2]
 
-instance ParamIndex "S" where paramIndex = 0
-instance ParamIndex "W" where paramIndex = 1
 
 proofBrokenInCausalInv
   :: IslSubset '["S","W"] 2 BrokenCausalMaskInv CausalMaskInv => ()

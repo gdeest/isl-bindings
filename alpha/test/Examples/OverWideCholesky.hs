@@ -68,10 +68,6 @@ import Isl.TypeLevel.Expr
   )
 import Isl.TypeLevel.Reflection (DomTag(..))
 
--- Import Examples.Matmul for its 'ParamIndex "N"' orphan instance
--- (transitive side-effect import).
-import Examples.Matmul ()
-
 
 -- | Cholesky's diagonal with an off-by-one upper bound on @i@.
 -- The legitimate 'Examples.Cholesky.DiagN' has @i <= N - 1@; this

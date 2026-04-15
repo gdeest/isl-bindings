@@ -25,6 +25,8 @@ module Isl.TypeLevel.Expr
   , D, P
     -- * Validation helpers
   , If, NatLT, Elem
+    -- * Parameter index computation
+  , FindIndex
     -- * Container-level validation
   , Assert, CheckDim, CheckParam, ValidExpr
     -- * Raw (unindexed) expressions and constraints
@@ -39,7 +41,7 @@ module Isl.TypeLevel.Expr
   ) where
 
 import Data.Kind (Constraint, Type)
-import GHC.TypeLits (Nat, Symbol, CmpNat, CmpSymbol, ErrorMessage(..), TypeError)
+import GHC.TypeLits (Nat, Symbol, CmpNat, CmpSymbol, ErrorMessage(..), TypeError, type (+))
 
 -- * Type-level signed integers
 
@@ -147,6 +149,19 @@ type ElemCase :: Ordering -> Symbol -> [Symbol] -> Bool
 type family ElemCase o s ps where
   ElemCase 'EQ _ _  = 'True
   ElemCase _   s ps = Elem s ps
+
+-- | 0-based position of @s@ in @ps@.  @TypeError@ on miss.
+type FindIndex :: Symbol -> [Symbol] -> Nat
+type family FindIndex s ps where
+  FindIndex s '[] = TypeError
+    ('Text "Parameter " ':<>: 'ShowType s
+     ':<>: 'Text " not found in parameter list")
+  FindIndex s (p ': ps) = FindIndexCase (CmpSymbol s p) s ps
+
+type FindIndexCase :: Ordering -> Symbol -> [Symbol] -> Nat
+type family FindIndexCase o s ps where
+  FindIndexCase 'EQ _ _  = 0
+  FindIndexCase _   s ps = 1 + FindIndex s ps
 
 -- * Container-level validation
 

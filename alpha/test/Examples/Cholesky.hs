@@ -45,8 +45,6 @@ import Isl.TypeLevel.Constraint (TConstraint, type (>=.), type (<=.), type (==.)
 import Isl.TypeLevel.Expr (D, P, TExpr(..), Z(..), type (-.))
 import Isl.TypeLevel.Reflection (DomTag(..))
 
--- Importing Examples.Matmul brings in its 'ParamIndex "N"' orphan
--- instance transitively; we also reuse 'SquareN' as A's declared domain.
 import Examples.Matmul (SquareN)
 
 

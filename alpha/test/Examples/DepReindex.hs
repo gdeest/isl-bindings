@@ -39,10 +39,6 @@ import Alpha.Transform.Reindex (reindex)
 import Isl.TypeLevel.Constraint (TConstraint, type (>=.), type (<=.))
 import Isl.TypeLevel.Expr (D, P, TExpr(..), Z(..), type (-.))
 import Isl.TypeLevel.Reflection (DomTag(..))
-import Isl.TypeLevel.Sing (ParamIndex(..))
-
--- Reuse ParamIndex from Matmul
-import Examples.Matmul ()
 
 -- | The domain: square {0 <= i,j <= N-1}
 squareN :: DomExpr '["i", "j"] _

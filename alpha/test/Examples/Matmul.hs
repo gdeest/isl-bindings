@@ -35,12 +35,6 @@ import Alpha.Surface
 import Isl.TypeLevel.Constraint (TConstraint, type (>=.), type (<=.))
 import Isl.TypeLevel.Expr (D, P, TExpr(..), Z(..), type (-.))
 import Isl.TypeLevel.Reflection (DomTag(..))
-import Isl.TypeLevel.Sing (ParamIndex(..))
-
-
-instance ParamIndex "N" where paramIndex = 0
-
-
 -- ═══════════════════════════════════════════════════════════════════════
 -- Type-level domain synonyms (kept for downstream consumers)
 -- ═══════════════════════════════════════════════════════════════════════
