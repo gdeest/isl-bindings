@@ -31,14 +31,12 @@ import Alpha.Transform.Reindex (reindex, TransformError(..))
 import Alpha.TypeLevel.Tiling
   ( CountJust
   , Length
-  , ReplaceDecl
   , TileMapExprs
   )
 import Isl.Typed.Params (KnownSymbols)
 import Isl.Typed.Params qualified as P
 import Isl.TypeLevel.Constraint
   ( IslPreimageMultiAff, TConstraint )
-import Isl.TypeLevel.Expr (TExpr)
 import Isl.TypeLevel.Reflection
   ( DomTag(..)
   , KnownDom

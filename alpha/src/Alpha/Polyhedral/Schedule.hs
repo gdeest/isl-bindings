@@ -32,8 +32,6 @@ module Alpha.Polyhedral.Schedule
   , schedToNamedMap'
   ) where
 
-import GHC.TypeLits (Symbol)
-
 import Isl.Typed.Constraints (Expr(..), SetIx(..), MapIx(..), Constraint(..), Conjunction(..))
 import Isl.Typed.Constraints (NamedMap(..), NamedSet(..))
 import Isl.Typed.Params (KnownSymbols(symbolVals))

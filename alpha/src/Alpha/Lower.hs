@@ -33,7 +33,7 @@ import Isl.Typed.Constraints (NamedSet(..), NamedMap(..))
 import Isl.TypeLevel.Reflection
   ( DomTag, EffectiveDomTag, reflectDomConstraints )
 import Isl.TypeLevel.Sing
-  ( KnownConstraints, knownConstraints, reifySTConstraintsMapSplit )
+  ( knownConstraints, reifySTConstraintsMapSplit )
 
 import Alpha.Core
 

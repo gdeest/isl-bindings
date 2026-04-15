@@ -48,9 +48,9 @@ import Control.Monad.State.Strict (State, modify', execState)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
-import GHC.TypeLits (KnownNat, KnownSymbol, Nat, Symbol, natVal, symbolVal)
+import GHC.TypeLits (KnownNat, KnownSymbol, Symbol, natVal, symbolVal)
 import qualified Alpha.Polyhedral.Schedule as S
-import Isl.Typed.Constraints (Expr(..), MapIx(..))
+import Isl.Typed.Constraints (Expr(..))
 
 import Alpha.Core (VarDecl(..), Lookup, DeclDims)
 

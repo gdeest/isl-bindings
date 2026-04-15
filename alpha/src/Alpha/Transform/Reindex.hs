@@ -32,18 +32,17 @@ import GHC.TypeLits
 import System.IO.Unsafe (unsafePerformIO)
 
 import Alpha.Core
+import Alpha.Core.Lemmas
+  (lookupReplaceDecl, replaceDeclList, definesAllReplace, replaceDeclConcat)
 import Alpha.Transform.Types (TransformError(..))
 import Isl.Typed.Constraints (Conjunction(..), MapIx, Constraint)
 import qualified Isl.Typed.Constraints as TC
 import Isl.Monad (runIslT, Ur(..))
-import Isl.Linear (query_, queryM_, urWrap, Both(..))
+import Isl.Linear (queryM_, urWrap)
 import qualified Isl.Linear as Isl
 import Isl.Typed.Params (KnownSymbols(..), Length)
-import qualified Isl.Types as Isl
 import qualified Isl.Map as RawM
 import qualified Isl.Set as RawS
-import qualified Isl.BasicMap as RawBM
-import qualified Isl.MultiAff as RawMA
 import Isl.TypeLevel.Constraint
   ( IslPreimageMultiAff, TConstraint )
 import Isl.TypeLevel.Expr (TExpr)
@@ -52,7 +51,6 @@ import Isl.TypeLevel.Reflection
   , DomTag(..)
   , KnownDom
   , reflectDomString
-  , IslImageSubsetD
   , islImageSubsetCheckS
   )
 import Isl.TypeLevel.Sing
@@ -63,7 +61,7 @@ import Isl.TypeLevel.Sing
 
 
 -- Axioms for ReplaceDecl (replaceDeclList, definesAllReplace,
--- replaceDeclConcat, lookupReplaceDecl) live in Alpha.Core.
+-- replaceDeclConcat, lookupReplaceDecl) live in Alpha.Core.Lemmas.
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -303,7 +301,7 @@ walkEq
      )
   => Equation ps decls name
   -> Either TransformError (Equation ps (ReplaceDecl target nv decls) name)
-walkEq @target @ps @decls @nv @mapExprs (Defines @name pn body) =
+walkEq (Defines pn body) =
   case lookupReplaceDecl @ps @target @name @nv @decls
          (Proxy @target) pn of
     Left (Refl, Dict) ->
@@ -379,8 +377,7 @@ reindexImpl
             (System ps inputs
                (ReplaceDecl target (ReindexedVarDecl ps target newN newDomCs a) outputs)
                (ReplaceDecl target (ReindexedVarDecl ps target newN newDomCs a) locals))
-reindexImpl @target @newN @ps @inputs @outputs @locals @defined
-            @oldN @oldDomCs @a @mapExprs @newDomCs decls eqs =
+reindexImpl decls eqs =
   case definesAllReplace @target @ps
          @(ReindexedVarDecl ps target newN newDomCs a)
          @outputs @locals @defined of

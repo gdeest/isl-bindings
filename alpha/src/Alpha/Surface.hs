@@ -87,10 +87,9 @@ import Isl.TypeLevel.Constraint
 import Isl.TypeLevel.Expr
   ( D, Elem, P, TExpr(..), Z(..) )
 import Isl.TypeLevel.Reflection
-  ( Append, Dict(..), DomTag(..), DomToUnion, EffectiveDomTag
+  ( DomTag(..), DomToUnion, EffectiveDomTag
   , IslImageSubsetD, IslPartitionsD, LiteralBranchesU
-  , KnownDom )
-import Unsafe.Coerce (unsafeCoerce)
+  , KnownDom, withPartitionsD )
 
 import Alpha.Core
 
@@ -609,7 +608,6 @@ caseWithElsewhere (SBE elseBody bs) =
           (unSBranches bs)
 
 -- | Build a 'Case' using 'IslPartitionsU' evidence directly.
--- Fabricates the 'IslPartitionsD' dictionary via 'unsafeCoerce'.
 caseWithPartitionsU
   :: forall ps n d branchDoms a decls.
      ( KnownDom ps n d
@@ -617,13 +615,7 @@ caseWithPartitionsU
   => Branches ps decls n d branchDoms a
   -> Expr ps decls n d a
 caseWithPartitionsU bs =
-  -- IslPartitionsD ps n d branchDoms has:
-  --   superclass: IslPartitionsU ps n (DomToUnion d) (LiteralBranchesU branchDoms)
-  --   no methods
-  -- At runtime, the dictionary is a pointer to the superclass evidence.
-  -- We fabricate it from the IslPartitionsU dictionary (already in scope).
-  case unsafeCoerce (Dict @()) :: Dict (IslPartitionsD ps n d branchDoms) of
-    Dict -> Case bs
+  withPartitionsD @ps @n @d @branchDoms (Case bs)
 
 -- | Surface branches terminated by an elsewhere catch-all.
 type SBranchesElse

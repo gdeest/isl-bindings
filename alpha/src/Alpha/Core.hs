@@ -42,11 +42,9 @@
 --
 -- = Trust base
 --
--- Four unsafe coercions live in §1 (the replace\/lookup seal):
--- 'lookupReplaceDecl' (2×, Dict fabrication), 'replaceDeclList' (runtime-
--- identical DeclList cast), 'definesAllReplace' (Dict), 'replaceDeclConcat'
--- (Refl).  Soundness of each follows from the defining equations of
--- 'ReplaceDecl' + 'Lookup' on concrete lists — see per-function comments.
+-- Zero unsafe coercions in this module.  The replace\/lookup axioms
+-- ('lookupReplaceDecl', 'replaceDeclList', 'definesAllReplace',
+-- 'replaceDeclConcat') are isolated in "Alpha.Core.Lemmas".
 -- All other obligations are discharged by GHC or by the isl-plugin
 -- via the @Isl.TypeLevel.Reflection@ wrapper classes.
 module Alpha.Core
@@ -55,10 +53,6 @@ module Alpha.Core
   , DeclName, DeclDims, DeclDomTag, DeclType
   , Lookup
   , ReplaceDecl, ReplaceDeclStep
-  , lookupReplaceDecl
-  , replaceDeclList
-  , definesAllReplace
-  , replaceDeclConcat
     -- * Expressions
   , Expr(..)
     -- * Case branches
@@ -79,27 +73,22 @@ module Alpha.Core
   , RemoveName
   , CountName
     -- * Re-exports for interpretation
-  , KnownConstraints(..)
+  , KnownConstraints
   ) where
 
-import Data.Kind (Constraint, Type)
+import Data.Kind (Type)
 import Data.Proxy (Proxy(..))
-import Data.Type.Equality ((:~:)(Refl))
 import GHC.TypeLits
   ( CmpSymbol, ErrorMessage(..), KnownNat, KnownSymbol, Nat, Symbol
-  , TypeError, sameSymbol, type (+) )
-import Unsafe.Coerce (unsafeCoerce)
+  , TypeError, type (+) )
 
 import Isl.Typed.Params (KnownSymbols)
 import Isl.TypeLevel.Constraint (TConstraint)
 import Isl.TypeLevel.Reflection
-  ( Dict(..)
-  , DomTag(..)
+  ( DomTag(..)
   , EffectiveDomTag
   , IslImageSubsetD
   , IslPartitionsD
-  , IslRangeOfD
-  , IslSubsetD
   , KnownDom
   )
 import Isl.TypeLevel.Sing (KnownConstraints)
@@ -166,77 +155,6 @@ type family ReplaceDeclStep (cmp :: Ordering) (name :: Symbol)
                             (rest :: [VarDecl ps]) :: [VarDecl ps] where
   ReplaceDeclStep 'EQ _    new _ rest = new ': rest
   ReplaceDeclStep _   name new x rest = x ': ReplaceDecl name new rest
-
-
--- | Axiom: 'Lookup' over 'ReplaceDecl'.
---
--- @
--- name ~ target  ==>  Lookup name (ReplaceDecl target new decls) ~ new
--- name ≠ target  ==>  Lookup name (ReplaceDecl target new decls) ~ Lookup name decls
--- @
---
--- Dispatches via 'sameSymbol': if the names agree, we know
--- 'ReplaceDecl' substituted the entry and 'Lookup' finds it;
--- if they differ, 'ReplaceDecl' preserves the entry and 'Lookup'
--- finds the original.  Each branch returns a 'Dict' with the
--- appropriate equality, plus 'Left' also returns the 'name :~: target'
--- proof for the caller's use.
---
--- Soundness: follows from the equations of 'ReplaceDecl' + 'Lookup'
--- on concrete lists, lifted to abstract lists via a single
--- @unsafeCoerce@.
-lookupReplaceDecl
-  :: forall (ps :: [Symbol]) (target :: Symbol) (name :: Symbol)
-            (new :: VarDecl ps) (decls :: [VarDecl ps]).
-     ( KnownSymbol target, KnownSymbol name )
-  => Proxy target -> Proxy name
-  -> Either
-       ( name :~: target
-       , Dict (Lookup name (ReplaceDecl target new decls) ~ new) )
-       ( Dict (Lookup name (ReplaceDecl target new decls) ~ Lookup name decls) )
-lookupReplaceDecl target name =
-  case sameSymbol name target of
-    Just Refl -> Left  (Refl, unsafeCoerce (Dict :: Dict (() :: Constraint)))
-    Nothing   -> Right (unsafeCoerce (Dict :: Dict (() :: Constraint)))
-
-
--- | Rebuild a 'DeclList' under 'ReplaceDecl'.
--- 'Decl' carries only a 'KnownSymbol' dictionary; 'ReplaceDecl'
--- preserves all names.  Runtime representation unchanged.
-replaceDeclList
-  :: forall (target :: Symbol) (ps :: [Symbol])
-            (newDecl :: VarDecl ps) (ds :: [VarDecl ps]).
-     DeclList ps ds -> DeclList ps (ReplaceDecl target newDecl ds)
-replaceDeclList = unsafeCoerce
-{-# INLINE replaceDeclList #-}
-
--- | 'DefinesAllExactlyOnce' is preserved across 'ReplaceDecl'
--- (it only examines 'DeclName's, which are preserved).
-definesAllReplace
-  :: forall (target :: Symbol) (ps :: [Symbol])
-            (newDecl :: VarDecl ps) (outputs :: [VarDecl ps])
-            (locals :: [VarDecl ps]) (defined :: [Symbol]).
-     DefinesAllExactlyOnce (outputs ++ locals) defined
-  => Dict (DefinesAllExactlyOnce
-             (ReplaceDecl target newDecl outputs
-              ++ ReplaceDecl target newDecl locals)
-             defined)
-definesAllReplace = unsafeCoerce (Dict :: Dict (() :: Constraint))
-{-# INLINE definesAllReplace #-}
-
--- | 'ReplaceDecl' distributes over '++' when the target appears
--- exactly once in @outputs ++ locals@ and not in @inputs@.
-replaceDeclConcat
-  :: forall (target :: Symbol) (ps :: [Symbol])
-            (newDecl :: VarDecl ps)
-            (inputs :: [VarDecl ps]) (outputs :: [VarDecl ps])
-            (locals :: [VarDecl ps]).
-     (inputs ++ (ReplaceDecl target newDecl outputs
-                 ++ ReplaceDecl target newDecl locals))
-     :~:
-     ReplaceDecl target newDecl (inputs ++ (outputs ++ locals))
-replaceDeclConcat = unsafeCoerce Refl
-{-# INLINE replaceDeclConcat #-}
 
 
 -- ═══════════════════════════════════════════════════════════════════════

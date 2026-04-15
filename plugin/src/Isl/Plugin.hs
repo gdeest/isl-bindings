@@ -35,8 +35,9 @@ import GHC.Tc.Types
   ( TcPlugin(..), TcPluginSolveResult(..)
   , TcPluginRewriter, TcPluginRewriteResult(..)
   , RewriteEnv
+  , unsafeTcPluginTcM
   )
-import GHC.Tc.Types.Constraint (Ct, CtEvidence, ctPred, ctEvidence, ctEvPred)
+import GHC.Tc.Types.Constraint (Ct, CtEvidence, ctPred, ctEvidence, ctEvPred, ctLoc, ctLocSpan)
 import GHC.Tc.Types.Evidence
   ( EvBindsVar, EvTerm, evDataConApp )
 import GHC.Core.Class (Class, classTyCon)
@@ -56,18 +57,28 @@ import GHC.Unit.Module (Module)
 import GHC.Types.PkgQual (PkgQual(NoPkgQual))
 import GHC.Utils.Outputable (text, (<+>))
 import GHC.Data.FastString (unpackFS, mkFastString)
+import GHC.Builtin.Names
+  ( typeErrorTextDataConName
+  , typeErrorVAppendDataConName
+  )
+import GHC.Tc.Errors.Types (TcRnMessage(TcRnUserTypeError))
+import GHC.Tc.Utils.Monad (addErrAt)
+import GHC.Types.SrcLoc (SrcSpan(..), srcSpanStartLine, srcSpanStartCol)
+import qualified GHC.Data.Strict as Strict
 
 import Data.Maybe (mapMaybe)
 import Data.List (elemIndex)
 import Data.Foldable (foldlM)
 import Control.Exception (evaluate)
 import System.IO.Unsafe (unsafePerformIO)
+import Data.IORef (IORef, newIORef, readIORef, atomicModifyIORef')
+import qualified Data.Set as Set
 
 import qualified Isl.Types as Isl
 import qualified Isl.Linear as IslL
 import Isl.Linear (Both(..), queryM_, urWrap)
 import qualified Isl.Unsafe as IslU
-import Control.DeepSeq (NFData)
+import Control.DeepSeq (NFData, rnf)
 import Isl.Monad (IslT, Ur(..), withIslCtx)
 import qualified Isl.BasicSet as BS
 import qualified Isl.BasicMap as BM
@@ -160,7 +171,9 @@ plugin = defaultPlugin
 
 data IslPluginEnv = IslPluginEnv
   { -- ISL context, kept alive for the plugin's lifetime
-    envCtxPtr     :: !(Isl.Ctx)
+    envCtxPtr        :: !(Isl.Ctx)
+    -- Dedup set: source locations where we've already emitted errors
+  , envEmittedErrors :: !(IORef (Set.Set (Int, Int)))
     -- Set proof obligation classes
   , envSubsetClass   :: !Class
   , envNonEmptyClass :: !Class
@@ -240,6 +253,9 @@ data IslPluginEnv = IslPluginEnv
   , envImageSubsetUClass :: !Class
     -- TExpr data type TyCon (for building lifted expression lists)
   , envTExprTC :: !TyCon
+    -- TypeError infrastructure (for custom error messages)
+  , envTypeErrorText  :: !TyCon   -- 'Text promoted data constructor
+  , envTypeErrorVApp  :: !TyCon   -- ':$$: promoted data constructor
   }
 
 islTcPlugin :: TcPlugin
@@ -259,6 +275,9 @@ initPlugin = do
   -- Allocate ISL context
   ctxPtr <- tcPluginIO Isl.c_ctx_alloc
   let envCtxPtr = Isl.Ctx ctxPtr
+
+  -- Error dedup set
+  envEmittedErrors <- tcPluginIO $ newIORef Set.empty
 
   -- Find our modules
   constraintMod <- resolveModule "Isl.TypeLevel.Constraint"
@@ -356,6 +375,14 @@ initPlugin = do
   -- TExpr data type TyCon (for building lifted expression lists)
   envTExprTC <- lookupTF exprMod "TExpr"
 
+  -- TypeError infrastructure
+  envTypeErrorText <- do
+    dc <- tcLookupDataCon typeErrorTextDataConName
+    pure (promoteDataCon dc)
+  envTypeErrorVApp <- do
+    dc <- tcLookupDataCon typeErrorVAppendDataConName
+    pure (promoteDataCon dc)
+
   tcPluginTrace "isl-plugin" (text "Plugin initialized — ISL context allocated")
   pure IslPluginEnv{..}
 
@@ -402,8 +429,13 @@ solveIsl env _evBinds givens wanteds = do
     then pure $ TcPluginOk [] []
     else do
       results <- mapM (solveOne env paramCtx) classified
-      let solved = [(ev, ct) | Just (ev, ct) <- results]
-      pure $ TcPluginOk solved []
+      let solved_    = [(ev, ct) | Solved ev ct <- results]
+          insoluble_ = [ct       | Failed ct     <- results]
+      pure $ TcPluginSolveResult
+        { tcPluginInsolubleCts = insoluble_
+        , tcPluginSolvedCts    = solved_
+        , tcPluginNewCts       = []
+        }
 
 -- * Wanted constraint classification
 
@@ -481,7 +513,36 @@ classifyWanted env@IslPluginEnv{..} ct =
 
 -- * Solving individual constraints
 
-solveOne :: IslPluginEnv -> ParamCtx -> IslWanted -> TcPluginM (Maybe (EvTerm, Ct))
+-- | Result of solving a single wanted:
+-- Nothing = deferred (type families stuck, metavars present)
+-- Right (ev, ct) = solved (ISL check passed)
+-- Left (origCt, errCt) = ISL check failed; origCt goes insoluble
+--   (suppresses "No instance"), errCt goes to new work (GHC reduces
+--   the TypeError and reports the custom message).
+data SolveResult
+  = Solved EvTerm Ct
+  | Failed Ct
+  | Deferred
+
+solvedWith :: Ct -> TcPluginM SolveResult
+solvedWith ct = do
+  ev <- makeEvidence ct
+  pure (Solved ev ct)
+
+failedWith :: IslPluginEnv -> Ct -> [String] -> TcPluginM SolveResult
+failedWith env ct !lines_ = do
+  -- Deep-force all strings before passing to error emission
+  tcPluginIO $ evaluate (rnf lines_)
+  emitTypeError env ct lines_
+  -- Mark the original constraint as insoluble.  GHC will also report
+  -- its own "No instance" error for it — the custom error appears
+  -- first and is actionable; the raw dump is noise but harmless.
+  -- We can't suppress it without fake evidence (unsound with
+  -- -fdefer-type-errors).
+  pure (Failed ct)
+
+solveOne :: IslPluginEnv -> ParamCtx -> IslWanted -> TcPluginM SolveResult
+-- N.B. Returns 'Deferred' for stuck type families or metavars.
 solveOne env paramCtx = \case
 
   -- === Set obligations ===
@@ -499,14 +560,26 @@ solveOne env paramCtx = \case
               s2 = buildSet ctx nParams nDims paramNames (pCs ++ cs2)
               result = S.isSubset (setRef s1) (setRef s2)
           if result
-            then traceProved "Subset" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "Subset" >> (solvedWith ct)
             else do
+              let mkStr = tcPluginIO . evaluate
+              !lhsStr  <- mkStr $ islSetToStr s1
+              !rhsStr  <- mkStr $ islSetToStr s2
+              !diffStr <- mkStr $ islSetToStr $ runRawIsl1 ctx $
+                S.subtract (buildSet ctx nParams nDims paramNames (pCs ++ cs1))
+                           (buildSet ctx nParams nDims paramNames (pCs ++ cs2))
               traceFailed "Subset" $
-                "\n  LHS: " ++ islSetToStr s1 ++
+                "\n  LHS: " ++ lhsStr ++
                 "\n  is NOT a subset of" ++
-                "\n  RHS: " ++ islSetToStr s2
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                "\n  RHS: " ++ rhsStr
+              failedWith env ct
+                [ "IslSubset failed: set is not a subset"
+                , "  LHS:           " ++ lhsStr
+                , "  RHS:           " ++ rhsStr
+                , "  Counterexample:" ++ diffStr
+                , "  (points in LHS but not in RHS)"
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
   WantedNonEmpty ct psTy nTy csTy ->
     withReified env psTy nTy $ \paramNames nDims -> do
@@ -518,12 +591,16 @@ solveOne env paramCtx = \case
               s = buildSet ctx (length paramNames) nDims paramNames (pCs ++ cs)
               result = not (S.isEmpty (setRef s))
           if result
-            then traceProved "NonEmpty" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "NonEmpty" >> (solvedWith ct)
             else do
+              !setStr <- tcPluginIO $ evaluate $ islSetToStr s
               traceFailed "NonEmpty" $
-                "\n  Set is empty: " ++ islSetToStr s
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                "\n  Set is empty: " ++ setStr
+              failedWith env ct
+                [ "IslNonEmpty failed: set is empty"
+                , "  Set: " ++ setStr
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
   WantedEqual ct psTy nTy cs1Ty cs2Ty ->
     withReified env psTy nTy $ \paramNames nDims -> do
@@ -538,14 +615,29 @@ solveOne env paramCtx = \case
               s2 = buildSet ctx nParams nDims paramNames (pCs ++ cs2)
               result = S.isEqual (setRef s1) (setRef s2)
           if result
-            then traceProved "Equal" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "Equal" >> (solvedWith ct)
             else do
+              let mkStr = tcPluginIO . evaluate
+              !lhsStr   <- mkStr $ islSetToStr s1
+              !rhsStr   <- mkStr $ islSetToStr s2
+              !diff1Str <- mkStr $ islSetToStr $ runRawIsl1 ctx $
+                S.subtract (buildSet ctx nParams nDims paramNames (pCs ++ cs1))
+                           (buildSet ctx nParams nDims paramNames (pCs ++ cs2))
+              !diff2Str <- mkStr $ islSetToStr $ runRawIsl1 ctx $
+                S.subtract (buildSet ctx nParams nDims paramNames (pCs ++ cs2))
+                           (buildSet ctx nParams nDims paramNames (pCs ++ cs1))
               traceFailed "Equal" $
-                "\n  LHS: " ++ islSetToStr s1 ++
+                "\n  LHS: " ++ lhsStr ++
                 "\n  is NOT equal to" ++
-                "\n  RHS: " ++ islSetToStr s2
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                "\n  RHS: " ++ rhsStr
+              failedWith env ct
+                [ "IslEqual failed: sets are not equal"
+                , "  LHS:          " ++ lhsStr
+                , "  RHS:          " ++ rhsStr
+                , "  In LHS \\ RHS: " ++ diff1Str
+                , "  In RHS \\ LHS: " ++ diff2Str
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
   -- === Map obligations ===
 
@@ -562,14 +654,21 @@ solveOne env paramCtx = \case
               m2 = buildMap ctx nParams nIn nOut paramNames (pCs ++ cs2)
               result = M.isSubset (mapRef m1) (mapRef m2)
           if result
-            then traceProved "MapSubset" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "MapSubset" >> (solvedWith ct)
             else do
+              let mkStr = tcPluginIO . evaluate
+              !lhsStr <- mkStr $ islMapToStr m1
+              !rhsStr <- mkStr $ islMapToStr m2
               traceFailed "MapSubset" $
-                "\n  LHS: " ++ islMapToStr m1 ++
+                "\n  LHS: " ++ lhsStr ++
                 "\n  is NOT a subset of" ++
-                "\n  RHS: " ++ islMapToStr m2
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                "\n  RHS: " ++ rhsStr
+              failedWith env ct
+                [ "IslMapSubset failed: map is not a subset"
+                , "  LHS: " ++ lhsStr
+                , "  RHS: " ++ rhsStr
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
   WantedMapEqual ct psTy niTy noTy cs1Ty cs2Ty ->
     withReifiedMap env psTy niTy noTy $ \paramNames nIn nOut -> do
@@ -584,14 +683,21 @@ solveOne env paramCtx = \case
               m2 = buildMap ctx nParams nIn nOut paramNames (pCs ++ cs2)
               result = M.isEqual (mapRef m1) (mapRef m2)
           if result
-            then traceProved "MapEqual" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "MapEqual" >> (solvedWith ct)
             else do
+              let mkStr = tcPluginIO . evaluate
+              !lhsStr <- mkStr $ islMapToStr m1
+              !rhsStr <- mkStr $ islMapToStr m2
               traceFailed "MapEqual" $
-                "\n  LHS: " ++ islMapToStr m1 ++
+                "\n  LHS: " ++ lhsStr ++
                 "\n  is NOT equal to" ++
-                "\n  RHS: " ++ islMapToStr m2
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                "\n  RHS: " ++ rhsStr
+              failedWith env ct
+                [ "IslMapEqual failed: maps are not equal"
+                , "  LHS: " ++ lhsStr
+                , "  RHS: " ++ rhsStr
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
   WantedRangeOf ct psTy niTy noTy mapCsTy rangeCsTy ->
     withReifiedMap env psTy niTy noTy $ \paramNames nIn nOut -> do
@@ -602,20 +708,30 @@ solveOne env paramCtx = \case
           mRangeCs = reifyConstraintList env paramNames (unfoldTypeList rangeCsTy)
       case (mMapCs, mRangeCs) of
         (Just mapCs, Just rangeCs) -> do
-          let ctx = envCtxPtr env
-              m       = buildMap ctx nParams nIn nOut paramNames (pMapCs ++ mapCs)
-              rng     = runRawIsl1 ctx $ M.range m
+          let ctx  = envCtxPtr env
+              rebuildMap = buildMap ctx nParams nIn nOut paramNames (pMapCs ++ mapCs)
+              rng     = runRawIsl1 ctx $ M.range rebuildMap
               expected = buildSet ctx nParams nOut paramNames (pSetCs ++ rangeCs)
               result  = S.isEqual (setRef rng) (setRef expected)
           if result
-            then traceProved "RangeOf" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "RangeOf" >> (solvedWith ct)
             else do
+              let mkStr = tcPluginIO . evaluate
+              -- Rebuild map for display (M.range consumed the original)
+              !mapStr <- mkStr $ islMapToStr (buildMap ctx nParams nIn nOut paramNames (pMapCs ++ mapCs))
+              !rngStr <- mkStr $ islSetToStr rng
+              !expStr <- mkStr $ islSetToStr expected
               traceFailed "RangeOf" $
-                "\n  Map:      " ++ islMapToStr m ++
-                "\n  Range:    " ++ islSetToStr rng ++
-                "\n  Expected: " ++ islSetToStr expected
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                "\n  Map:      " ++ mapStr ++
+                "\n  Range:    " ++ rngStr ++
+                "\n  Expected: " ++ expStr
+              failedWith env ct
+                [ "IslRangeOf failed: range does not match expected set"
+                , "  Map:      " ++ mapStr
+                , "  Range:    " ++ rngStr
+                , "  Expected: " ++ expStr
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
   WantedImageSubset ct psTy niTy noTy mapCsTy srcCsTy dstCsTy ->
     withReifiedMap env psTy niTy noTy $ \paramNames nIn nOut -> do
@@ -627,30 +743,53 @@ solveOne env paramCtx = \case
           mDstCs = reifyConstraintList env paramNames (unfoldTypeList dstCsTy)
       case (mMapCs, mSrcCs, mDstCs) of
         (Just mapCs, Just srcCs, Just dstCs) -> do
-          let ctx = envCtxPtr env
-              m     = buildMap ctx nParams nIn nOut paramNames (pMapCs ++ mapCs)
-              src   = buildSet ctx nParams nIn paramNames (pSetCs ++ srcCs)
-              image = runRawIsl1 ctx $ S.apply src m
+          let ctx   = envCtxPtr env
+              -- S.apply consumes both src and m, so rebuild fresh
+              -- copies for display and counterexample if needed.
+              image = runRawIsl1 ctx $
+                S.apply (buildSet ctx nParams nIn paramNames (pSetCs ++ srcCs))
+                        (buildMap ctx nParams nIn nOut paramNames (pMapCs ++ mapCs))
               dst   = buildSet ctx nParams nOut paramNames (pSetCs ++ dstCs)
               result = S.isSubset (setRef image) (setRef dst)
           if result
-            then traceProved "ImageSubset" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "ImageSubset" >> (solvedWith ct)
             else do
+              -- Force ISL-to-string conversions in IO to prevent
+              -- lazy thunks capturing freed ISL objects.
+              let mkStr = tcPluginIO . evaluate
+              !mapStr <- mkStr $ islMapToStr (buildMap ctx nParams nIn nOut paramNames (pMapCs ++ mapCs))
+              !srcStr <- mkStr $ islSetToStr (buildSet ctx nParams nIn paramNames (pSetCs ++ srcCs))
+              !imgStr <- mkStr $ islSetToStr image
+              !dstStr <- mkStr $ islSetToStr dst
+              !diffStr <- mkStr $ islSetToStr $ runRawIsl1 ctx $
+                S.subtract
+                  (runRawIsl1 ctx $ S.apply
+                    (buildSet ctx nParams nIn paramNames (pSetCs ++ srcCs))
+                    (buildMap ctx nParams nIn nOut paramNames (pMapCs ++ mapCs)))
+                  (buildSet ctx nParams nOut paramNames (pSetCs ++ dstCs))
               traceFailed "ImageSubset" $
-                "\n  Map:    " ++ islMapToStr m ++
-                "\n  Source: " ++ islSetToStr src ++
-                "\n  Image:  " ++ islSetToStr image ++
-                "\n  Target: " ++ islSetToStr dst ++
-                "\n  Image is NOT a subset of Target"
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                "\n  Map:    " ++ mapStr ++
+                "\n  Source: " ++ srcStr ++
+                "\n  Image:  " ++ imgStr ++
+                "\n  Target: " ++ dstStr ++
+                "\n  Diff:   " ++ diffStr
+              failedWith env ct
+                [ "IslImageSubset failed: image of source under map is not contained in target"
+                , "  Map:           " ++ mapStr
+                , "  Source:        " ++ srcStr
+                , "  Image:         " ++ imgStr
+                , "  Target:        " ++ dstStr
+                , "  Counterexample:" ++ diffStr
+                , "  (points in image but not in target)"
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
   -- === Coverage obligations ===
 
   WantedCovers ct psTy nTy fullDomTy branchesTy ->
     -- Guard: if branches type is still a metavariable, defer.
     case branchesTy of
-      TyVarTy _ -> pure Nothing
+      TyVarTy _ -> pure Deferred
       _ -> withReified env psTy nTy $ \paramNames nDims -> do
         let nParams = length paramNames
             pCs    = paramCtxSetCs env paramCtx paramNames
@@ -660,7 +799,7 @@ solveOne env paramCtx = \case
           -- TDirect case: doms ~ '[], no branches needed — expression covers
           -- the whole domain by construction.
           (Just _fullDisj, Just []) ->
-            traceProved "Covers (direct)" >> (Just . (, ct) <$> makeEvidence ct)
+            traceProved "Covers (direct)" >> (solvedWith ct)
           (Just fullDisj, Just branchDisj) -> do
             let ctx = envCtxPtr env
                 buildUnion disj = case [buildSet ctx nParams nDims paramNames (pCs ++ conj) | conj <- disj] of
@@ -671,18 +810,25 @@ solveOne env paramCtx = \case
                 branchesSet = buildUnion branchDisj
                 result = S.isSubset (setRef fullDomSet) (setRef branchesSet)
             if result
-              then traceProved "Covers" >> (Just . (, ct) <$> makeEvidence ct)
+              then traceProved "Covers" >> (solvedWith ct)
               else do
+                let mkStr = tcPluginIO . evaluate
+                !domStr  <- mkStr $ islSetToStr fullDomSet
+                !brnStr  <- mkStr $ islSetToStr branchesSet
                 -- Rebuild sets for subtract (which consumes both arguments)
-                let fullDomSet'  = buildUnion fullDisj
-                    branchesSet' = buildUnion branchDisj
-                    uncovered = runRawIsl1 ctx $ S.subtract fullDomSet' branchesSet'
+                !uncStr  <- mkStr $ islSetToStr $ runRawIsl1 ctx $
+                  S.subtract (buildUnion fullDisj) (buildUnion branchDisj)
                 traceFailed "Covers" $
-                  "\n  Domain:    " ++ islSetToStr fullDomSet ++
-                  "\n  Branches:  " ++ islSetToStr branchesSet ++
-                  "\n  Uncovered: " ++ islSetToStr uncovered
-                pure Nothing
-          _ -> traceReifyFail >> pure Nothing
+                  "\n  Domain:    " ++ domStr ++
+                  "\n  Branches:  " ++ brnStr ++
+                  "\n  Uncovered: " ++ uncStr
+                failedWith env ct
+                  [ "IslCovers failed: branches do not cover the domain"
+                  , "  Domain:    " ++ domStr
+                  , "  Branches:  " ++ brnStr
+                  , "  Uncovered: " ++ uncStr
+                  ]
+          _ -> traceReifyFail >> pure Deferred
 
   -- Partitions = IslCovers + pairwise disjointness within the
   -- ambient.  Used by 'Alpha.Core.Case' to enforce that each point
@@ -707,7 +853,7 @@ solveOne env paramCtx = \case
   -- loop; it will crash.  See D22 for the original diagnosis.
   WantedPartitions ct psTy nTy fullDomTy branchesTy ->
     case branchesTy of
-      TyVarTy _ -> pure Nothing
+      TyVarTy _ -> pure Deferred
       _ -> withReified env psTy nTy $ \paramNames nDims -> do
         let nParams = length paramNames
             pCs    = paramCtxSetCs env paramCtx paramNames
@@ -719,7 +865,7 @@ solveOne env paramCtx = \case
             -- holds only if the full domain is empty.  Treat as a
             -- trivial accept to match 'WantedCovers' 'TDirect'.
             traceProved "Partitions (direct)" >>
-            (Just . (, ct) <$> makeEvidence ct)
+            (solvedWith ct)
           (Just fullDisj, Just branchDisj) -> do
             let ctx     = envCtxPtr env
                 buildSetsFromDisj disj =
@@ -738,9 +884,10 @@ solveOne env paramCtx = \case
                 n               = length rawBranches
                 nPerBranchCopy  = n + 1
                 branchCopies    = map (duplicateN nPerBranchCopy) rawBranches
-                unionInputs        = map head branchCopies
-                failureUnionInputs = map (!! 1) branchCopies
-                disjStacks         = map (drop 2) branchCopies
+                splitCopies (x:y:rest) = (x, y, rest)
+                splitCopies _ = error "duplicateN: impossible (n+1 >= 2)"
+                (unionInputs, failureUnionInputs, disjStacks) =
+                  unzip3 (map splitCopies branchCopies)
 
                 -- fullDom copies: 1 borrowed for the coverage
                 -- subset-check, 1 consumed on the failure path, and
@@ -757,16 +904,25 @@ solveOne env paramCtx = \case
                 coverage = S.isSubset (setRef fullDomCoverage) (setRef branchesCoverage)
             if not coverage
               then do
-                let branchesFailure = buildUnion failureUnionInputs
+                let mkStr = tcPluginIO . evaluate
+                    branchesFailure = buildUnion failureUnionInputs
                     uncovered = runRawIsl1 ctx $ S.subtract fullDomFailure branchesFailure
+                !domStr <- mkStr $ islSetToStr fullDomCoverage
+                !brnStr <- mkStr $ islSetToStr branchesCoverage
+                !uncStr <- mkStr $ islSetToStr uncovered
                 traceFailed "Partitions" $
-                  "\n  Domain:    " ++ islSetToStr fullDomCoverage ++
-                  "\n  Branches:  " ++ islSetToStr branchesCoverage ++
-                  "\n  Uncovered: " ++ islSetToStr uncovered
-                pure Nothing
+                  "\n  Domain:    " ++ domStr ++
+                  "\n  Branches:  " ++ brnStr ++
+                  "\n  Uncovered: " ++ uncStr
+                failedWith env ct
+                  [ "IslPartitions failed: branches do not cover the domain"
+                  , "  Domain:    " ++ domStr
+                  , "  Branches:  " ++ brnStr
+                  , "  Uncovered: " ++ uncStr
+                  ]
               else
                 if n < 2
-                  then traceProved "Partitions" >> (Just . (, ct) <$> makeEvidence ct)
+                  then traceProved "Partitions" >> (solvedWith ct)
                   else do
                     let pairs = [(i, j) | i <- [0 .. n - 2], j <- [i + 1 .. n - 1]]
                         replaceAt idx v xs = take idx xs ++ [v] ++ drop (idx + 1) xs
@@ -784,14 +940,18 @@ solveOne env paramCtx = \case
                                then go stacks'' fdRest pRest
                                else Just (i, j, inter2)
                     case go disjStacks fullDomForPairs pairs of
-                      Nothing -> traceProved "Partitions" >> (Just . (, ct) <$> makeEvidence ct)
+                      Nothing -> traceProved "Partitions" >> (solvedWith ct)
                       Just (i, j, overlap) -> do
+                        !ovlStr <- tcPluginIO $ evaluate $ islSetToStr overlap
                         traceFailed "Partitions" $
                           "\n  Branches " ++ show i ++ " and " ++ show j ++
                           " overlap within the ambient." ++
-                          "\n  Overlap: " ++ islSetToStr overlap
-                        pure Nothing
-          _ -> traceReifyFail >> pure Nothing
+                          "\n  Overlap: " ++ ovlStr
+                        failedWith env ct
+                          [ "IslPartitions failed: branches " ++ show i ++ " and " ++ show j ++ " overlap"
+                          , "  Overlap: " ++ ovlStr
+                          ]
+          _ -> traceReifyFail >> pure Deferred
 
   -- === Union-aware set obligations ===
 
@@ -808,14 +968,25 @@ solveOne env paramCtx = \case
               s2 = buildUnionSetFromDisj ctx nParams nDims paramNames pCs css2
               result = S.isSubset (setRef s1) (setRef s2)
           if result
-            then traceProved "SubsetU" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "SubsetU" >> (solvedWith ct)
             else do
+              let mkStr = tcPluginIO . evaluate
+              !lhsStr  <- mkStr $ islSetToStr s1
+              !rhsStr  <- mkStr $ islSetToStr s2
+              !diffStr <- mkStr $ islSetToStr $ runRawIsl1 ctx $
+                S.subtract (buildUnionSetFromDisj ctx nParams nDims paramNames pCs css1)
+                           (buildUnionSetFromDisj ctx nParams nDims paramNames pCs css2)
               traceFailed "SubsetU" $
-                "\n  LHS: " ++ islSetToStr s1 ++
+                "\n  LHS: " ++ lhsStr ++
                 "\n  is NOT a subset of" ++
-                "\n  RHS: " ++ islSetToStr s2
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                "\n  RHS: " ++ rhsStr
+              failedWith env ct
+                [ "IslSubsetU failed: set is not a subset"
+                , "  LHS:           " ++ lhsStr
+                , "  RHS:           " ++ rhsStr
+                , "  Counterexample:" ++ diffStr
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
   WantedEqualU ct psTy nTy css1Ty css2Ty ->
     withReified env psTy nTy $ \paramNames nDims -> do
@@ -830,14 +1001,21 @@ solveOne env paramCtx = \case
               s2 = buildUnionSetFromDisj ctx nParams nDims paramNames pCs css2
               result = S.isEqual (setRef s1) (setRef s2)
           if result
-            then traceProved "EqualU" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "EqualU" >> (solvedWith ct)
             else do
+              let mkStr = tcPluginIO . evaluate
+              !lhsStr <- mkStr $ islSetToStr s1
+              !rhsStr <- mkStr $ islSetToStr s2
               traceFailed "EqualU" $
-                "\n  LHS: " ++ islSetToStr s1 ++
+                "\n  LHS: " ++ lhsStr ++
                 "\n  is NOT equal to" ++
-                "\n  RHS: " ++ islSetToStr s2
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                "\n  RHS: " ++ rhsStr
+              failedWith env ct
+                [ "IslEqualU failed: sets are not equal"
+                , "  LHS: " ++ lhsStr
+                , "  RHS: " ++ rhsStr
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
   WantedNonEmptyU ct psTy nTy cssTy ->
     withReified env psTy nTy $ \paramNames nDims -> do
@@ -850,19 +1028,23 @@ solveOne env paramCtx = \case
               s = buildUnionSetFromDisj ctx nParams nDims paramNames pCs css
               result = not (S.isEmpty (setRef s))
           if result
-            then traceProved "NonEmptyU" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "NonEmptyU" >> (solvedWith ct)
             else do
+              !setStr <- tcPluginIO $ evaluate $ islSetToStr s
               traceFailed "NonEmptyU" $
-                "\n  Set: " ++ islSetToStr s ++
+                "\n  Set: " ++ setStr ++
                 "\n  is EMPTY"
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+              failedWith env ct
+                [ "IslNonEmptyU failed: set is empty"
+                , "  Set: " ++ setStr
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
   -- === Branch-grouped obligations ===
 
   WantedPartitionsU ct psTy nTy fullDomTy branchesTy ->
     case branchesTy of
-      TyVarTy _ -> pure Nothing
+      TyVarTy _ -> pure Deferred
       _ -> withReified env psTy nTy $ \paramNames nDims -> do
         let nParams = length paramNames
             pCs    = paramCtxSetCs env paramCtx paramNames
@@ -872,7 +1054,7 @@ solveOne env paramCtx = \case
                                        ++ " branches=" ++ show (fmap (map length) mBranches))
         case (mFullDom, mBranches) of
           (Just _fullDisj, Just []) ->
-            traceProved "PartitionsU (direct)" >> (Just . (, ct) <$> makeEvidence ct)
+            traceProved "PartitionsU (direct)" >> (solvedWith ct)
           (Just fullDisj, Just branchGroups) -> do
             tcPluginTrace "isl-plugin" (text $ "PartitionsU: " ++ show (length branchGroups) ++ " branches")
             -- Mirror the WantedPartitions solver structure exactly,
@@ -882,9 +1064,10 @@ solveOne env paramCtx = \case
                 n = length rawBranches
                 nPerBranchCopy = n + 1
                 branchCopies = map (duplicateN nPerBranchCopy) rawBranches
-                unionInputs = map head branchCopies
-                failureUnionInputs = map (!! 1) branchCopies
-                disjStacks = map (drop 2) branchCopies
+                splitCopies (x:y:rest) = (x, y, rest)
+                splitCopies _ = error "duplicateN: impossible (n+1 >= 2)"
+                (unionInputs, failureUnionInputs, disjStacks) =
+                  unzip3 (map splitCopies branchCopies)
                 nPairs = (n * (n - 1)) `div` 2
                 nFullDomCopies = 2 + nPairs
                 rawFullDom = buildUnionSetFromDisj ctx nParams nDims paramNames pCs fullDisj
@@ -900,15 +1083,24 @@ solveOne env paramCtx = \case
                 coverage = S.isSubset (setRef fullDomCoverage) (setRef branchesCoverage)
             if not coverage
               then do
-                let branchesFailure = buildUnionFromList failureUnionInputs
+                let mkStr = tcPluginIO . evaluate
+                    branchesFailure = buildUnionFromList failureUnionInputs
                     uncovered = runRawIsl1 ctx $ S.subtract fullDomFailure branchesFailure
+                !domStr <- mkStr $ islSetToStr fullDomCoverage
+                !brnStr <- mkStr $ islSetToStr branchesCoverage
+                !uncStr <- mkStr $ islSetToStr uncovered
                 traceFailed "PartitionsU" $
-                  "\n  Domain:    " ++ islSetToStr fullDomCoverage ++
-                  "\n  Branches:  " ++ islSetToStr branchesCoverage ++
-                  "\n  Uncovered: " ++ islSetToStr uncovered
-                pure Nothing
+                  "\n  Domain:    " ++ domStr ++
+                  "\n  Branches:  " ++ brnStr ++
+                  "\n  Uncovered: " ++ uncStr
+                failedWith env ct
+                  [ "IslPartitionsU failed: branches do not cover the domain"
+                  , "  Domain:    " ++ domStr
+                  , "  Branches:  " ++ brnStr
+                  , "  Uncovered: " ++ uncStr
+                  ]
               else if n < 2
-                then traceProved "PartitionsU" >> (Just . (, ct) <$> makeEvidence ct)
+                then traceProved "PartitionsU" >> (solvedWith ct)
                 else do
                   let pairs = [(i, j) | i <- [0 .. n - 2], j <- [i + 1 .. n - 1]]
                       replaceAt idx v xs = take idx xs ++ [v] ++ drop (idx + 1) xs
@@ -927,11 +1119,12 @@ solveOne env paramCtx = \case
                       go _ _ [] = error "isl-plugin: PartitionsU: exhausted fullDom copies"
                   allDisjoint <- go pairs disjStacks fullDomForPairs
                   if allDisjoint
-                    then traceProved "PartitionsU" >> (Just . (, ct) <$> makeEvidence ct)
+                    then traceProved "PartitionsU" >> (solvedWith ct)
                     else do
                       traceFailed "PartitionsU" "\n  Branches are not pairwise disjoint"
-                      pure Nothing
-          _ -> traceReifyFail >> pure Nothing
+                      failedWith env ct
+                        [ "IslPartitionsU failed: branches are not pairwise disjoint" ]
+          _ -> traceReifyFail >> pure Deferred
 
   WantedCoversU ct psTy nTy fullDomTy branchesTy ->
     withReified env psTy nTy $ \paramNames nDims -> do
@@ -950,13 +1143,29 @@ solveOne env paramCtx = \case
                 (x:xs) -> foldl (\acc s -> runRawIsl1 ctx $ S.union acc s) x xs
               result = S.isSubset (setRef fullDomSet) (setRef branchesUnion)
           if result
-            then traceProved "CoversU" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "CoversU" >> (solvedWith ct)
             else do
+              let fullDomSet' = buildUnionSetFromDisj ctx nParams nDims paramNames pCs fullDisj
+                  allBranchSets' = [buildUnionSetFromDisj ctx nParams nDims paramNames pCs disj | disj <- branchGroups]
+                  branchesUnion' = case allBranchSets' of
+                    []     -> buildUnionSetFromDisj ctx nParams nDims paramNames pCs []
+                    [x]    -> x
+                    (x:xs) -> foldl (\acc s -> runRawIsl1 ctx $ S.union acc s) x xs
+                  uncovered = runRawIsl1 ctx $ S.subtract fullDomSet' branchesUnion'
+              let mkStr = tcPluginIO . evaluate
+              !domStr <- mkStr $ islSetToStr fullDomSet
+              !brnStr <- mkStr $ islSetToStr branchesUnion
+              !uncStr <- mkStr $ islSetToStr uncovered
               traceFailed "CoversU" $
-                "\n  Domain:    " ++ islSetToStr fullDomSet ++
-                "\n  Branches:  " ++ islSetToStr branchesUnion
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                "\n  Domain:    " ++ domStr ++
+                "\n  Branches:  " ++ brnStr
+              failedWith env ct
+                [ "IslCoversU failed: branches do not cover the domain"
+                , "  Domain:    " ++ domStr
+                , "  Branches:  " ++ brnStr
+                , "  Uncovered: " ++ uncStr
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
   WantedImageSubsetU ct psTy niTy noTy mapCsTy srcCssTy dstCsTy ->
     withReifiedMap env psTy niTy noTy $ \paramNames nIn nOut -> do
@@ -968,23 +1177,41 @@ solveOne env paramCtx = \case
           mDstCs = reifyConstraintList env paramNames (unfoldTypeList dstCsTy)
       case (mMapCs, mSrcCss, mDstCs) of
         (Just mapCs, Just srcCss, Just dstCs) -> do
-          let ctx = envCtxPtr env
-              m     = buildMap ctx nParams nIn nOut paramNames (pMapCs ++ mapCs)
-              src   = buildUnionSetFromDisj ctx nParams nIn paramNames pSetCs srcCss
-              image = runRawIsl1 ctx $ S.apply src m
+          let ctx   = envCtxPtr env
+              image = runRawIsl1 ctx $
+                S.apply (buildUnionSetFromDisj ctx nParams nIn paramNames pSetCs srcCss)
+                        (buildMap ctx nParams nIn nOut paramNames (pMapCs ++ mapCs))
               dst   = buildSet ctx nParams nOut paramNames (pSetCs ++ dstCs)
               result = S.isSubset (setRef image) (setRef dst)
           if result
-            then traceProved "ImageSubsetU" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "ImageSubsetU" >> (solvedWith ct)
             else do
+              let mkStr = tcPluginIO . evaluate
+              !mapStr  <- mkStr $ islMapToStr (buildMap ctx nParams nIn nOut paramNames (pMapCs ++ mapCs))
+              !srcStr  <- mkStr $ islSetToStr (buildUnionSetFromDisj ctx nParams nIn paramNames pSetCs srcCss)
+              !imgStr  <- mkStr $ islSetToStr image
+              !dstStr  <- mkStr $ islSetToStr dst
+              !diffStr <- mkStr $ islSetToStr $ runRawIsl1 ctx $
+                S.subtract
+                  (runRawIsl1 ctx $ S.apply
+                    (buildUnionSetFromDisj ctx nParams nIn paramNames pSetCs srcCss)
+                    (buildMap ctx nParams nIn nOut paramNames (pMapCs ++ mapCs)))
+                  (buildSet ctx nParams nOut paramNames (pSetCs ++ dstCs))
               traceFailed "ImageSubsetU" $
-                "\n  Map:    " ++ islMapToStr m ++
-                "\n  Source: " ++ islSetToStr src ++
-                "\n  Image:  " ++ islSetToStr image ++
-                "\n  Target: " ++ islSetToStr dst ++
-                "\n  Image is NOT a subset of Target"
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                "\n  Map:    " ++ mapStr ++
+                "\n  Source: " ++ srcStr ++
+                "\n  Image:  " ++ imgStr ++
+                "\n  Target: " ++ dstStr ++
+                "\n  Diff:   " ++ diffStr
+              failedWith env ct
+                [ "IslImageSubsetU failed: image of source under map is not a subset of target"
+                , "  Map:           " ++ mapStr
+                , "  Source:        " ++ srcStr
+                , "  Image:         " ++ imgStr
+                , "  Target:        " ++ dstStr
+                , "  Counterexample:" ++ diffStr
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
   -- === Multi-aff obligations ===
 
@@ -999,14 +1226,21 @@ solveOne env paramCtx = \case
               ma2 = buildMultiAff ctx (length paramNames) nIn nOut paramNames es2
               result = MA.plainIsEqual (multiAffRef ma1) (multiAffRef ma2)
           if result
-            then traceProved "MultiAffEqual" >> (Just . (, ct) <$> makeEvidence ct)
+            then traceProved "MultiAffEqual" >> (solvedWith ct)
             else do
+              let mkStr = tcPluginIO . evaluate
+              !lhsStr <- mkStr $ MA.toStr (multiAffRef ma1)
+              !rhsStr <- mkStr $ MA.toStr (multiAffRef ma2)
               traceFailed "MultiAffEqual" $
-                "\n  LHS: " ++ MA.toStr (multiAffRef ma1) ++
+                "\n  LHS: " ++ lhsStr ++
                 "\n  is NOT equal to" ++
-                "\n  RHS: " ++ MA.toStr (multiAffRef ma2)
-              pure Nothing
-        _ -> traceReifyFail >> pure Nothing
+                "\n  RHS: " ++ rhsStr
+              failedWith env ct
+                [ "IslMultiAffEqual failed: multi-affine functions are not equal"
+                , "  LHS: " ++ lhsStr
+                , "  RHS: " ++ rhsStr
+                ]
+        _ -> traceReifyFail >> pure Deferred
 
 -- * Reification helpers
 
@@ -1154,12 +1388,41 @@ traceReifyFail =
   tcPluginTrace "isl-plugin" (text "Could not reify type-level constraints (stuck type families?)")
 
 -- | Convert an ISL set to its string representation for diagnostics.
+-- Uses a bang pattern to force evaluation before the ISL object
+-- can be freed by a consuming operation or CSE sharing.
 islSetToStr :: Isl.Set -> String
-islSetToStr s = S.toStr (setRef s)
+islSetToStr s = let !r = S.toStr (setRef s) in r
 
 -- | Convert an ISL map to its string representation for diagnostics.
 islMapToStr :: Isl.Map -> String
-islMapToStr m = M.toStr (mapRef m)
+islMapToStr m = let !r = M.toStr (mapRef m) in r
+
+-- * Custom type error construction
+
+-- | Build an 'ErrorMessage' type from a list of lines.
+-- Each line becomes @'Text "..."@ and lines are joined with @':$$:'@.
+mkErrorMsgTy :: IslPluginEnv -> [String] -> Type
+mkErrorMsgTy env lines_ = case lines_ of
+    []     -> textTy ""
+    [l]    -> textTy l
+    (l:ls) -> foldl vappend (textTy l) (map textTy ls)
+  where
+    textTy s = mkTyConApp (envTypeErrorText env) [mkStrLitTy (mkFastString s)]
+    vappend a b = mkTyConApp (envTypeErrorVApp env) [a, b]
+
+-- | Emit a custom type error at the constraint's source location.
+-- Uses 'TcRnUserTypeError' via 'unsafeTcPluginTcM' to produce
+-- GHC's native TypeError rendering.
+emitTypeError :: IslPluginEnv -> Ct -> [String] -> TcPluginM ()
+emitTypeError env ct lines_ = do
+  let rss = ctLocSpan (ctLoc ct)
+      key = (srcSpanStartLine rss, srcSpanStartCol rss)
+  alreadyEmitted <- tcPluginIO $ atomicModifyIORef' (envEmittedErrors env) $ \s ->
+    if Set.member key s then (s, True) else (Set.insert key s, False)
+  if alreadyEmitted then pure () else do
+    let msgTy = mkErrorMsgTy env lines_
+        span  = RealSrcSpan rss Strict.Nothing
+    unsafeTcPluginTcM $ addErrAt span (TcRnUserTypeError msgTy)
 
 -- * Evidence construction
 
