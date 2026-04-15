@@ -1,0 +1,89 @@
+cabal-version:       2.4
+
+name:                isl-alpha
+version:             0.1.0.0
+synopsis:            Typed Haskell DSL for systems of affine recurrence equations (Alpha)
+license:             MIT
+license-file:        LICENSE
+author:              Gaël Deest
+maintainer:          gael.deest@tweag.io
+category:            Math
+
+-- The Alpha DSL: a typed Haskell embedding of the Alpha equational
+-- language for polyhedral programs.  See doc/alpha-design.md for the
+-- design and doc/alpha-implementation.md for the running implementation
+-- log.
+
+library
+  exposed-modules:   Alpha.Core
+                   , Alpha.Surface
+                   , Alpha.Lower
+                   , Alpha.Schedule
+                   , Alpha.Allocation
+                   , Alpha.Compile
+                   , Alpha.Interpret
+                   , Alpha.TypeLevel.Tiling
+                   , Alpha.Transform.Types
+                   , Alpha.Transform.Domain
+                   , Alpha.Transform.Reindex
+                   , Alpha.Transform.Tile
+                   , Alpha.Polyhedral.Schedule
+                   , Alpha.Polyhedral.Contraction
+  build-depends:     base >= 4.20 && < 5
+                   , containers
+                   , deepseq
+                   , mtl
+                   , isl-bindings
+                   , isl-typelevel
+                   , isl-plugin
+  hs-source-dirs:    src
+  default-language:  GHC2024
+  default-extensions: DataKinds
+                    , GADTs
+                    , TypeFamilies
+                    , StandaloneKindSignatures
+                    , TypeOperators
+                    , UndecidableInstances
+                    , RequiredTypeArguments
+  ghc-options:       -Wall -Wno-unused-top-binds
+
+test-suite alpha-test
+  type:              exitcode-stdio-1.0
+  main-is:           Main.hs
+  other-modules:     Examples.DepReindex
+                   , Examples.Matmul
+                   , Examples.Zero1D
+                   , Examples.TiledZero1D
+                   , Examples.Const3D
+                   , Examples.TiledConst3D
+                   , Examples.Cholesky
+                   , Examples.FloydWarshall
+                   , Examples.LU
+                   , Examples.Heat3D
+                   , Examples.OverWideCholesky
+                   , Examples.ReflectedMatmul
+                   , Examples.ReflectedMatmulFails
+                   , Examples.MatmulNormalize
+                   , Reference.Matmul
+                   , Reference.Cholesky
+                   , Reference.FloydWarshall
+                   , Reference.LU
+                   , Reference.Heat3D
+                   , Negative.Cases
+  hs-source-dirs:    test
+  build-depends:     base >= 4.20 && < 5
+                   , containers
+                   , vector
+                   , tasty
+                   , tasty-hunit
+                   , isl-alpha
+                   , isl-bindings
+                   , isl-typelevel
+                   , isl-plugin
+  default-language:  GHC2024
+  default-extensions: DataKinds
+                    , GADTs
+                    , TypeFamilies
+                    , OverloadedLabels
+                    , TypeApplications
+  ghc-options:       -Wall

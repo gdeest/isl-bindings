@@ -1,0 +1,11 @@
+# Weeder 2.10 — dead code detection
+# Roots: all executables and test suites (anything with Main.main)
+# Run: cabal build all && weeder
+
+roots = ["^Main.main$", "^Paths_"]
+
+# Type class instances are implicitly used — don't flag them
+type-class-roots = true
+
+# Unused type declarations too
+unused-types = true

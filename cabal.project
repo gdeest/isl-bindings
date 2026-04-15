@@ -1,0 +1,9 @@
+packages:
+  codegen/
+  bindings/
+  typelevel/
+  plugin/
+  alpha/
+
+package *
+  ghc-options: -fwrite-ide-info

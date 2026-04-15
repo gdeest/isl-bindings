@@ -1,0 +1,27 @@
+cabal-version:       2.4
+
+name:                isl-typelevel
+version:             0.1.0.0
+synopsis:            Type-level polyhedral constraints for ISL
+license:             MIT
+author:              Gaël Deest
+maintainer:          gael.deest@gmail.com
+category:            Math
+
+library
+  exposed-modules:   Isl.TypeLevel
+                   , Isl.TypeLevel.Expr
+                   , Isl.TypeLevel.Constraint
+                   , Isl.TypeLevel.Sing
+                   , Isl.TypeLevel.Reflection
+  build-depends:     base >= 4.20 && < 5
+                   , isl-bindings
+                   , reflection
+  hs-source-dirs:    src
+  default-language:   GHC2021
+  default-extensions: DataKinds
+                    , TypeFamilies
+                    , UndecidableInstances
+                    , GADTs
+                    , StandaloneKindSignatures
+                    , TypeOperators

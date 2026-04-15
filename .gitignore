@@ -1,0 +1,31 @@
+dist-newstyle/
+.claude/
+.idea/
+.vscode/
+*.hi
+*.o
+*.dyn_hi
+*.dyn_o
+result
+result-*
+cabal.project.local
+cabal.project.local~
+
+# Generated image outputs (deriche-visual)
+*.pgm
+
+# Academic reference PDFs (too large for git)
+proposals/sare-dsl/papers/
+
+# Local documentation (kept on disk, not tracked)
+doc/
+
+# Personal dotfiles / IDE config
+.bash_profile
+.bashrc
+.gitconfig
+.mcp.json
+.profile
+.ripgreprc
+.zprofile
+.zshrc

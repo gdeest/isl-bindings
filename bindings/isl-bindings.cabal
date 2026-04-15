@@ -1,0 +1,90 @@
+cabal-version:       2.4
+
+name:                isl-bindings
+version:             0.2.0.0
+synopsis:            Haskell bindings for the Integer Set Library (ISL)
+license:             MIT
+license-file:        LICENSE
+author:              Gaël Deest
+maintainer:          gael.deest@tweag.io
+category:            Math
+
+library
+  exposed-modules:     Isl.Types
+                     , Isl.Monad
+                     , Isl.Linear
+                     , Isl.Aff
+                     , Isl.BasicMap
+                     , Isl.BasicSet
+                     , Isl.Constraint
+                     , Isl.Id
+                     , Isl.LocalSpace
+                     , Isl.Map
+                     , Isl.MultiAff
+                     , Isl.PwAff
+                     , Isl.PwMultiAff
+                     , Isl.AffList
+                     , Isl.Set
+                     , Isl.Space
+                     , Isl.UnionMap
+                     , Isl.UnionSet
+                     , Isl.Val
+                     , Isl.AstBuild
+                     , Isl.FlowAnalysis
+                     , Isl.Unsafe
+                     -- Typed constraint DSL and bridge
+                     , Isl.Typed.Constraints
+                     , Isl.Typed.Pure
+                     , Isl.Typed.Params
+                     , Isl.Typed.Indices
+
+  other-modules:       Isl.Types.Internal
+                     , Isl.Monad.Internal
+                     , Isl.Foreach
+                     , Isl.Aff.Generated
+                     , Isl.AffList.Generated
+                     , Isl.BasicMap.Generated
+                     , Isl.BasicSet.Generated
+                     , Isl.Constraint.Generated
+                     , Isl.Id.Generated
+                     , Isl.LocalSpace.Generated
+                     , Isl.Map.Generated
+                     , Isl.MultiAff.Generated
+                     , Isl.PwAff.Generated
+                     , Isl.PwMultiAff.Generated
+                     , Isl.Set.Generated
+                     , Isl.Space.Generated
+                     , Isl.UnionMap.Generated
+                     , Isl.UnionSet.Generated
+                     , Isl.Val.Generated
+
+  build-depends:       base >=4.12.0.0 && <5
+                     , deepseq
+                     , reflection
+                     , transformers
+  hs-source-dirs:      src
+  extra-libraries:     isl
+  default-language:    Haskell2010
+
+test-suite isl-tests
+  type:              exitcode-stdio-1.0
+  main-is:           Main.hs
+  other-modules:     Test.Helpers
+                   , Test.RawBasicSet
+                   , Test.RawSet
+                   , Test.RawBasicMap
+                   , Test.RawMap
+                   , Test.RawMultiAff
+                   , Test.RawPwAff
+                   , Test.RawUnionMap
+                   , Test.RawFlowAnalysis
+                   , Test.TypedConstraints
+                   , Test.TypedBuild
+  hs-source-dirs:    test
+  build-depends:     base >=4.12.0.0 && <5
+                   , deepseq
+                   , isl-bindings
+                   , tasty
+                   , tasty-hunit
+  default-language:  Haskell2010
+  ghc-options:       -Wall
