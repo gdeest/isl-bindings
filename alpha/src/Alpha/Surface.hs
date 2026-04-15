@@ -56,6 +56,8 @@ module Alpha.Surface
   , sumOver
     -- * Case branches
   , SBranches(..), when_, caseB
+  , elsewhere, caseWithElsewhere
+  , ElsewhereDom, FlattenPriors
     -- * Declarations
   , input, output, local
     -- * Equations and systems
@@ -80,13 +82,13 @@ import GHC.TypeLits
 
 import Isl.Typed.Params (KnownSymbols, Length)
 import Isl.TypeLevel.Constraint
-  ( IslMultiAffToMap, TConstraint
+  ( IslDifferenceSetU, IslMultiAffToMap, TConstraint
   , type (>=.), type (<=.), type (==.) )
 import Isl.TypeLevel.Expr
   ( D, Elem, P, TExpr(..), Z(..) )
 import Isl.TypeLevel.Reflection
-  ( DomTag(..), EffectiveDomTag
-  , IslImageSubsetD, IslPartitionsD
+  ( Append, DomTag(..), DomToUnion, EffectiveDomTag
+  , IslImageSubsetD, IslPartitionsD, LiteralBranchesU
   , KnownDom )
 
 import Alpha.Core
@@ -546,6 +548,83 @@ unSBranches (SBCons (_ :: DomExpr scope dom) (Body body) rest) =
   BCons (Proxy :: Proxy ('Literal (CompileDom ps scope (Length scope) dom)))
         body
         (unSBranches rest)
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §F′. Elsewhere (complement) branches
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | Compile prior branch domains into a flat union representation.
+type family FlattenPriors (ps :: [Symbol]) (scope :: [Symbol]) (n :: Nat)
+                          (ds :: [DomE]) :: [[TConstraint ps n]] where
+  FlattenPriors _  _     _ '[]       = '[]
+  FlattenPriors ps scope n (d ': ds) =
+    CompileDom ps scope n d ': FlattenPriors ps scope n ds
+
+-- | Compute the elsewhere domain: ambient minus union of prior branches.
+type family ElsewhereDom (ps :: [Symbol]) (scope :: [Symbol]) (n :: Nat)
+                         (amb :: DomTag ps n) (priorDoms :: [DomE])
+                      :: [[TConstraint ps n]] where
+  ElsewhereDom ps scope n ('Literal ambCs) priors =
+    IslDifferenceSetU ps n '[ambCs] (FlattenPriors ps scope n priors)
+
+-- | Build a 'Case' from surface branches terminated by an 'elsewhere' body.
+-- The elsewhere domain is @ambient \ union(explicit branches)@, computed
+-- by the plugin via 'IslDifferenceSetU'.
+--
+-- Usage:
+--
+-- @
+-- caseWithElsewhere
+--   (when_ interiorDom stencilBody
+--   $ when_ t0Dom      initBody
+--   $ elsewhere        (litB 0))
+-- @
+caseWithElsewhere
+  :: forall {ps} {decls} {scope :: [Symbol]} {amb} {doms} {a}.
+     ( KnownDom ps (Length scope) amb
+     , IslPartitionsD ps (Length scope) amb
+         ( 'LiteralU (ElsewhereDom ps scope (Length scope) amb doms)
+           ': DomsToLitList ps scope (Length scope) doms )
+     )
+  => SBranchesElse ps decls scope amb doms a
+  -> Body ps decls scope (Length scope) amb a
+caseWithElsewhere (SBE elseBody bs) =
+  Body $ Case $
+    BCons (Proxy @('LiteralU (ElsewhereDom ps scope (Length scope) amb doms)))
+          elseBody
+          (unSBranches bs)
+
+-- | Surface branches terminated by an elsewhere catch-all.
+type SBranchesElse
+  :: forall (ps :: [Symbol]) -> [VarDecl ps]
+  -> forall (scope :: [Symbol])
+  -> DomTag ps (Length scope) -> [DomE] -> Type -> Type
+data SBranchesElse ps decls scope amb doms a where
+  SBE :: forall ps decls scope amb doms a.
+         ( KnownDom ps (Length scope)
+             ('LiteralU (ElsewhereDom ps scope (Length scope) amb doms))
+         , KnownDom ps (Length scope)
+             (EffectiveDomTag ('LiteralU (ElsewhereDom ps scope (Length scope) amb doms)) amb)
+         )
+      => Expr ps decls (Length scope)
+              (EffectiveDomTag ('LiteralU (ElsewhereDom ps scope (Length scope) amb doms)) amb) a
+      -> SBranches ps decls scope amb doms a
+      -> SBranchesElse ps decls scope amb doms a
+
+-- | Terminate a branch list with a catch-all body.
+elsewhere
+  :: forall {ps} {decls} {scope :: [Symbol]} {amb} {doms} {a}.
+     ( KnownDom ps (Length scope)
+         ('LiteralU (ElsewhereDom ps scope (Length scope) amb doms))
+     , KnownDom ps (Length scope)
+         (EffectiveDomTag ('LiteralU (ElsewhereDom ps scope (Length scope) amb doms)) amb)
+     )
+  => Body ps decls scope (Length scope)
+          (EffectiveDomTag ('LiteralU (ElsewhereDom ps scope (Length scope) amb doms)) amb) a
+  -> SBranches ps decls scope amb doms a
+  -> SBranchesElse ps decls scope amb doms a
+elsewhere (Body body) bs = SBE body bs
 
 
 -- ═══════════════════════════════════════════════════════════════════════

@@ -72,6 +72,8 @@ module Isl.TypeLevel
   , IslToStringU, IslMapToStringU
     -- * Union-aware proof obligations (plugin-solved)
   , IslSubsetU, IslEqualU, IslNonEmptyU
+    -- * Branch-grouped proof obligations (plugin-solved)
+  , IslPartitionsU, IslCoversU, IslImageSubsetU
     -- * Multi-aff type families (plugin-rewritten)
   , IslMultiAffToMap, IslApplyMultiAff, IslComposeMultiAff
   , IslMultiAffToString, IslMultiAffFromString

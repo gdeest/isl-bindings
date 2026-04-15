@@ -71,6 +71,10 @@ module Isl.TypeLevel.Constraint
   , IslSubsetU(..)
   , IslEqualU(..)
   , IslNonEmptyU(..)
+    -- * Branch-grouped proof obligations (solved by isl-plugin)
+  , IslPartitionsU(..)
+  , IslCoversU(..)
+  , IslImageSubsetU(..)
     -- * Multi-aff type families (plugin-rewritten)
   , IslMultiAffToMap
   , IslApplyMultiAff
@@ -422,6 +426,34 @@ class IslEqualU (ps :: [Symbol]) (n :: Nat)
 -- | @IslNonEmptyU ps n css@ holds iff @union(css)@ is non-empty.
 class IslNonEmptyU (ps :: [Symbol]) (n :: Nat) (css :: [[TConstraint ps n]]) where
   islNonEmptyUEv :: ()
+
+
+-- * Branch-grouped proof obligations
+
+-- | @IslPartitionsU ps n fullDom branches@ holds iff the branch domains
+-- (each a union of polyhedra) cover @fullDom@ and are pairwise disjoint
+-- within it.  This is the union-aware analog of 'IslPartitions': each
+-- element of @branches@ is a @[[TConstraint ps n]]@ (a disjunction),
+-- and the pairwise disjointness check is at the /branch/ level (two
+-- disjuncts within the same branch may overlap).
+class IslPartitionsU (ps :: [Symbol]) (n :: Nat)
+                     (fullDom :: [[TConstraint ps n]])
+                     (branches :: [[[TConstraint ps n]]]) where
+  islPartitionsUEv :: ()
+
+-- | Union-aware coverage check (no disjointness requirement).
+class IslCoversU (ps :: [Symbol]) (n :: Nat)
+                 (fullDom :: [[TConstraint ps n]])
+                 (branches :: [[[TConstraint ps n]]]) where
+  islCoversUEv :: ()
+
+-- | @IslImageSubsetU ps ni no mapCs srcCss dstCs@ holds iff the image
+-- of the union set @srcCss@ under @mapCs@ is a subset of @dstCs@.
+class IslImageSubsetU (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+                      (mapCs :: [TConstraint ps (ni + no)])
+                      (srcCss :: [[TConstraint ps ni]])
+                      (dstCs :: [TConstraint ps no]) where
+  islImageSubsetUEv :: ()
 
 
 -- * Type-level affine functions

@@ -49,6 +49,7 @@ module Isl.TypeLevel.Sing
   , reifySTConstraintsSet
   , reifySTConstraintsMap
   , reifySTConstraintsMapSplit
+  , reifySTDisjunctionSet
   , reifySTExprsSet
     -- * Runtime lifting (value → existential singleton → Dict)
   , SomeSTConstraints(..)

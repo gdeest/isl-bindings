@@ -234,6 +234,10 @@ data IslPluginEnv = IslPluginEnv
   , envSubsetUClass   :: !Class
   , envEqualUClass    :: !Class
   , envNonEmptyUClass :: !Class
+    -- Branch-grouped proof obligation classes
+  , envPartitionsUClass  :: !Class
+  , envCoversUClass      :: !Class
+  , envImageSubsetUClass :: !Class
     -- TExpr data type TyCon (for building lifted expression lists)
   , envTExprTC :: !TyCon
   }
@@ -344,6 +348,11 @@ initPlugin = do
   envEqualUClass    <- lookupClass constraintMod "IslEqualU"
   envNonEmptyUClass <- lookupClass constraintMod "IslNonEmptyU"
 
+  -- Branch-grouped proof obligation classes
+  envPartitionsUClass  <- lookupClass constraintMod "IslPartitionsU"
+  envCoversUClass      <- lookupClass constraintMod "IslCoversU"
+  envImageSubsetUClass <- lookupClass constraintMod "IslImageSubsetU"
+
   -- TExpr data type TyCon (for building lifted expression lists)
   envTExprTC <- lookupTF exprMod "TExpr"
 
@@ -419,6 +428,10 @@ data IslWanted
   | WantedSubsetU   !Ct !Type !Type !Type !Type              -- ps, n, css1, css2
   | WantedEqualU    !Ct !Type !Type !Type !Type              -- ps, n, css1, css2
   | WantedNonEmptyU !Ct !Type !Type !Type                    -- ps, n, css
+  -- Branch-grouped obligations
+  | WantedPartitionsU  !Ct !Type !Type !Type !Type           -- ps, n, fullDom, branches
+  | WantedCoversU      !Ct !Type !Type !Type !Type           -- ps, n, fullDom, branches
+  | WantedImageSubsetU !Ct !Type !Type !Type !Type !Type !Type  -- ps, ni, no, mapCs, srcCss, dstCs
   -- Multi-aff obligations
   | WantedMultiAffEqual !Ct !Type !Type !Type !Type !Type    -- ps, ni, no, es1, es2
 
@@ -456,6 +469,15 @@ classifyWanted IslPluginEnv{..} ct =
           Just $ WantedEqualU ct ps n css1 css2
       | cls == envNonEmptyUClass, [ps, n, css] <- args ->
           Just $ WantedNonEmptyU ct ps n css
+      -- Branch-grouped obligations
+      | cls == envPartitionsUClass, [ps, n, fullDom, branches] <- args ->
+          Just $ WantedPartitionsU ct ps n fullDom branches
+      | cls == envCoversUClass, [ps, n, fullDom, branches] <- args ->
+          Just $ WantedCoversU ct ps n fullDom branches
+      | cls == envImageSubsetUClass -> case args of
+          [ps, ni, no, mapCs, srcCss, dstCs] ->
+            Just $ WantedImageSubsetU ct ps ni no mapCs srcCss dstCs
+          _ -> Nothing
       -- Multi-aff obligations
       | cls == envMultiAffEqualClass, [ps, ni, no, es1, es2] <- args ->
           Just $ WantedMultiAffEqual ct ps ni no es1 es2
@@ -840,6 +862,107 @@ solveOne env paramCtx = \case
               pure Nothing
         _ -> traceReifyFail >> pure Nothing
 
+  -- === Branch-grouped obligations ===
+
+  WantedPartitionsU ct psTy nTy fullDomTy branchesTy ->
+    withReified env psTy nTy $ \paramNames nDims -> do
+      let nParams = length paramNames
+          pCs    = paramCtxSetCs env paramCtx paramNames
+          mFullDom  = reifyDisjunction env paramNames fullDomTy
+          mBranches = reifyGroupedDisjunction env paramNames branchesTy
+      case (mFullDom, mBranches) of
+        (Just fullDisj, Just branchGroups) -> do
+          let ctx = envCtxPtr env
+              mkFD = buildUnionSetFromDisj ctx nParams nDims paramNames pCs fullDisj
+              mkBranch disj = buildUnionSetFromDisj ctx nParams nDims paramNames pCs disj
+              -- Coverage check
+              allSets = map mkBranch branchGroups
+              branchesUnion = case allSets of
+                []     -> buildUnionSetFromDisj ctx nParams nDims paramNames pCs []
+                [x]    -> x
+                (x:xs) -> foldl (\acc s -> runRawIsl1 ctx $ S.union acc s) x xs
+              coverage = S.isSubset (setRef mkFD) (setRef branchesUnion)
+          if not coverage
+            then do
+              let uncovered = runRawIsl1 ctx $
+                    S.subtract (buildUnionSetFromDisj ctx nParams nDims paramNames pCs fullDisj)
+                               branchesUnion
+              traceFailed "PartitionsU" $
+                "\n  Domain:    " ++ islSetToStr mkFD ++
+                "\n  Branches:  " ++ islSetToStr branchesUnion ++
+                "\n  Uncovered: " ++ islSetToStr uncovered
+              pure Nothing
+            else do
+              -- Pairwise disjointness at branch level (rebuild per pair)
+              let n = length branchGroups
+                  pairs = [(i, j) | i <- [0..n-1], j <- [i+1..n-1]]
+                  checkPair (i, j) =
+                    let bi = mkBranch (branchGroups !! i)
+                        bj = mkBranch (branchGroups !! j)
+                        fd = buildUnionSetFromDisj ctx nParams nDims paramNames pCs fullDisj
+                        inter = runRawIsl1 ctx $ S.intersect bi bj
+                        withFD = runRawIsl1 ctx $ S.intersect inter fd
+                    in S.isEmpty (setRef withFD)
+              if all checkPair pairs
+                then traceProved "PartitionsU" >> (Just . (, ct) <$> makeEvidence ct)
+                else do
+                  traceFailed "PartitionsU" "\n  Branches are not pairwise disjoint within the domain"
+                  pure Nothing
+        _ -> traceReifyFail >> pure Nothing
+
+  WantedCoversU ct psTy nTy fullDomTy branchesTy ->
+    withReified env psTy nTy $ \paramNames nDims -> do
+      let nParams = length paramNames
+          pCs    = paramCtxSetCs env paramCtx paramNames
+          mFullDom  = reifyDisjunction env paramNames fullDomTy
+          mBranches = reifyGroupedDisjunction env paramNames branchesTy
+      case (mFullDom, mBranches) of
+        (Just fullDisj, Just branchGroups) -> do
+          let ctx = envCtxPtr env
+              fullDomSet = buildUnionSetFromDisj ctx nParams nDims paramNames pCs fullDisj
+              allBranchSets = [buildUnionSetFromDisj ctx nParams nDims paramNames pCs disj | disj <- branchGroups]
+              branchesUnion = case allBranchSets of
+                []     -> buildUnionSetFromDisj ctx nParams nDims paramNames pCs []
+                [x]    -> x
+                (x:xs) -> foldl (\acc s -> runRawIsl1 ctx $ S.union acc s) x xs
+              result = S.isSubset (setRef fullDomSet) (setRef branchesUnion)
+          if result
+            then traceProved "CoversU" >> (Just . (, ct) <$> makeEvidence ct)
+            else do
+              traceFailed "CoversU" $
+                "\n  Domain:    " ++ islSetToStr fullDomSet ++
+                "\n  Branches:  " ++ islSetToStr branchesUnion
+              pure Nothing
+        _ -> traceReifyFail >> pure Nothing
+
+  WantedImageSubsetU ct psTy niTy noTy mapCsTy srcCssTy dstCsTy ->
+    withReifiedMap env psTy niTy noTy $ \paramNames nIn nOut -> do
+      let nParams = length paramNames
+          pMapCs = paramCtxMapCs env paramCtx paramNames nIn
+          pSetCs = paramCtxSetCs env paramCtx paramNames
+          mMapCs = reifyMapConstraintList env paramNames nIn (unfoldTypeList mapCsTy)
+          mSrcCss = reifyDisjunction env paramNames srcCssTy
+          mDstCs = reifyConstraintList env paramNames (unfoldTypeList dstCsTy)
+      case (mMapCs, mSrcCss, mDstCs) of
+        (Just mapCs, Just srcCss, Just dstCs) -> do
+          let ctx = envCtxPtr env
+              m     = buildMap ctx nParams nIn nOut paramNames (pMapCs ++ mapCs)
+              src   = buildUnionSetFromDisj ctx nParams nIn paramNames pSetCs srcCss
+              image = runRawIsl1 ctx $ S.apply src m
+              dst   = buildSet ctx nParams nOut paramNames (pSetCs ++ dstCs)
+              result = S.isSubset (setRef image) (setRef dst)
+          if result
+            then traceProved "ImageSubsetU" >> (Just . (, ct) <$> makeEvidence ct)
+            else do
+              traceFailed "ImageSubsetU" $
+                "\n  Map:    " ++ islMapToStr m ++
+                "\n  Source: " ++ islSetToStr src ++
+                "\n  Image:  " ++ islSetToStr image ++
+                "\n  Target: " ++ islSetToStr dst ++
+                "\n  Image is NOT a subset of Target"
+              pure Nothing
+        _ -> traceReifyFail >> pure Nothing
+
   -- === Multi-aff obligations ===
 
   WantedMultiAffEqual ct psTy niTy noTy es1Ty es2Ty ->
@@ -897,6 +1020,13 @@ reifyTExprList env paramNames = mapM (reifyTExpr env paramNames)
 reifyDisjunction :: IslPluginEnv -> [String] -> Type -> Maybe [[Constraint SetIx]]
 reifyDisjunction env paramNames ty =
   mapM (\conjTy -> reifyConstraintList env paramNames (unfoldTypeList conjTy))
+       (unfoldTypeList ty)
+
+-- | Reify a grouped disjunction (list of disjunctions) from type-level to value-level.
+-- Parses @[[[TConstraint ps n]]]@ — a list of per-branch disjunctions.
+reifyGroupedDisjunction :: IslPluginEnv -> [String] -> Type -> Maybe [[[Constraint SetIx]]]
+reifyGroupedDisjunction env paramNames ty =
+  mapM (\branchTy -> reifyDisjunction env paramNames branchTy)
        (unfoldTypeList ty)
 
 -- | Reify a map disjunction from type-level to value-level.

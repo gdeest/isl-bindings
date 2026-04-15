@@ -74,7 +74,9 @@ module Isl.TypeLevel.Reflection
   ( -- * Domain tags
     DomTag(..)
     -- * Type-level list helpers
-  , Append
+  , Append, MapAppend
+    -- * Domain → union conversion
+  , DomToUnion
     -- * Effective domain (branch ∩ ambient)
   , EffectiveDomTag
     -- * The KnownDom dictionary
@@ -85,7 +87,7 @@ module Isl.TypeLevel.Reflection
   , IslRangeOfD
   , IslCoversD
   , IslPartitionsD
-  , LiteralBranches
+  , LiteralBranches, LiteralBranchesU
     -- * Reflected route
   , reifyDomFromString
     -- * Proof tokens (v6 — see deviation D3)
@@ -108,7 +110,7 @@ import GHC.TypeLits
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
-import Isl.Typed.Constraints (SetIx)
+import Isl.Typed.Constraints (SetIx, Conjunction(..))
 import qualified Isl.Typed.Constraints as C
 import Isl.Typed.Params (KnownSymbols, Length)
 import qualified Isl.Set as RawS
@@ -119,16 +121,23 @@ import qualified Isl.Linear as Isl
 import qualified Isl.Types as Isl
 import Isl.TypeLevel.Constraint
   ( IslCovers
+  , IslCoversU
   , IslImageSubset
+  , IslImageSubsetU
   , IslMapToString
   , IslPartitions
+  , IslPartitionsU
   , IslRangeOf
   , IslSubset
+  , IslSubsetU
   , IslToString
+  , IslToStringU
   , TConstraint
   )
 import Isl.TypeLevel.Sing
-  ( KnownConstraints, knownConstraints, reifySTConstraintsSet )
+  ( KnownConstraints, knownConstraints, reifySTConstraintsSet
+  , KnownDisjunction, knownDisjunction, reifySTDisjunctionSet
+  )
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -140,6 +149,7 @@ import Isl.TypeLevel.Sing
 type DomTag :: forall (ps :: [Symbol]) -> forall (n :: Nat) -> Type
 data DomTag ps n where
   Literal      :: forall ps n. [TConstraint ps n] -> DomTag ps n
+  LiteralU     :: forall ps n. [[TConstraint ps n]] -> DomTag ps n
   ReflectedTag :: forall ps n. Type -> DomTag ps n
 
 
@@ -148,6 +158,18 @@ data DomTag ps n where
 type family Append (xs :: [k]) (ys :: [k]) :: [k] where
   Append '[] ys = ys
   Append (x ': xs) ys = x ': Append xs ys
+
+-- | Append @extra@ to each element of a list of lists.
+-- Used to distribute an ambient conjunction over each disjunct:
+-- @(A₁ ∪ A₂) ∩ B = (A₁ ∩ B) ∪ (A₂ ∩ B)@.
+type family MapAppend (css :: [[k]]) (extra :: [k]) :: [[k]] where
+  MapAppend '[] _ = '[]
+  MapAppend (cs ': css) extra = Append cs extra ': MapAppend css extra
+
+-- | Convert any 'DomTag' to its union representation.
+type family DomToUnion (d :: DomTag ps n) :: [[TConstraint ps n]] where
+  DomToUnion ('Literal cs) = '[cs]
+  DomToUnion ('LiteralU css) = css
 
 -- | A runtime-constructible proof token for a constraint.  Used by the
 -- v6 reflected-route mirror predicates as the return type: a
@@ -183,6 +205,7 @@ data Dict c where
 type family EffectiveDomTag (d :: DomTag ps n) (amb :: DomTag ps n)
          :: DomTag ps n where
   EffectiveDomTag ('Literal dCs) ('Literal aCs) = 'Literal (Append dCs aCs)
+  EffectiveDomTag ('LiteralU dCss) ('Literal aCs) = 'LiteralU (MapAppend dCss aCs)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -194,17 +217,14 @@ type family EffectiveDomTag (d :: DomTag ps n) (amb :: DomTag ps n)
 -- Haskell value), avoiding the linear-types story of @highlevel/Set@
 -- entirely.
 class KnownDom (ps :: [Symbol]) (n :: Nat) (d :: DomTag ps n) where
-  -- | The ISL textual form of the tagged domain.  For literal tags
-  -- this is computed at GHC compile time by the plugin's
-  -- 'IslToString' rewriter; for reflected tags it is read from a
-  -- 'Reifies' dictionary that 'reifyDomFromString' established.
+  -- | The ISL textual form of the tagged domain.
   reflectDomString :: String
 
-  -- | The domain's constraint list as value-level 'Constraint's.
-  -- For literal tags, these are reflected directly from the type-level
-  -- constraint list via 'KnownConstraints'.  For reflected tags, this
-  -- is not available (errors at runtime).
+  -- | Single-conjunction constraint list.  Errors for union/reflected tags.
   reflectDomConstraints :: [C.Constraint SetIx]
+
+  -- | The domain as a list of conjunctions (union-safe).
+  reflectDomConjunctions :: [Conjunction SetIx]
 
 -- | Literal route: the plugin computes the ISL string at compile
 -- time via the 'IslToString' type family, and 'KnownSymbol' gives us
@@ -216,14 +236,26 @@ instance
   ) => KnownDom ps n ('Literal cs) where
   reflectDomString = symbolVal (Proxy @(IslToString ps n cs))
   reflectDomConstraints = reifySTConstraintsSet (knownConstraints @ps @n @cs)
+  reflectDomConjunctions = [Conjunction (reifySTConstraintsSet (knownConstraints @ps @n @cs))]
 
--- | Reflected route: 'reifyDomFromString' established a 'Reifies'
--- dictionary keyed by the fresh skolem @s@; we read the string out
--- of it.  Constraint reflection is not available for reflected tags.
+-- | Union literal route: the plugin computes the ISL string via
+-- 'IslToStringU', and the disjunction is reflected via 'KnownDisjunction'.
+instance
+  ( KnownSymbol (IslToStringU ps n css)
+  , KnownDisjunction ps n css
+  ) => KnownDom ps n ('LiteralU css) where
+  reflectDomString = symbolVal (Proxy @(IslToStringU ps n css))
+  reflectDomConstraints =
+    error "reflectDomConstraints: not available for union domains (use reflectDomConjunctions)"
+  reflectDomConjunctions = reifySTDisjunctionSet (knownDisjunction @ps @n @css)
+
+-- | Reflected route: constraint reflection is not available.
 instance R.Reifies s String => KnownDom ps n ('ReflectedTag s) where
   reflectDomString = R.reflect (Proxy @s)
   reflectDomConstraints =
     error "reflectDomConstraints: not available for reflected domains"
+  reflectDomConjunctions =
+    error "reflectDomConjunctions: not available for reflected domains"
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -236,18 +268,28 @@ class IslSubsetD (ps :: [Symbol]) (n :: Nat)
 instance IslSubset ps n cs1 cs2
   => IslSubsetD ps n ('Literal cs1) ('Literal cs2)
 
+instance IslSubsetU ps n css1 '[cs2]
+  => IslSubsetD ps n ('LiteralU css1) ('Literal cs2)
 
--- | Domain-tag-indexed 'IslPartitions' dispatch.  Checks that the
--- branch domains of a 'Alpha.Core.Case' both cover the ambient @d@
--- and are pairwise disjoint within it — every point in the ambient
--- is defined by exactly one branch.  See v5.2 in
--- @doc/alpha-implementation.md@.
+instance IslSubsetU ps n '[cs1] css2
+  => IslSubsetD ps n ('Literal cs1) ('LiteralU css2)
+
+instance IslSubsetU ps n css1 css2
+  => IslSubsetD ps n ('LiteralU css1) ('LiteralU css2)
+
+
+-- | Domain-tag-indexed partition dispatch.
 class IslPartitionsD (ps :: [Symbol]) (n :: Nat)
                      (d :: DomTag ps n)
                      (branches :: [DomTag ps n])
 
+-- Literal ambient: legacy route via IslPartitions
 instance ( IslPartitions ps n '[cs] (LiteralBranches branches) )
   => IslPartitionsD ps n ('Literal cs) branches
+
+-- LiteralU ambient: grouped route via IslPartitionsU
+instance IslPartitionsU ps n css (LiteralBranchesU branches)
+  => IslPartitionsD ps n ('LiteralU css) branches
 
 
 class IslImageSubsetD (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
@@ -256,6 +298,9 @@ class IslImageSubsetD (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
 
 instance IslImageSubset ps ni no mapCs cs1 cs2
   => IslImageSubsetD ps ni no mapCs ('Literal cs1) ('Literal cs2)
+
+instance IslImageSubsetU ps ni no mapCs css dstCs
+  => IslImageSubsetD ps ni no mapCs ('LiteralU css) ('Literal dstCs)
 
 
 class IslRangeOfD (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
@@ -273,10 +318,20 @@ class IslCoversD (ps :: [Symbol]) (n :: Nat)
 instance ( IslCovers ps n '[cs] (LiteralBranches branches) )
   => IslCoversD ps n ('Literal cs) branches
 
+instance IslCoversU ps n css (LiteralBranchesU branches)
+  => IslCoversD ps n ('LiteralU css) branches
 
+
+-- | Extract branch constraint lists (flat, for legacy use).
 type family LiteralBranches (ds :: [DomTag ps n]) :: [[TConstraint ps n]] where
   LiteralBranches '[] = '[]
   LiteralBranches ('Literal cs ': rest) = cs ': LiteralBranches rest
+
+-- | Extract per-branch disjunctions (union-aware).
+type family LiteralBranchesU (ds :: [DomTag ps n]) :: [[[TConstraint ps n]]] where
+  LiteralBranchesU '[] = '[]
+  LiteralBranchesU ('Literal cs ': rest) = '[cs] ': LiteralBranchesU rest
+  LiteralBranchesU ('LiteralU css ': rest) = css ': LiteralBranchesU rest
 
 
 -- ═══════════════════════════════════════════════════════════════════════
