@@ -17,7 +17,6 @@ module Alpha.Compile
   ) where
 
 import Control.DeepSeq (NFData(..))
-import Control.Monad.IO.Class (MonadIO)
 import qualified Data.Map.Strict as Map
 
 import Isl.Typed.Constraints

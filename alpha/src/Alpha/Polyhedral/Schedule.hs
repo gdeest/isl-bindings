@@ -37,7 +37,6 @@ import GHC.TypeLits (Symbol)
 import Isl.Typed.Constraints (Expr(..), SetIx(..), MapIx(..), Constraint(..), Conjunction(..))
 import Isl.Typed.Constraints (NamedMap(..), NamedSet(..))
 import Isl.Typed.Params (KnownSymbols(symbolVals))
-import Isl.Typed.Params (KnownSymbols)
 
 
 -- | A schedule is a list of quasi-affine output expressions over input dimensions.
@@ -158,24 +157,6 @@ setToMapIx (SetParam p) = MapParam p
 mapConstraint :: (a -> b) -> Constraint a -> Constraint b
 mapConstraint f (EqualityConstraint e)   = EqualityConstraint (fmap f e)
 mapConstraint f (InequalityConstraint e) = InequalityConstraint (fmap f e)
-
--- | Extract set dimension indices from a constraint.
-setDimsIn :: Constraint SetIx -> [Int]
-setDimsIn (EqualityConstraint e)   = exprSetDims e
-setDimsIn (InequalityConstraint e) = exprSetDims e
-
-exprSetDims :: Expr SetIx -> [Int]
-exprSetDims (Ix (SetDim d))  = [d]
-exprSetDims (Ix _)           = []
-exprSetDims (Constant _)     = []
-exprSetDims (Add a b)        = exprSetDims a ++ exprSetDims b
-exprSetDims (Mul _ e)        = exprSetDims e
-exprSetDims (FloorDiv e _)   = exprSetDims e
-
--- | Lift an expr that references InDim only (from ScheduleDef context)
--- into the combined (InDim + OutDim) MapIx space. InDim stays InDim.
-liftExpr :: Expr MapIx -> Expr MapIx
-liftExpr = id  -- InDim/MapParam are already the right constructors
 
 -- | Negate an expression: @negate e = -1 * e@.
 negateExpr :: Expr MapIx -> Expr MapIx

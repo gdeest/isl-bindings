@@ -23,7 +23,6 @@ module Alpha.Transform.Tile
   ) where
 
 import Data.Kind (Type)
-import Data.Proxy (Proxy(..))
 import GHC.TypeLits
   ( KnownNat, KnownSymbol, Nat, Symbol, type (+) )
 

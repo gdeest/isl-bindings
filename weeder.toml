@@ -1,11 +1,48 @@
 # Weeder 2.10 — dead code detection
-# Roots: all executables and test suites (anything with Main.main)
 # Run: cabal build all && weeder
 
-roots = ["^Main.main$", "^Paths_"]
+roots = [ "^Main.main$"
+  , "^Paths_"
+  # ── bindings: exposed-modules only ──
+  , "^Isl\\.Types\\."
+  , "^Isl\\.Monad\\."
+  , "^Isl\\.Linear\\."
+  , "^Isl\\.Aff\\."
+  , "^Isl\\.BasicMap\\."
+  , "^Isl\\.BasicSet\\."
+  , "^Isl\\.Constraint\\."
+  , "^Isl\\.Id\\."
+  , "^Isl\\.LocalSpace\\."
+  , "^Isl\\.Map\\."
+  , "^Isl\\.MultiAff\\."
+  , "^Isl\\.PwAff\\."
+  , "^Isl\\.PwMultiAff\\."
+  , "^Isl\\.AffList\\."
+  , "^Isl\\.Set\\."
+  , "^Isl\\.Space\\."
+  , "^Isl\\.UnionMap\\."
+  , "^Isl\\.UnionSet\\."
+  , "^Isl\\.Val\\."
+  , "^Isl\\.AstBuild\\."
+  , "^Isl\\.FlowAnalysis\\."
+  , "^Isl\\.Unsafe\\."
+  , "^Isl\\.Typed\\."
+  # ── typelevel: exposed-modules only ──
+  , "^Isl\\.TypeLevel\\."
+  # ── plugin ──
+  , "^Isl\\.Plugin\\."
+  # ── alpha: exposed-modules only ──
+  , "^Alpha\\.Core\\."
+  , "^Alpha\\.Surface\\."
+  , "^Alpha\\.Lower\\."
+  , "^Alpha\\.Schedule\\."
+  , "^Alpha\\.Allocation\\."
+  , "^Alpha\\.Compile\\."
+  , "^Alpha\\.Interpret\\."
+  , "^Alpha\\.TypeLevel\\.Tiling\\."
+  , "^Alpha\\.Transform\\."
+  , "^Alpha\\.Polyhedral\\."
+  ]
 
-# Type class instances are implicitly used — don't flag them
 type-class-roots = true
-
-# Unused type declarations too
 unused-types = true

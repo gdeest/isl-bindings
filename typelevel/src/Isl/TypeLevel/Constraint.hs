@@ -439,28 +439,6 @@ type family IslSetDimMin (ps :: [Symbol]) (n :: Nat) (d :: Nat)
     (cs :: [[TConstraint ps n]]) :: [( [TConstraint ps n], TExpr ps n )]
 
 
--- * Modular constraint sugar
---
--- These produce ISL string representations for common patterns involving
--- modular arithmetic / divisibility.  Use with 'IslFromString' or
--- directly as set definitions.
-
--- | @Divisible d m@ represents @∃k. dim_d = k * m@, i.e., dimension @d@
--- is divisible by @m@.  Intended for use with 'IslIntersectSet':
---
--- @
--- type EvenRows = IslFromString '["N"] 2
---   "[N] -> { [i, j] : exists k: i = 2k }"
--- @
---
--- As a standalone type synonym (for documentation):
-type Divisible (d :: Nat) (m :: Nat) = '()  -- placeholder; use IslFromString
-
--- | @ModEq d m r@ represents @dim_d mod m = r@.
--- As a standalone type synonym (for documentation):
-type ModEq (d :: Nat) (m :: Nat) (r :: Nat) = '()  -- placeholder; use IslFromString
-
-
 -- ═══════════════════════════════════════════════════════════════
 -- Raw → Typed conversion
 --

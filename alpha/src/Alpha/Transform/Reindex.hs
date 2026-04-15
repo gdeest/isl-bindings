@@ -16,21 +16,9 @@
 -- it walks the entire 'System' and reconstructs every node with
 -- correct types.
 --
--- The walker uses 'lookupReplaceDecl' from "Alpha.Core" to justify
--- each 'Var' and 'Equation' node.  'Dep' nodes referencing the
--- target variable are reconstructed constructively: the old dep map
--- is composed with the reverse of the reindex map via ISL, the
--- composed map's constraints are lifted to type-level singletons
--- ('withKnownConstraints'), and the image-subset obligation is
--- verified at runtime ('islImageSubsetCheckS').
---
 -- Zero 'unsafeCoerce' in the walker — all phantom-type changes
--- live in the trusted seal modules:
---
---   * "Alpha.Core" ('lookupReplaceDecl', 'replaceDeclList',
---     'definesAllReplace')
---   * "Isl.TypeLevel.Sing" ('withKnownConstraints', 'liftConstraintsMap')
---   * "Isl.TypeLevel.Reflection" ('islImageSubsetCheckS')
+-- live in the trusted seal modules ("Alpha.Core", "Isl.TypeLevel.Sing",
+-- "Isl.TypeLevel.Reflection").
 module Alpha.Transform.Reindex
   ( reindex
   , TransformError(..)

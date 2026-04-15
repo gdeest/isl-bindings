@@ -10,7 +10,6 @@ import Debug.Trace
 import Data.Char
 import Data.List
 import Data.Maybe
-import Debug.Trace
 
 import Language.C
 import Language.C.System.GCC
@@ -164,10 +163,6 @@ data HSFunction =
              Identifier
   deriving (Eq, Show, Ord)
 
-data Module =
-  Module String
-         (S.Set ISLFunction)
-
 type FunctionMap = M.Map String (S.Set HSFunction)
 
 type ParseMonad = StateT FunctionMap IO
@@ -215,18 +210,6 @@ withParsedFile f fileName = do
         Left err ->
           error $ "Error analyzing AST of " ++ fileName ++ " : " ++ (show err)
         Right (globalDecls, _) -> f fileName globalDecls
-
-camelize :: String -> String
-camelize (x:xs) = (toUpper x) : (camelize' xs)
-  where
-    camelize' (x:xs)
-      | x == '_' = camelize xs
-    camelize' (x:xs) = x : (camelize' xs)
-    camelize' "" = ""
-camelize "" = ""
-
-moduleNameFromHeader :: String -> String
-moduleNameFromHeader header = camelize (reverse $ drop 2 $ reverse header)
 
 data TypeInfo = TI
   { cType :: String -- ^ C type
@@ -647,9 +630,6 @@ paramType (ISLParam _ t _) = t
 paramName :: ISLParam -> String
 paramName (ISLParam _ _ n) = n
 
-paramAnnots :: ISLParam -> [ISLAnnotation]
-paramAnnots (ISLParam a _ _) = a
-
 writeModule :: String -> String -> [HSFunction] -> IO ()
 writeModule outPath name functions = do
   let (x:xs) = name
@@ -1009,10 +989,6 @@ sanitizeFunName name =
         [ ("mod", "modulo")
         , ("2exp", "twoExp")
         ]
-
-prefix = ""
-
-islDir = prefix ++ "isl/"
 
 handlePrefix :: String -> String -> String
 handlePrefix prefix name =

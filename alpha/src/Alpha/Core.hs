@@ -42,8 +42,12 @@
 --
 -- = Trust base
 --
--- This module contains zero @unsafeCoerce@ calls.  Every constructor's
--- obligations are discharged by GHC (structural) or by the isl-plugin
+-- Four unsafe coercions live in §1 (the replace\/lookup seal):
+-- 'lookupReplaceDecl' (2×, Dict fabrication), 'replaceDeclList' (runtime-
+-- identical DeclList cast), 'definesAllReplace' (Dict), 'replaceDeclConcat'
+-- (Refl).  Soundness of each follows from the defining equations of
+-- 'ReplaceDecl' + 'Lookup' on concrete lists — see per-function comments.
+-- All other obligations are discharged by GHC or by the isl-plugin
 -- via the @Isl.TypeLevel.Reflection@ wrapper classes.
 module Alpha.Core
   ( -- * Variable declarations
@@ -260,15 +264,7 @@ data Expr ps decls n d a where
   -- domain (and bears the array-access bounds check via
   -- 'IslImageSubsetD').
   --
-  -- The design doc allowed 'Var' to be polymorphic in the result
-  -- domain @d@ with an @IslSubsetD ps n d (DeclDomTag decl)@
-  -- obligation, so that 'Var' could be used inside a case branch with
-  -- a narrower domain.  v1 simplifies to the declared-domain form to
-  -- avoid type-inference ambiguity in the matmul example, where
-  -- nothing constrains a polymorphic @d@ from context.  The polymorphic
-  -- form can be restored as a separate @VarAt@ constructor or as a
-  -- type-application override in v2 when 'Case' enters the picture.
-  -- Recorded as deviation D12 in the implementation log.
+  -- See deviation D12 in doc/alpha-implementation.md.
   Var :: forall (name :: Symbol) (ps :: [Symbol])
                 (decls :: [VarDecl ps]) (decl :: VarDecl ps).
          ( decl ~ Lookup name decls
@@ -310,15 +306,7 @@ data Expr ps decls n d a where
   -- through the access pattern, must land inside the target variable's
   -- declared domain.
   --
-  -- The design doc's @Dep@ used a single @n@ parameter for both the
-  -- inner and outer expressions; that is wrong for any access from a
-  -- larger iteration space into a smaller variable space (e.g.,
-  -- accessing a 2D matrix from a 3D reduction body).  Recorded as
-  -- deviation D9 in the implementation log.
-  --
-  -- v1 takes the map as a literal type-level constraint list; v5 will
-  -- generalize to a 'KnownMap' tag once the map-side reflection layer
-  -- exists.  See deviation D1.
+  -- See deviations D9, D1 in doc/alpha-implementation.md.
   Dep :: forall ps decls (ni :: Nat) (no :: Nat)
               (mapCs :: [TConstraint ps (ni + no)])
               (dOuter :: DomTag ps ni) (dInner :: DomTag ps no) a.
@@ -341,16 +329,7 @@ data Expr ps decls n d a where
   -- the standard newtype wrappers ('Sum', 'Product', 'Min', 'Max')
   -- will have fast paths.
   --
-  -- The design doc used 'IslRangeOfD' (range = result domain), but
-  -- that asks for *equality* between the map's *unrestricted* range
-  -- and the result domain, which is too strong: a projection map
-  -- specified by output-equality constraints alone has the full
-  -- output plane as its range, never equal to a bounded result
-  -- domain.  The right obligation is 'IslImageSubsetD' (image of
-  -- body domain under projection ⊆ result domain).  Combined with
-  -- user discipline (picking @d@ to be exactly the intended image),
-  -- this gives the right semantics.  Recorded as deviation D13.
-  --
+  -- See deviation D13 in doc/alpha-implementation.md.
   -- v1 takes the projection as a literal constraint list, same as
   -- 'Dep'.  v5 will generalize to a 'KnownMap' tag.
   Reduce :: forall ps decls (n :: Nat) (nBody :: Nat)

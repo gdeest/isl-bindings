@@ -14,7 +14,6 @@ module Isl.Typed.Constraints
   ( -- * Index types
     SetIx(..)
   , MapIx(..)
-  , MapDim
     -- * Expressions
   , Expr(..)
   , modExpr
@@ -110,8 +109,6 @@ data MapIx = InDim !Int | OutDim !Int | MapParam !Int
 
 instance NFData MapIx
 
--- | Legacy alias.
-type MapDim = MapIx
 
 -- =========================================================================
 -- Expressions
@@ -590,7 +587,7 @@ buildBasicSet paramNames nDims (Conjunction constraints) = Isl.do
 
 -- | Build an ISL BasicMap from parameter names, dimension counts, and constraints.
 buildBasicMap :: MonadIO m
-  => [String]          -- ^ Parameter names
+  => [String]          -- ^ Parameter names (alphabetically sorted)
   -> Int               -- ^ Number of input dimensions
   -> Int               -- ^ Number of output dimensions
   -> Conjunction MapIx -- ^ Constraints
@@ -603,7 +600,7 @@ buildBasicMap paramNames nIn nOut (Conjunction constraints) = Isl.do
 
 -- | Build an ISL MultiAff from parameter names, dimension counts, and output expressions.
 buildMultiAff :: forall m. MonadIO m
-  => [String]          -- ^ Parameter names
+  => [String]          -- ^ Parameter names (alphabetically sorted)
   -> Int               -- ^ Number of input dimensions
   -> Int               -- ^ Number of output dimensions
   -> [Expr SetIx]      -- ^ Output expressions (length must equal nOut)

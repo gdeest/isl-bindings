@@ -10,36 +10,10 @@
 
 -- | Singleton-based type-level polyhedral DSL.
 --
--- = Architecture
---
--- 1. __Singletons__ ('STExpr', 'STConstraint', 'STConstraints') are value-level
---    witnesses of type-level data.  They carry both the type index (visible to
---    GHC for compile-time reasoning) and runtime evidence (for reification to
---    ISL objects).
---
--- 2. __Auto-derivation__ ('KnownExpr', 'KnownConstraint', 'KnownConstraints')
---    produces singletons from type-level info automatically — no manual
---    construction needed.
---
--- 3. __Singleton-carrying polyhedra__ ('SBasicSet', 'SBasicMap') pair visible
---    type-level constraints with their runtime singleton.  The smart
---    constructors 'sBasicSet' and 'sBasicMap' build these from type-level info.
---
--- 4. __Evaluation__ ('evalSBasicSet', 'evalSBasicMap') reifies singleton-carrying
---    polyhedra to ISL objects within 'IslT'.
---
--- = Usage
---
--- @
--- type Triangle = '[ 'TDim (D 0) >=. 'TConst ('Pos 0), ... ]
---
--- triangle :: SBasicSet '["N"] 2 Triangle
--- triangle = sBasicSet
---
--- main = runIslT $ do
---   s <- evalSBasicSet triangle   -- ISL Set, ready to use
---   ...
--- @
+-- Singletons witness type-level data at runtime, enabling reification to ISL
+-- objects.  Auto-derivation classes ('KnownExpr', etc.) build singletons from
+-- type info; 'SBasicSet'/'SBasicMap' pair them with 'evalSBasicSet'/'evalSBasicMap'
+-- for IslT reification.
 module Isl.TypeLevel.Sing
   ( -- * Type-level integers
     KnownZ(..), zValOf
