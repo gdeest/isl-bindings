@@ -285,12 +285,12 @@ heat3D = system
       $ when_ faceKNDom  (litB 0)
       $ when_ interiorDom
           -- Interior: six-neighbour average
-          (mapB (/ 6) $
-                at @"u" (ix4 (#t -. lit @1) (#i -. lit @1) #j #k)
+          ((   at @"u" (ix4 (#t -. lit @1) (#i -. lit @1) #j #k)
             .+. at @"u" (ix4 (#t -. lit @1) (#i +. lit @1) #j #k)
             .+. at @"u" (ix4 (#t -. lit @1) #i (#j -. lit @1) #k)
             .+. at @"u" (ix4 (#t -. lit @1) #i (#j +. lit @1) #k)
             .+. at @"u" (ix4 (#t -. lit @1) #i #j (#k -. lit @1))
             .+. at @"u" (ix4 (#t -. lit @1) #i #j (#k +. lit @1)))
+            ./. litB 6)
       $ SBNil)
   :& EqNil )

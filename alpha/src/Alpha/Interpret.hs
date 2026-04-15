@@ -55,6 +55,7 @@ import Isl.TypeLevel.Sing
   ( knownConstraints, reifySTConstraintsSet )
 
 import Alpha.Core
+import Alpha.Codegen.COp (evalBinOp, evalUnaryOp, evalReduceOp)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -169,14 +170,14 @@ evalExpr env (Var (Proxy :: Proxy name)) point = do
 
 evalExpr _ (Const v) _ = pure v
 
-evalExpr env (Pw f e1 e2) point = do
+evalExpr env (Pw op e1 e2) point = do
   !v1 <- evalExpr env e1 point
   !v2 <- evalExpr env e2 point
-  pure $! f v1 v2
+  pure $! unsafeCoerce (evalBinOp op (unsafeCoerce v1 :: Double) (unsafeCoerce v2 :: Double))
 
-evalExpr env (PMap f e) point = do
+evalExpr env (PMap op e) point = do
   !v <- evalExpr env e point
-  pure $! f v
+  pure $! unsafeCoerce (evalUnaryOp op (unsafeCoerce v :: Double))
 
 evalExpr env (Dep (Proxy :: Proxy mapCs)
                   (inner :: Expr ps decls no dInner a)) point = do
@@ -185,25 +186,29 @@ evalExpr env (Dep (Proxy :: Proxy mapCs)
       innerPoint = applyAffineMap niVal (envParams env) (envParamVec env) cs point
   evalExpr env inner innerPoint
 
-evalExpr env (Reduce (Proxy :: Proxy projCs)
-                     (body :: Expr ps decls nBody dBody m)) point = do
+evalExpr env (Reduce reduceOp (Proxy :: Proxy projCs)
+                     (body :: Expr ps decls nBody dBody a)) point = do
   let nVal     = fromIntegral (natVal (Proxy @n)) :: Int
       nBodyVal = fromIntegral (natVal (Proxy @nBody)) :: Int
       nRed  = nBodyVal - nVal
       bodyDomStr = reflectDomString @ps @nBody @dBody
       maxVal = envMaxParam env
-      -- Enumerate all candidate reduction variable combinations
       redRanges = replicate nRed [0 .. maxVal]
       candidates = sequence redRanges
-  -- Filter: keep only body points in the body domain
   let validBodyPoints =
         [ point ++ red
         | red <- candidates
         , islMember (envParams env) (envParamVec env) nBodyVal bodyDomStr (point ++ red)
         ]
-  -- Evaluate body at each valid point and fold via Monoid
   vals <- mapM (evalExpr env body) validBodyPoints
-  pure $! mconcat vals
+  let identity = case reduceOp of
+        ReduceSum  -> 0.0
+        ReduceProd -> 1.0
+        ReduceMin  -> 1/0    -- Infinity
+        ReduceMax  -> -1/0   -- -Infinity
+      result = foldl' (evalReduceOp reduceOp) identity
+                 (map unsafeCoerce vals :: [Double])
+  pure $! unsafeCoerce result
 
 evalExpr env (Case branches) point =
   evalBranches env branches point

@@ -46,7 +46,6 @@ module Negative.Cases
   ) where
 
 import Control.Exception (evaluate)
-import Data.Monoid (Sum(..))
 import Data.Proxy (Proxy(..))
 
 import Alpha.Core

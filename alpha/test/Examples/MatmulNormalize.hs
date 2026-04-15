@@ -26,16 +26,17 @@ module Examples.MatmulNormalize
   , MNCubeN
   ) where
 
-import Data.Monoid (Sum(..))
 import Data.Proxy (Proxy(..))
 
 import Alpha.Core
-  ( Decl(..)
+  ( BinOp(..)
+  , Decl(..)
   , DeclList(..)
   , Decls(..)
   , Equation(..)
   , EqList(..)
   , Expr(..)
+  , ReduceOp(..)
   , System
   , pattern System
   , VarDecl(..)
@@ -110,14 +111,13 @@ matmulNormalize = System
 
 cBody :: Expr '["N"] MNDecls 2 ('Literal MNSquareN) Double
 cBody =
-  PMap getSum $
-    Reduce
-      (Proxy :: Proxy (IslMultiAffToMap '["N"] 3 2 ProjectK))
-      (PMap Sum reductionBody)
+  Reduce ReduceSum
+    (Proxy :: Proxy (IslMultiAffToMap '["N"] 3 2 ProjectK))
+    reductionBody
 
 reductionBody :: Expr '["N"] MNDecls 3 ('Literal MNCubeN) Double
 reductionBody =
-  Pw (*)
+  Pw OpMul
     (Dep
       (Proxy :: Proxy (IslMultiAffToMap '["N"] 3 2 AccessA))
       (Var (Proxy @"A")))

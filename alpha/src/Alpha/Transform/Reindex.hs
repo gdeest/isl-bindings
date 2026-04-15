@@ -169,9 +169,9 @@ walkExprNonTarget = go
           Expr ps decls n' d' a'
        -> Either TransformError (Expr ps (ReplaceDecl target nv decls) n' d' a')
 
-    go (Const k)  = Right (Const k)
-    go (Pw f a b) = Pw f <$> go a <*> go b
-    go (PMap f a) = PMap f <$> go a
+    go (Const k)   = Right (Const k)
+    go (Pw op a b) = Pw op <$> go a <*> go b
+    go (PMap op a) = PMap op <$> go a
 
     go (Var @name pn) =
       case lookupReplaceDecl @ps @target @name @nv @decls
@@ -221,7 +221,7 @@ walkExprNonTarget = go
                            error "reindex: impossible — symbolVal/sameSymbol mismatch"
     go (Dep mapP inner) = Dep mapP <$> go inner
 
-    go (Reduce projP body) = Reduce projP <$> go body
+    go (Reduce rop projP body) = Reduce rop projP <$> go body
     go (Case branches)     = Case <$> goBranches branches
 
     goBranches :: forall n' (amb :: DomTag ps n') (bdoms :: [DomTag ps n']) a'.
@@ -255,9 +255,9 @@ walkExprTarget = go
     go :: forall oN (oD :: DomTag ps oN) nN (nD :: DomTag ps nN) a'.
           Expr ps decls oN oD a'
        -> Either TransformError (Expr ps (ReplaceDecl target nv decls) nN nD a')
-    go (Const k)  = Right (Const k)
-    go (Pw f a b) = Pw f <$> go a <*> go b
-    go (PMap f a) = PMap f <$> go a
+    go (Const k)   = Right (Const k)
+    go (Pw op a b) = Pw op <$> go a <*> go b
+    go (PMap op a) = PMap op <$> go a
     go _ = Left (ImageOutOfBounds
       ("target body contains Var/Dep/Reduce/Case — "
        ++ "reindex v1 handles Const/Pw/PMap only")

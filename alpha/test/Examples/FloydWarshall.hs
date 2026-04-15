@@ -165,7 +165,7 @@ floyd = system
           (at @"A" (ix2 #i #j))
       $ when_ fwKGe1
           -- k >= 1: D[k, i, j] = min(D[k-1, i, j], D[k-1, i, k] + D[k-1, k, j])
-          (pwB min
+          (pwB OpMin
             (at @"D" (ix3 (#k -. lit @1) #i #j))
             (at @"D" (ix3 (#k -. lit @1) #i #k)
                   .+. at @"D" (ix3 (#k -. lit @1) #k #j)))

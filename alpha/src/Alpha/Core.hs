@@ -74,6 +74,8 @@ module Alpha.Core
   , CountName
     -- * Re-exports for interpretation
   , KnownConstraints
+    -- * Re-exports for Expr operations
+  , BinOp(..), UnaryOp(..), ReduceOp(..)
   ) where
 
 import Data.Kind (Type)
@@ -92,6 +94,7 @@ import Isl.TypeLevel.Reflection
   , KnownDom
   )
 import Isl.TypeLevel.Sing (KnownConstraints)
+import Alpha.Codegen.COp (BinOp(..), UnaryOp(..), ReduceOp(..))
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -196,21 +199,23 @@ data Expr ps decls n d a where
   Const :: a -> Expr ps decls n d a
 
   -- | Pointwise binary operation.  Both operands and the result share
-  -- the same domain @d@; no implicit intersection.  Domain matching is
-  -- a Haskell-level type equality, not a plugin obligation.
-  Pw :: (a -> b -> c)
+  -- the same domain @d@ and the same value type @a@.  Domain matching
+  -- is a Haskell-level type equality, not a plugin obligation.
+  --
+  -- The 'BinOp' tag makes the operation renderable to C; the
+  -- interpreter evaluates it at 'Double' via 'evalBinOp'.
+  Pw :: BinOp
      -> Expr ps decls n d a
-     -> Expr ps decls n d b
-     -> Expr ps decls n d c
+     -> Expr ps decls n d a
+     -> Expr ps decls n d a
 
-  -- | Pointwise unary operation.  Useful for monoid newtype wrapping
-  -- around 'Reduce' (e.g. @Sum@/@getSum@) and for arbitrary scalar
-  -- transformations applied at every point of the domain.  The 'Expr'
-  -- type is not a 'Functor' (it has more type parameters than a
-  -- functor needs), so we provide this directly as a constructor.
-  PMap :: (a -> b)
+  -- | Pointwise unary operation (sqrt, negate, abs, …).
+  --
+  -- The 'UnaryOp' tag makes the operation renderable to C; the
+  -- interpreter evaluates it at 'Double' via 'evalUnaryOp'.
+  PMap :: UnaryOp
        -> Expr ps decls n d a
-       -> Expr ps decls n d b
+       -> Expr ps decls n d a
 
   -- | Dependence: apply an affine map to reindex from an inner
   -- variable space (@no@-dim) into an outer body space (@ni@-dim).
@@ -237,31 +242,31 @@ data Expr ps decls n d a where
       -> Expr ps decls no dInner a
       -> Expr ps decls ni dOuter a
 
-  -- | Reduction: project out one or more dimensions through a monoid.
+  -- | Reduction: project out one or more dimensions via an
+  -- associative operation.
   --
   -- The reduction's body lives in a larger space @nBody@/@dBody@; the
   -- projection map (encoded as @projCs@) sends body points to result
   -- points, and the *image* of @dBody@ under the projection must be
-  -- contained in the result domain @d@.  The 'Monoid' instance on @m@
-  -- supplies the combine operator and identity element; codegen for
-  -- the standard newtype wrappers ('Sum', 'Product', 'Min', 'Max')
-  -- will have fast paths.
+  -- contained in the result domain @d@.
+  --
+  -- The 'ReduceOp' tag determines the accumulation operation:
+  -- 'ReduceSum' → addition (identity 0), 'ReduceProd' → multiplication
+  -- (identity 1), etc.  The interpreter and codegen use this directly.
   --
   -- See deviation D13 in doc/alpha-implementation.md.
-  -- v1 takes the projection as a literal constraint list, same as
-  -- 'Dep'.  v5 will generalize to a 'KnownMap' tag.
   Reduce :: forall ps decls (n :: Nat) (nBody :: Nat)
                   (projCs :: [TConstraint ps (nBody + n)])
-                  (d :: DomTag ps n) (dBody :: DomTag ps nBody) m.
-            ( Monoid m
-            , KnownNat n, KnownNat nBody
+                  (d :: DomTag ps n) (dBody :: DomTag ps nBody) a.
+            ( KnownNat n, KnownNat nBody
             , KnownDom ps n d
             , KnownDom ps nBody dBody
             , KnownConstraints ps (nBody + n) projCs
             , IslImageSubsetD ps nBody n projCs dBody d )
-         => Proxy projCs
-         -> Expr ps decls nBody dBody m
-         -> Expr ps decls n     d     m
+         => ReduceOp
+         -> Proxy projCs
+         -> Expr ps decls nBody dBody a
+         -> Expr ps decls n     d     a
 
   -- | Case: a list of branches whose domains cover @d@ and are
   -- pairwise disjoint within @d@.  Each point in the ambient is

@@ -164,7 +164,7 @@ cholesky = system
       (caseB $
         when_ diagN
           -- Diagonal: sqrt(A[i, i] - sum_k L[i, k]^2)
-          (mapB sqrt $
+          (mapB OpSqrt $
             at @"A" (ix2 #i #j) .-.
             sumOver @"k" diagBodyN
               (at @"L" (ix2 #i #k) .*. at @"L" (ix2 #i #k)))

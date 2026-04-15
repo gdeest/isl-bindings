@@ -169,8 +169,8 @@ extractReads ctx c
   in (readMap : innerReads, innerProjs, c')
 
 extractReads ctx c
-  (Reduce (Proxy :: Proxy projCs)
-          (body :: Expr ps decls nBody dBody m)) =
+  (Reduce _reduceOp (Proxy :: Proxy projCs)
+          (body :: Expr ps decls nBody dBody a)) =
   let nEq     = rcNDims ctx
       nBody_  = fromIntegral (natVal (Proxy @nBody)) :: Int
       bodyDomCs = reflectDomConstraints @ps @nBody @dBody
@@ -226,7 +226,7 @@ exprDomInfo (PMap _ e)    = exprDomInfo e
 exprDomInfo (Const _)     = (0, [])
 exprDomInfo (Dep _ _)     = (fromIntegral (natVal (Proxy @n)),
                              reflectDomConstraints @ps @n @d)
-exprDomInfo (Reduce _ _)  = (fromIntegral (natVal (Proxy @n)),
+exprDomInfo (Reduce _ _ _)  = (fromIntegral (natVal (Proxy @n)),
                              reflectDomConstraints @ps @n @d)
 exprDomInfo (Case (BCons _ body _ :: Branches ps decls n d branchDoms a)) =
   let (nDims, _) = exprDomInfo body

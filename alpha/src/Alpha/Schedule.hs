@@ -27,6 +27,7 @@ module Alpha.Schedule
   ( -- * Types
     EqSchedule(..)
   , Schedule(..)
+  , DimAnnotation(..)
     -- * Builder
   , ScheduleBuilder
   , scheduling
@@ -34,6 +35,8 @@ module Alpha.Schedule
   , sched
     -- * Untyped combinator (escape hatch)
   , schedule
+    -- * Annotation combinators
+  , annotate
     -- * Schedule combinators (re-exports)
   , S.ScheduleDef(..)
   , S.identity
@@ -59,11 +62,16 @@ import Alpha.Core (VarDecl(..), Lookup, DeclDims)
 -- §1. Types
 -- ═══════════════════════════════════════════════════════════════════════
 
+-- | Annotation for a schedule dimension.
+data DimAnnotation = Parallel | Vectorize
+  deriving (Show, Eq, Ord)
+
 data EqSchedule = EqSchedule
-  { esName  :: !String
-  , esNIter :: !Int
-  , esNTime :: !Int
-  , esDef   :: !S.ScheduleDef
+  { esName        :: !String
+  , esNIter       :: !Int
+  , esNTime       :: !Int
+  , esDef         :: !S.ScheduleDef
+  , esAnnotations :: !(Map Int DimAnnotation)
   } deriving (Show)
 
 newtype Schedule = Schedule { schedEntries :: Map String EqSchedule }
@@ -113,15 +121,39 @@ schedule :: String -> Int -> S.ScheduleDef -> ScheduleBuilder ()
 schedule name nIter def = modify' (Map.insert name eq)
   where
     eq = EqSchedule
-      { esName  = name
-      , esNIter = nIter
-      , esNTime = length (S.schedExprs def)
-      , esDef   = def
+      { esName        = name
+      , esNIter       = nIter
+      , esNTime       = length (S.schedExprs def)
+      , esDef         = def
+      , esAnnotations = Map.empty
       }
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §5. Schedule combinators
+-- §5. Annotation combinators
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | Annotate a schedule dimension for a named variable.
+--
+-- @
+-- scheduling $ do
+--   sched \@\"C\" \@MatmulDecls $ \\n -> identity n
+--   annotate \@\"C\" \@MatmulDecls 0 Parallel
+-- @
+annotate
+  :: forall (name :: Symbol) {ps} (decls :: [VarDecl ps]) {decl}.
+     ( decl ~ Lookup name decls
+     , KnownSymbol name
+     )
+  => Int -> DimAnnotation -> ScheduleBuilder ()
+annotate dim ann = modify' (Map.adjust addAnn nameStr)
+  where
+    nameStr = symbolVal (Proxy @name)
+    addAnn es = es { esAnnotations = Map.insert dim ann (esAnnotations es) }
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §6. Schedule combinators
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | Prepend a constant phase dimension: @[phase, d0, d1, ...]@.

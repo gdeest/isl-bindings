@@ -73,7 +73,6 @@ module Alpha.Surface
   ) where
 
 import Data.Kind (Type)
-import Data.Monoid (Sum(..))
 import Data.Proxy (Proxy(..))
 import GHC.OverloadedLabels (IsLabel(..))
 import GHC.TypeLits
@@ -349,41 +348,41 @@ newtype Body ps decls (scope :: [Symbol]) (n :: Nat) d a =
   Body { unBody :: Expr ps decls n d a }
 
 -- | Pointwise addition.
-(.+.) :: Num a => Body ps decls scope n d a -> Body ps decls scope n d a
+(.+.) :: Body ps decls scope n d a -> Body ps decls scope n d a
       -> Body ps decls scope n d a
-a .+. b = Body (Pw (+) (unBody a) (unBody b))
+a .+. b = Body (Pw OpAdd (unBody a) (unBody b))
 infixl 6 .+.
 
 -- | Pointwise subtraction.
-(.-.) :: Num a => Body ps decls scope n d a -> Body ps decls scope n d a
+(.-.) :: Body ps decls scope n d a -> Body ps decls scope n d a
       -> Body ps decls scope n d a
-a .-. b = Body (Pw (-) (unBody a) (unBody b))
+a .-. b = Body (Pw OpSub (unBody a) (unBody b))
 infixl 6 .-.
 
 -- | Pointwise multiplication.
-(.*.) :: Num a => Body ps decls scope n d a -> Body ps decls scope n d a
+(.*.) :: Body ps decls scope n d a -> Body ps decls scope n d a
       -> Body ps decls scope n d a
-a .*. b = Body (Pw (*) (unBody a) (unBody b))
+a .*. b = Body (Pw OpMul (unBody a) (unBody b))
 infixl 7 .*.
 
 -- | Pointwise division.
-(./.) :: Fractional a => Body ps decls scope n d a -> Body ps decls scope n d a
+(./.) :: Body ps decls scope n d a -> Body ps decls scope n d a
       -> Body ps decls scope n d a
-a ./. b = Body (Pw (/) (unBody a) (unBody b))
+a ./. b = Body (Pw OpDiv (unBody a) (unBody b))
 infixl 7 ./.
 
 -- | Body-level literal (wraps 'Const').
 litB :: a -> Body ps decls scope n d a
 litB = Body . Const
 
--- | Lift a unary function over a body (wraps 'PMap').
-mapB :: (a -> b) -> Body ps decls scope n d a -> Body ps decls scope n d b
-mapB f = Body . PMap f . unBody
+-- | Lift a unary operation over a body (wraps 'PMap').
+mapB :: UnaryOp -> Body ps decls scope n d a -> Body ps decls scope n d a
+mapB op = Body . PMap op . unBody
 
 -- | Pointwise binary operation (wraps 'Pw').
-pwB :: (a -> a -> a) -> Body ps decls scope n d a -> Body ps decls scope n d a
+pwB :: BinOp -> Body ps decls scope n d a -> Body ps decls scope n d a
     -> Body ps decls scope n d a
-pwB f a b = Body (Pw f (unBody a) (unBody b))
+pwB op a b = Body (Pw op (unBody a) (unBody b))
 
 -- | Array access.  @at \@\"A\" (ix2 #i #k)@ elaborates to a
 -- @Dep (Proxy \@(IslMultiAffToMap …)) (Var (Proxy \@\"A\"))@.
@@ -427,10 +426,9 @@ at _ = Body $ Dep (Proxy :: Proxy
 -- the outer domain and the reduction variable's range.
 reduceOver
   :: forall (k :: Symbol) {outerScope :: [Symbol]} {bodyDomE :: DomE}
-            {ps} {decls} {dOuter} {m}.
+            {ps} {decls} {dOuter} {a}.
      ( KnownSymbol k
      , Elem k outerScope ~ 'False
-     , Monoid m
      , KnownNat (Length outerScope)
      , KnownNat (Length (outerScope ++ '[k]))
      , KnownDom ps (Length outerScope) dOuter
@@ -445,24 +443,23 @@ reduceOver
          ('Literal (CompileDom ps (outerScope ++ '[k]) (Length (outerScope ++ '[k])) bodyDomE))
          dOuter
      )
-  => DomExpr (outerScope ++ '[k]) bodyDomE
+  => ReduceOp
+  -> DomExpr (outerScope ++ '[k]) bodyDomE
   -> Body ps decls (outerScope ++ '[k]) (Length (outerScope ++ '[k]))
-          ('Literal (CompileDom ps (outerScope ++ '[k]) (Length (outerScope ++ '[k])) bodyDomE)) m
-  -> Body ps decls outerScope (Length outerScope) dOuter m
-reduceOver _ (Body body) =
-  Body $ Reduce (Proxy :: Proxy
-                   (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
-                      (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope)))
-                body
+          ('Literal (CompileDom ps (outerScope ++ '[k]) (Length (outerScope ++ '[k])) bodyDomE)) a
+  -> Body ps decls outerScope (Length outerScope) dOuter a
+reduceOver op _ (Body body) =
+  Body $ Reduce op
+           (Proxy :: Proxy
+              (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
+                 (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope)))
+           body
 
--- | Sum reduction over a named dimension.  Sugar for the common case
--- where the reduction monoid is 'Sum'.  Wraps the body in @PMap Sum@
--- and the result in @PMap getSum@.
+-- | Sum reduction over a named dimension.
 sumOver
   :: forall (k :: Symbol) {outerScope :: [Symbol]} {bodyDomE :: DomE}
             {ps} {decls} {dOuter} {a}.
-     ( Num a
-     , KnownSymbol k
+     ( KnownSymbol k
      , Elem k outerScope ~ 'False
      , KnownNat (Length outerScope)
      , KnownNat (Length (outerScope ++ '[k]))
@@ -482,12 +479,7 @@ sumOver
   -> Body ps decls (outerScope ++ '[k]) (Length (outerScope ++ '[k]))
           ('Literal (CompileDom ps (outerScope ++ '[k]) (Length (outerScope ++ '[k])) bodyDomE)) a
   -> Body ps decls outerScope (Length outerScope) dOuter a
-sumOver _ (Body body) =
-  Body $ PMap getSum $
-    Reduce (Proxy :: Proxy
-              (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
-                 (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope)))
-           (PMap Sum body)
+sumOver dom body = reduceOver @k ReduceSum dom body
 
 
 -- ═══════════════════════════════════════════════════════════════════════
