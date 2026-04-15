@@ -1,6 +1,8 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE QualifiedDo #-}
@@ -30,11 +32,18 @@ module Isl.TypeLevel.Sing
     -- * Singleton-carrying polyhedra
   , SBasicSet(..), sBasicSet
   , SBasicMap(..), sBasicMap
+    -- * Singleton-carrying union polyhedra
+  , STDisjunction(..)
+  , KnownDisjunction(..)
+  , SSet(..), sSet
+  , SMap(..), sMap
     -- * Singleton-carrying multi-aff
   , SMultiAff(..), sMultiAff
     -- * Evaluation: singleton → ISL object
   , evalSBasicSet
   , evalSBasicMap
+  , evalSSet
+  , evalSMap
   , evalSMultiAff
     -- * Singleton reification (singleton → value, used by evaluation)
   , reifySTConstraintsSet
@@ -54,7 +63,7 @@ import GHC.TypeLits (Nat, KnownNat, natVal, SomeNat(..), someNatVal, Symbol, Kno
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.TypeLevel.Expr
-import Isl.TypeLevel.Constraint (TConstraint(..), AllValid, AllValidExprs)
+import Isl.TypeLevel.Constraint (TConstraint(..), AllValid, AllValidCSS, AllValidExprs)
 import Isl.Typed.Constraints (Expr(..), Constraint(..), Conjunction(..), SetIx(..), MapIx(..))
 import Isl.Typed.Constraints qualified as TC
 import Isl.Typed.Params (KnownSymbols(..), Length)
@@ -197,6 +206,61 @@ sBasicMap = MkSBasicMap knownConstraints
 
 
 -- =========================================================================
+-- Singleton-carrying union polyhedra
+-- =========================================================================
+
+-- | Singleton for a disjunction (list of conjunctions).
+data STDisjunction (ps :: [Symbol]) (n :: Nat) (css :: [[TConstraint ps n]]) where
+  STDNil  :: STDisjunction ps n '[]
+  STDCons :: STConstraints ps n cs -> STDisjunction ps n css
+          -> STDisjunction ps n (cs ': css)
+
+-- | Automatically produce a singleton for a disjunction.
+class KnownDisjunction (ps :: [Symbol]) (n :: Nat) (css :: [[TConstraint ps n]]) where
+  knownDisjunction :: STDisjunction ps n css
+
+instance KnownDisjunction ps n '[] where
+  knownDisjunction = STDNil
+
+instance (KnownConstraints ps n cs, KnownDisjunction ps n css)
+  => KnownDisjunction ps n (cs ': css) where
+  knownDisjunction = STDCons knownConstraints knownDisjunction
+
+-- | A set (disjunction of conjunctions) with visible type-level constraints
+-- and singleton-backed runtime reification.
+data SSet (ps :: [Symbol]) (n :: Nat) (css :: [[TConstraint ps n]]) where
+  MkSSet :: STDisjunction ps n css -> SSet ps n css
+
+sSet :: forall ps n css.
+  (AllValidCSS ps n css, KnownDisjunction ps n css)
+  => SSet ps n css
+sSet = MkSSet knownDisjunction
+
+-- | A map (disjunction of conjunctions) with visible type-level constraints.
+type SMap :: forall (ps :: [Symbol]) -> forall (ni :: Nat) -> forall (no :: Nat)
+          -> [[TConstraint ps (ni + no)]] -> Type
+data SMap ps ni no css where
+  MkSMap :: STDisjunction ps (ni + no) css -> SMap ps ni no css
+
+sMap :: forall ps ni no css.
+  (AllValidCSS ps (ni + no) css, KnownDisjunction ps (ni + no) css)
+  => SMap ps ni no css
+sMap = MkSMap knownDisjunction
+
+-- | Reify a disjunction singleton to value-level conjunctions (set space).
+reifySTDisjunctionSet :: STDisjunction ps n css -> [Conjunction SetIx]
+reifySTDisjunctionSet STDNil = []
+reifySTDisjunctionSet (STDCons cs rest) =
+  Conjunction (reifySTConstraintsSet cs) : reifySTDisjunctionSet rest
+
+-- | Reify a disjunction singleton to value-level conjunctions (map space).
+reifySTDisjunctionMapSplit :: Int -> STDisjunction ps n css -> [Conjunction MapIx]
+reifySTDisjunctionMapSplit _   STDNil = []
+reifySTDisjunctionMapSplit nIn (STDCons cs rest) =
+  Conjunction (reifySTConstraintsMapSplit nIn cs) : reifySTDisjunctionMapSplit nIn rest
+
+
+-- =========================================================================
 -- Evaluation: singleton-carrying polyhedra → ISL objects
 -- =========================================================================
 
@@ -222,6 +286,65 @@ evalSBasicMap (MkSBasicMap sing) = Isl.do
       conj = Conjunction (reifySTConstraintsMapSplit nIn sing)
   bm <- TC.buildBasicMap params nIn nOut conj
   M.fromBasicMap bm
+
+-- | Evaluate a singleton-carrying union set to a raw ISL 'Set'.
+evalSSet :: forall ps n css m.
+  (MonadIO m, KnownNat n, KnownSymbols ps, KnownNat (Length ps))
+  => SSet ps n css -> IslT m Isl.Set
+evalSSet (MkSSet sing) = Isl.do
+  let params = symbolVals @ps
+      nDims = fromIntegral (natVal (Proxy @n))
+      conjs = reifySTDisjunctionSet sing
+  buildUnionSet params nDims conjs
+
+-- | Build a union set from conjunctions in IslT.
+buildUnionSet :: MonadIO m => [String] -> Int -> [Conjunction SetIx] -> IslT m Isl.Set
+buildUnionSet params nDims = \case
+  [] -> Isl.do
+    !bs <- TC.buildBasicSet params nDims (Conjunction [])
+    !univ <- S.fromBasicSet bs
+    S.complement univ
+  [c] -> Isl.do
+    !bs <- TC.buildBasicSet params nDims c
+    S.fromBasicSet bs
+  (c:cs) -> Isl.do
+    !bs0 <- TC.buildBasicSet params nDims c
+    !s0 <- S.fromBasicSet bs0
+    Isl.foldM (\acc conj -> Isl.do
+      !bs <- TC.buildBasicSet params nDims conj
+      !s  <- S.fromBasicSet bs
+      S.union acc s
+      ) s0 cs
+
+-- | Evaluate a singleton-carrying union map to a raw ISL 'Map'.
+evalSMap :: forall ps ni no css m.
+  (MonadIO m, KnownNat ni, KnownNat no, KnownSymbols ps, KnownNat (Length ps))
+  => SMap ps ni no css -> IslT m Isl.Map
+evalSMap (MkSMap sing) = Isl.do
+  let params = symbolVals @ps
+      nIn = fromIntegral (natVal (Proxy @ni))
+      nOut = fromIntegral (natVal (Proxy @no))
+      conjs = reifySTDisjunctionMapSplit nIn sing
+  buildUnionMap params nIn nOut conjs
+
+-- | Build a union map from conjunctions in IslT.
+buildUnionMap :: MonadIO m => [String] -> Int -> Int -> [Conjunction MapIx] -> IslT m Isl.Map
+buildUnionMap params nIn nOut = \case
+  [] -> Isl.do
+    !bm <- TC.buildBasicMap params nIn nOut (Conjunction [])
+    !univ <- M.fromBasicMap bm
+    M.complement univ
+  [c] -> Isl.do
+    !bm <- TC.buildBasicMap params nIn nOut c
+    M.fromBasicMap bm
+  (c:cs) -> Isl.do
+    !bm0 <- TC.buildBasicMap params nIn nOut c
+    !m0 <- M.fromBasicMap bm0
+    Isl.foldM (\acc conj -> Isl.do
+      !bm <- TC.buildBasicMap params nIn nOut conj
+      !m  <- M.fromBasicMap bm
+      M.union acc m
+      ) m0 cs
 
 
 -- =========================================================================

@@ -218,6 +218,22 @@ data IslPluginEnv = IslPluginEnv
     -- PwAff type family TyCons
   , envIslSetDimMax :: !TyCon
   , envIslSetDimMin :: !TyCon
+    -- Union-aware type family TyCons
+  , envIslIntersectSetU  :: !TyCon
+  , envIslComplementSetU :: !TyCon
+  , envIslDifferenceSetU :: !TyCon
+  , envIslApplyU         :: !TyCon
+  , envIslDomainTFU      :: !TyCon
+  , envIslRangeTFU       :: !TyCon
+  , envIslComposeU       :: !TyCon
+  , envIslReverseMapU    :: !TyCon
+  , envIslProjectOutU    :: !TyCon
+  , envIslToStringU      :: !TyCon
+  , envIslMapToStringU   :: !TyCon
+    -- Union-aware proof obligation classes
+  , envSubsetUClass   :: !Class
+  , envEqualUClass    :: !Class
+  , envNonEmptyUClass :: !Class
     -- TExpr data type TyCon (for building lifted expression lists)
   , envTExprTC :: !TyCon
   }
@@ -310,6 +326,24 @@ initPlugin = do
   envIslSetDimMax <- lookupTF constraintMod "IslSetDimMax"
   envIslSetDimMin <- lookupTF constraintMod "IslSetDimMin"
 
+  -- Union-aware type family TyCons
+  envIslIntersectSetU  <- lookupTF constraintMod "IslIntersectSetU"
+  envIslComplementSetU <- lookupTF constraintMod "IslComplementSetU"
+  envIslDifferenceSetU <- lookupTF constraintMod "IslDifferenceSetU"
+  envIslApplyU         <- lookupTF constraintMod "IslApplyU"
+  envIslDomainTFU      <- lookupTF constraintMod "IslDomainTFU"
+  envIslRangeTFU       <- lookupTF constraintMod "IslRangeTFU"
+  envIslComposeU       <- lookupTF constraintMod "IslComposeU"
+  envIslReverseMapU    <- lookupTF constraintMod "IslReverseMapU"
+  envIslProjectOutU    <- lookupTF constraintMod "IslProjectOutU"
+  envIslToStringU      <- lookupTF constraintMod "IslToStringU"
+  envIslMapToStringU   <- lookupTF constraintMod "IslMapToStringU"
+
+  -- Union-aware proof obligation classes
+  envSubsetUClass   <- lookupClass constraintMod "IslSubsetU"
+  envEqualUClass    <- lookupClass constraintMod "IslEqualU"
+  envNonEmptyUClass <- lookupClass constraintMod "IslNonEmptyU"
+
   -- TExpr data type TyCon (for building lifted expression lists)
   envTExprTC <- lookupTF exprMod "TExpr"
 
@@ -381,6 +415,10 @@ data IslWanted
   -- Coverage obligations
   | WantedCovers     !Ct !Type !Type !Type !Type             -- ps, n, fullDom, branches
   | WantedPartitions !Ct !Type !Type !Type !Type             -- ps, n, fullDom, branches
+  -- Union-aware set obligations
+  | WantedSubsetU   !Ct !Type !Type !Type !Type              -- ps, n, css1, css2
+  | WantedEqualU    !Ct !Type !Type !Type !Type              -- ps, n, css1, css2
+  | WantedNonEmptyU !Ct !Type !Type !Type                    -- ps, n, css
   -- Multi-aff obligations
   | WantedMultiAffEqual !Ct !Type !Type !Type !Type !Type    -- ps, ni, no, es1, es2
 
@@ -411,6 +449,13 @@ classifyWanted IslPluginEnv{..} ct =
           Just $ WantedCovers ct ps n fullDom branches
       | cls == envPartitionsClass, [ps, n, fullDom, branches] <- args ->
           Just $ WantedPartitions ct ps n fullDom branches
+      -- Union-aware set obligations
+      | cls == envSubsetUClass, [ps, n, css1, css2] <- args ->
+          Just $ WantedSubsetU ct ps n css1 css2
+      | cls == envEqualUClass, [ps, n, css1, css2] <- args ->
+          Just $ WantedEqualU ct ps n css1 css2
+      | cls == envNonEmptyUClass, [ps, n, css] <- args ->
+          Just $ WantedNonEmptyU ct ps n css
       -- Multi-aff obligations
       | cls == envMultiAffEqualClass, [ps, ni, no, es1, es2] <- args ->
           Just $ WantedMultiAffEqual ct ps ni no es1 es2
@@ -730,6 +775,71 @@ solveOne env paramCtx = \case
                         pure Nothing
           _ -> traceReifyFail >> pure Nothing
 
+  -- === Union-aware set obligations ===
+
+  WantedSubsetU ct psTy nTy css1Ty css2Ty ->
+    withReified env psTy nTy $ \paramNames nDims -> do
+      let nParams = length paramNames
+          pCs    = paramCtxSetCs env paramCtx paramNames
+          mCss1 = reifyDisjunction env paramNames css1Ty
+          mCss2 = reifyDisjunction env paramNames css2Ty
+      case (mCss1, mCss2) of
+        (Just css1, Just css2) -> do
+          let ctx = envCtxPtr env
+              s1 = buildUnionSetFromDisj ctx nParams nDims paramNames pCs css1
+              s2 = buildUnionSetFromDisj ctx nParams nDims paramNames pCs css2
+              result = S.isSubset (setRef s1) (setRef s2)
+          if result
+            then traceProved "SubsetU" >> (Just . (, ct) <$> makeEvidence ct)
+            else do
+              traceFailed "SubsetU" $
+                "\n  LHS: " ++ islSetToStr s1 ++
+                "\n  is NOT a subset of" ++
+                "\n  RHS: " ++ islSetToStr s2
+              pure Nothing
+        _ -> traceReifyFail >> pure Nothing
+
+  WantedEqualU ct psTy nTy css1Ty css2Ty ->
+    withReified env psTy nTy $ \paramNames nDims -> do
+      let nParams = length paramNames
+          pCs    = paramCtxSetCs env paramCtx paramNames
+          mCss1 = reifyDisjunction env paramNames css1Ty
+          mCss2 = reifyDisjunction env paramNames css2Ty
+      case (mCss1, mCss2) of
+        (Just css1, Just css2) -> do
+          let ctx = envCtxPtr env
+              s1 = buildUnionSetFromDisj ctx nParams nDims paramNames pCs css1
+              s2 = buildUnionSetFromDisj ctx nParams nDims paramNames pCs css2
+              result = S.isEqual (setRef s1) (setRef s2)
+          if result
+            then traceProved "EqualU" >> (Just . (, ct) <$> makeEvidence ct)
+            else do
+              traceFailed "EqualU" $
+                "\n  LHS: " ++ islSetToStr s1 ++
+                "\n  is NOT equal to" ++
+                "\n  RHS: " ++ islSetToStr s2
+              pure Nothing
+        _ -> traceReifyFail >> pure Nothing
+
+  WantedNonEmptyU ct psTy nTy cssTy ->
+    withReified env psTy nTy $ \paramNames nDims -> do
+      let nParams = length paramNames
+          pCs = paramCtxSetCs env paramCtx paramNames
+          mCss = reifyDisjunction env paramNames cssTy
+      case mCss of
+        Just css -> do
+          let ctx = envCtxPtr env
+              s = buildUnionSetFromDisj ctx nParams nDims paramNames pCs css
+              result = not (S.isEmpty (setRef s))
+          if result
+            then traceProved "NonEmptyU" >> (Just . (, ct) <$> makeEvidence ct)
+            else do
+              traceFailed "NonEmptyU" $
+                "\n  Set: " ++ islSetToStr s ++
+                "\n  is EMPTY"
+              pure Nothing
+        _ -> traceReifyFail >> pure Nothing
+
   -- === Multi-aff obligations ===
 
   WantedMultiAffEqual ct psTy niTy noTy es1Ty es2Ty ->
@@ -788,6 +898,40 @@ reifyDisjunction :: IslPluginEnv -> [String] -> Type -> Maybe [[Constraint SetIx
 reifyDisjunction env paramNames ty =
   mapM (\conjTy -> reifyConstraintList env paramNames (unfoldTypeList conjTy))
        (unfoldTypeList ty)
+
+-- | Reify a map disjunction from type-level to value-level.
+reifyMapDisjunction :: IslPluginEnv -> [String] -> Int -> Type -> Maybe [[Constraint MapIx]]
+reifyMapDisjunction env paramNames nIn ty =
+  mapM (\conjTy -> reifyMapConstraintList env paramNames nIn (unfoldTypeList conjTy))
+       (unfoldTypeList ty)
+
+-- | Build an ISL union set from a disjunction of conjunctions.
+-- Empty disjunction = empty set.
+buildUnionSetFromDisj :: Isl.Ctx -> Int -> Int -> [String] -> [Constraint SetIx] -> [[Constraint SetIx]] -> Isl.Set
+buildUnionSetFromDisj ctx nParams nDims paramNames pCs disj =
+  case [buildSet ctx nParams nDims paramNames (pCs ++ conj) | conj <- disj] of
+    []     -> runRawIsl ctx $ IslL.do
+                space0 <- Space.setAlloc (fromIntegral nParams) (fromIntegral nDims)
+                space  <- IslL.foldM (\sp (i, name) -> Space.setDimName sp Isl.islDimParam i name)
+                                 space0 (zip [0..] paramNames)
+                s <- S.empty space
+                urWrap s
+    [x]    -> x
+    (x:xs) -> foldl (\acc s -> runRawIsl1 ctx $ S.union acc s) x xs
+
+-- | Build an ISL union map from a disjunction of conjunctions.
+-- Empty disjunction = empty map.
+buildUnionMapFromDisj :: Isl.Ctx -> Int -> Int -> Int -> [String] -> [Constraint MapIx] -> [[Constraint MapIx]] -> Isl.Map
+buildUnionMapFromDisj ctx nParams nIn nOut paramNames pCs disj =
+  case [buildMap ctx nParams nIn nOut paramNames (pCs ++ conj) | conj <- disj] of
+    []     -> runRawIsl ctx $ IslL.do
+                space0 <- Space.alloc (fromIntegral nParams) (fromIntegral nIn) (fromIntegral nOut)
+                space  <- IslL.foldM (\sp (i, name) -> Space.setDimName sp Isl.islDimParam i name)
+                                 space0 (zip [0..] paramNames)
+                m <- M.empty space
+                urWrap m
+    [x]    -> x
+    (x:xs) -> foldl (\acc m -> runRawIsl1 ctx $ M.union acc m) x xs
 
 -- * Parameter precondition context (v3 / D19)
 
@@ -913,6 +1057,18 @@ makeRewriters env = listToUFM
     -- PwAff rewriters
   , (envIslSetDimMax env, rewriteSetDimMax env)
   , (envIslSetDimMin env, rewriteSetDimMin env)
+    -- Union-aware rewriters
+  , (envIslIntersectSetU env,  rewriteIntersectSetU env)
+  , (envIslComplementSetU env, rewriteComplementSetU env)
+  , (envIslDifferenceSetU env, rewriteDifferenceSetU env)
+  , (envIslApplyU env,         rewriteApplyU env)
+  , (envIslDomainTFU env,      rewriteDomainU env)
+  , (envIslRangeTFU env,       rewriteRangeU env)
+  , (envIslComposeU env,       rewriteComposeU env)
+  , (envIslReverseMapU env,    rewriteReverseMapU env)
+  , (envIslProjectOutU env,    rewriteProjectOutU env)
+  , (envIslToStringU env,      rewriteToStringU env)
+  , (envIslMapToStringU env,   rewriteMapToStringU env)
   ]
 
 -- | Helper: run a set computation and lift the result to a type.
@@ -1174,6 +1330,237 @@ rewriteMapToString env _re _givens args = case args of
                _ -> pure TcPluginNoRewrite
       _ -> pure TcPluginNoRewrite
   _ -> pure TcPluginNoRewrite
+
+-- * Union-aware rewriters
+
+-- | Rewrite IslIntersectSetU ps n css1 css2
+rewriteIntersectSetU :: IslPluginEnv -> TcPluginRewriter
+rewriteIntersectSetU env _re _givens args = case args of
+  [psTy, nTy, css1Ty, css2Ty] ->
+    case extractNat nTy of
+      Just nDims -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mCss1 = reifyDisjunction env paramNames css1Ty
+            mCss2 = reifyDisjunction env paramNames css2Ty
+        case (mCss1, mCss2) of
+          (Just css1, Just css2) ->
+            rewriteSetResult env (envIslIntersectSetU env) args paramNames nDims psTy nTy $ \ctx ->
+              let s1 = buildUnionSetFromDisj ctx nParams nDims paramNames [] css1
+                  s2 = buildUnionSetFromDisj ctx nParams nDims paramNames [] css2
+              in runRawIsl1 ctx $ S.intersect s1 s2
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslComplementSetU ps n css
+rewriteComplementSetU :: IslPluginEnv -> TcPluginRewriter
+rewriteComplementSetU env _re _givens args = case args of
+  [psTy, nTy, cssTy] ->
+    case extractNat nTy of
+      Just nDims -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mCss = reifyDisjunction env paramNames cssTy
+        case mCss of
+          Just css ->
+            rewriteSetResult env (envIslComplementSetU env) args paramNames nDims psTy nTy $ \ctx ->
+              let s = buildUnionSetFromDisj ctx nParams nDims paramNames [] css
+              in runRawIsl1 ctx $ S.complement s
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslDifferenceSetU ps n css1 css2
+rewriteDifferenceSetU :: IslPluginEnv -> TcPluginRewriter
+rewriteDifferenceSetU env _re _givens args = case args of
+  [psTy, nTy, css1Ty, css2Ty] ->
+    case extractNat nTy of
+      Just nDims -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mCss1 = reifyDisjunction env paramNames css1Ty
+            mCss2 = reifyDisjunction env paramNames css2Ty
+        case (mCss1, mCss2) of
+          (Just css1, Just css2) ->
+            rewriteSetResult env (envIslDifferenceSetU env) args paramNames nDims psTy nTy $ \ctx ->
+              let s1 = buildUnionSetFromDisj ctx nParams nDims paramNames [] css1
+                  s2 = buildUnionSetFromDisj ctx nParams nDims paramNames [] css2
+              in runRawIsl1 ctx $ S.subtract s1 s2
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslApplyU ps ni no mapCss setCss
+rewriteApplyU :: IslPluginEnv -> TcPluginRewriter
+rewriteApplyU env _re _givens args = case args of
+  [psTy, niTy, noTy, mapCssTy, setCssTy] ->
+    case (extractNat niTy, extractNat noTy) of
+      (Just nIn, Just nOut) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mMapCss = reifyMapDisjunction env paramNames nIn mapCssTy
+            mSetCss = reifyDisjunction env paramNames setCssTy
+        case (mMapCss, mSetCss) of
+          (Just mapCss, Just setCss) ->
+            rewriteSetResult env (envIslApplyU env) args paramNames nOut psTy noTy $ \ctx ->
+              let m = buildUnionMapFromDisj ctx nParams nIn nOut paramNames [] mapCss
+                  s = buildUnionSetFromDisj ctx nParams nIn paramNames [] setCss
+              in runRawIsl1 ctx $ S.apply s m
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslDomainTFU ps ni no mapCss
+rewriteDomainU :: IslPluginEnv -> TcPluginRewriter
+rewriteDomainU env _re _givens args = case args of
+  [psTy, niTy, noTy, mapCssTy] ->
+    case (extractNat niTy, extractNat noTy) of
+      (Just nIn, Just nOut) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mCss = reifyMapDisjunction env paramNames nIn mapCssTy
+        case mCss of
+          Just css ->
+            rewriteSetResult env (envIslDomainTFU env) args paramNames nIn psTy niTy $ \ctx ->
+              let m = buildUnionMapFromDisj ctx nParams nIn nOut paramNames [] css
+              in runRawIsl1 ctx $ M.domain m
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslRangeTFU ps ni no mapCss
+rewriteRangeU :: IslPluginEnv -> TcPluginRewriter
+rewriteRangeU env _re _givens args = case args of
+  [psTy, _niTy, noTy, mapCssTy] ->
+    case (extractNat _niTy, extractNat noTy) of
+      (Just nIn, Just nOut) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mCss = reifyMapDisjunction env paramNames nIn mapCssTy
+        case mCss of
+          Just css ->
+            rewriteSetResult env (envIslRangeTFU env) args paramNames nOut psTy noTy $ \ctx ->
+              let m = buildUnionMapFromDisj ctx nParams nIn nOut paramNames [] css
+              in runRawIsl1 ctx $ M.range m
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslComposeU ps ni nk no m1Css m2Css
+rewriteComposeU :: IslPluginEnv -> TcPluginRewriter
+rewriteComposeU env _re _givens args = case args of
+  [psTy, niTy, nkTy, noTy, m1CssTy, m2CssTy] ->
+    case (extractNat niTy, extractNat nkTy, extractNat noTy) of
+      (Just nIn, Just nK, Just nOut) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mM1Css = reifyMapDisjunction env paramNames nK m1CssTy
+            mM2Css = reifyMapDisjunction env paramNames nIn m2CssTy
+        case (mM1Css, mM2Css) of
+          (Just m1Css, Just m2Css) -> do
+            let resultNDims = nIn + nOut
+                resultNTy = mkNumLitTy (fromIntegral resultNDims)
+            result <- tcPluginIO $ pure $
+              let m1 = buildUnionMapFromDisj (envCtxPtr env) nParams nK nOut paramNames [] m1Css
+                  m2 = buildUnionMapFromDisj (envCtxPtr env) nParams nIn nK paramNames [] m2Css
+                  composed = runRawIsl1 (envCtxPtr env) $ M.applyRange m2 m1
+              in decomposeIslMap env paramNames nIn nOut (mapRef composed)
+            let combinedNTy = mkNumLitTy (fromIntegral (nIn + nOut))
+                resultTy = liftMapDisjunction env paramNames nIn psTy combinedNTy result
+                origTy = mkTyConApp (envIslComposeU env) args
+                co = mkUnivCo (PluginProv "isl-plugin") Nominal origTy resultTy
+            pure $ TcPluginRewriteTo (Reduction co resultTy) []
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslReverseMapU ps ni no mapCss
+rewriteReverseMapU :: IslPluginEnv -> TcPluginRewriter
+rewriteReverseMapU env _re _givens args = case args of
+  [psTy, niTy, noTy, mapCssTy] ->
+    case (extractNat niTy, extractNat noTy) of
+      (Just nIn, Just nOut) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mCss = reifyMapDisjunction env paramNames nIn mapCssTy
+        case mCss of
+          Just css -> do
+            result <- tcPluginIO $ pure $
+              let m = buildUnionMapFromDisj (envCtxPtr env) nParams nIn nOut paramNames [] css
+                  rev = runRawIsl1 (envCtxPtr env) $ M.reverse m
+              in decomposeIslMap env paramNames nOut nIn (mapRef rev)
+            let combinedNTy = mkNumLitTy (fromIntegral (nOut + nIn))
+                resultTy = liftMapDisjunction env paramNames nOut psTy combinedNTy result
+                origTy = mkTyConApp (envIslReverseMapU env) args
+                co = mkUnivCo (PluginProv "isl-plugin") Nominal origTy resultTy
+            pure $ TcPluginRewriteTo (Reduction co resultTy) []
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslProjectOutU ps n nResult first count css
+rewriteProjectOutU :: IslPluginEnv -> TcPluginRewriter
+rewriteProjectOutU env _re _givens args = case args of
+  [psTy, nTy, nResultTy, firstTy, countTy, cssTy] ->
+    case (extractNat nTy, extractNat nResultTy, extractNat firstTy, extractNat countTy) of
+      (Just nDims, Just nResult, Just first, Just count) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mCss = reifyDisjunction env paramNames cssTy
+        case mCss of
+          Just css ->
+            rewriteSetResult env (envIslProjectOutU env) args paramNames nResult psTy nResultTy $ \ctx ->
+              let s = buildUnionSetFromDisj ctx nParams nDims paramNames [] css
+              in runRawIsl1 ctx $ S.projectOut s Isl.islDimSet (fromIntegral first) (fromIntegral count)
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslToStringU ps n css → Symbol
+rewriteToStringU :: IslPluginEnv -> TcPluginRewriter
+rewriteToStringU env _re _givens args = case args of
+  [psTy, nTy, cssTy] ->
+    case extractNat nTy of
+      Just nDims -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mCss = reifyDisjunction env paramNames cssTy
+        case mCss of
+          Just css -> do
+            let ctx = envCtxPtr env
+                s = buildUnionSetFromDisj ctx nParams nDims paramNames [] css
+                str = islSetToStr s
+                resultTy = mkStrLitTy (mkFastString str)
+                origTy = mkTyConApp (envIslToStringU env) args
+                co = mkUnivCo (PluginProv "isl-plugin") Nominal origTy resultTy
+            pure $ TcPluginRewriteTo (Reduction co resultTy) []
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
+-- | Rewrite IslMapToStringU ps ni no css → Symbol
+rewriteMapToStringU :: IslPluginEnv -> TcPluginRewriter
+rewriteMapToStringU env _re _givens args = case args of
+  [psTy, niTy, noTy, cssTy] ->
+    case (extractNat niTy, extractNat noTy) of
+      (Just nIn, Just nOut) -> do
+        let paramNames = mapMaybe extractSymbol (unfoldTypeList psTy)
+            nParams = length paramNames
+            mCss = reifyMapDisjunction env paramNames nIn cssTy
+        case mCss of
+          Just css -> do
+            let ctx = envCtxPtr env
+                m = buildUnionMapFromDisj ctx nParams nIn nOut paramNames [] css
+                str = islMapToStr m
+                resultTy = mkStrLitTy (mkFastString str)
+                origTy = mkTyConApp (envIslMapToStringU env) args
+                co = mkUnivCo (PluginProv "isl-plugin") Nominal origTy resultTy
+            pure $ TcPluginRewriteTo (Reduction co resultTy) []
+          _ -> pure TcPluginNoRewrite
+      _ -> pure TcPluginNoRewrite
+  _ -> pure TcPluginNoRewrite
+
 
 -- * Multi-aff rewriters
 

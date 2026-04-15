@@ -69,6 +69,7 @@ import qualified Examples.ReflectedMatmulFails as ReflFail
 import qualified Examples.DepReindex as DepReindex
 import qualified Examples.TiledZero1D as TiledZero1D
 import qualified Examples.TiledConst3D as TiledConst3D
+import qualified Examples.UnionCompose as UC
 import qualified Negative.Cases as Neg
 import qualified Reference.Cholesky as RefChol
 import qualified Reference.FloydWarshall as RefFW
@@ -420,6 +421,14 @@ main = defaultMain $ testGroup "alpha-test"
         testCase "IslPartitions non-disjoint branches (DiagN ⊂ LowerTri)" $
           shouldFailWithTypeError "badCasePartitionsNonDisjoint"
             Neg.forceBadCasePartitionsNonDisjoint
+      ]
+
+  , testGroup "union-aware type families (U-suffix)"
+      [ testCase "IslComplementSetU + IslIntersectSetU + proofs compose" $ do
+          assertBool "union type families compose at compile time" UC.proofCompiles
+
+      , testCase "IslToStringU on composed union result" $ do
+          assertBool "projected string is non-empty" (not $ null UC.projectedStr)
       ]
 
   , testGroup "phase-B reflected route end-to-end"

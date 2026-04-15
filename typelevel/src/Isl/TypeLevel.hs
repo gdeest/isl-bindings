@@ -64,6 +64,14 @@ module Isl.TypeLevel
   , IslCompose, IslReverseMap
   , IslProjectOut, IslFromString
   , IslToString, IslMapToString
+    -- * Union-aware computations (plugin-rewritten, composable)
+  , IslIntersectSetU, IslComplementSetU, IslDifferenceSetU
+  , IslApplyU, IslDomainTFU, IslRangeTFU
+  , IslComposeU, IslReverseMapU
+  , IslProjectOutU
+  , IslToStringU, IslMapToStringU
+    -- * Union-aware proof obligations (plugin-solved)
+  , IslSubsetU, IslEqualU, IslNonEmptyU
     -- * Multi-aff type families (plugin-rewritten)
   , IslMultiAffToMap, IslApplyMultiAff, IslComposeMultiAff
   , IslMultiAffToString, IslMultiAffFromString
@@ -79,10 +87,16 @@ module Isl.TypeLevel
     -- * Singleton-carrying polyhedra
   , SBasicSet(..), sBasicSet
   , SBasicMap(..), sBasicMap
+    -- * Singleton-carrying union polyhedra
+  , STDisjunction(..), KnownDisjunction(..)
+  , SSet(..), sSet
+  , SMap(..), sMap
     -- * Singleton-carrying multi-aff
   , SMultiAff(..), sMultiAff
     -- * Evaluation
-  , evalSBasicSet, evalSBasicMap, evalSMultiAff
+  , evalSBasicSet, evalSBasicMap
+  , evalSSet, evalSMap
+  , evalSMultiAff
   ) where
 
 import Isl.TypeLevel.Expr

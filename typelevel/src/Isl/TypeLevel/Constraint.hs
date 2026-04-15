@@ -55,6 +55,22 @@ module Isl.TypeLevel.Constraint
   , IslFromString
   , IslToString
   , IslMapToString
+    -- * Union-aware computations (plugin-rewritten, composable)
+  , IslIntersectSetU
+  , IslComplementSetU
+  , IslDifferenceSetU
+  , IslApplyU
+  , IslDomainTFU
+  , IslRangeTFU
+  , IslComposeU
+  , IslReverseMapU
+  , IslProjectOutU
+  , IslToStringU
+  , IslMapToStringU
+    -- * Union-aware proof obligations (solved by isl-plugin)
+  , IslSubsetU(..)
+  , IslEqualU(..)
+  , IslNonEmptyU(..)
     -- * Multi-aff type families (plugin-rewritten)
   , IslMultiAffToMap
   , IslApplyMultiAff
@@ -341,6 +357,72 @@ type family IslToString (ps :: [Symbol]) (n :: Nat)
 -- | Render a map to its ISL string representation.
 type family IslMapToString (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
   (cs :: [TConstraint ps (ni + no)]) :: Symbol
+
+-- * Union-aware computations (accept [[TConstraint ps n]], composable)
+
+-- | Intersection of two union sets.
+type family IslIntersectSetU (ps :: [Symbol]) (n :: Nat)
+  (css1 :: [[TConstraint ps n]]) (css2 :: [[TConstraint ps n]]) :: [[TConstraint ps n]]
+
+-- | Complement of a union set.
+type family IslComplementSetU (ps :: [Symbol]) (n :: Nat)
+  (css :: [[TConstraint ps n]]) :: [[TConstraint ps n]]
+
+-- | Difference of two union sets.
+type family IslDifferenceSetU (ps :: [Symbol]) (n :: Nat)
+  (css1 :: [[TConstraint ps n]]) (css2 :: [[TConstraint ps n]]) :: [[TConstraint ps n]]
+
+-- | Image of a union set under a union map.
+type family IslApplyU (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+  (mapCss :: [[TConstraint ps (ni + no)]]) (setCss :: [[TConstraint ps ni]]) :: [[TConstraint ps no]]
+
+-- | Domain of a union map.
+type family IslDomainTFU (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+  (mapCss :: [[TConstraint ps (ni + no)]]) :: [[TConstraint ps ni]]
+
+-- | Range of a union map.
+type family IslRangeTFU (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+  (mapCss :: [[TConstraint ps (ni + no)]]) :: [[TConstraint ps no]]
+
+-- | Composition of two union maps.
+type family IslComposeU (ps :: [Symbol]) (ni :: Nat) (nk :: Nat) (no :: Nat)
+  (m1Css :: [[TConstraint ps (nk + no)]]) (m2Css :: [[TConstraint ps (ni + nk)]])
+  :: [[TConstraint ps (ni + no)]]
+
+-- | Reverse a union map.
+type family IslReverseMapU (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+  (mapCss :: [[TConstraint ps (ni + no)]]) :: [[TConstraint ps (no + ni)]]
+
+-- | Project out dimensions from a union set.
+type family IslProjectOutU (ps :: [Symbol]) (n :: Nat) (nResult :: Nat)
+  (first :: Nat) (count :: Nat)
+  (css :: [[TConstraint ps n]]) :: [[TConstraint ps nResult]]
+
+-- | Render a union set to its ISL string representation.
+type family IslToStringU (ps :: [Symbol]) (n :: Nat)
+  (css :: [[TConstraint ps n]]) :: Symbol
+
+-- | Render a union map to its ISL string representation.
+type family IslMapToStringU (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+  (css :: [[TConstraint ps (ni + no)]]) :: Symbol
+
+
+-- * Union-aware proof obligations
+
+-- | @IslSubsetU ps n css1 css2@ holds iff @union(css1) ⊆ union(css2)@.
+class IslSubsetU (ps :: [Symbol]) (n :: Nat)
+                 (css1 :: [[TConstraint ps n]]) (css2 :: [[TConstraint ps n]]) where
+  islSubsetUEv :: ()
+
+-- | @IslEqualU ps n css1 css2@ holds iff @union(css1) = union(css2)@.
+class IslEqualU (ps :: [Symbol]) (n :: Nat)
+                (css1 :: [[TConstraint ps n]]) (css2 :: [[TConstraint ps n]]) where
+  islEqualUEv :: ()
+
+-- | @IslNonEmptyU ps n css@ holds iff @union(css)@ is non-empty.
+class IslNonEmptyU (ps :: [Symbol]) (n :: Nat) (css :: [[TConstraint ps n]]) where
+  islNonEmptyUEv :: ()
+
 
 -- * Type-level affine functions
 
