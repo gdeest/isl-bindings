@@ -12,20 +12,14 @@
 
 -- | Lazy on-demand interpreter for Alpha systems.
 --
--- This module provides a concrete, memoized interpreter that evaluates
--- Alpha recurrence equations at specific integer points.  It is a
--- sanity checker, not a codegen pass: it walks the 'Expr' GADT
--- directly, evaluating operations at each point and caching results
--- in a 'Map'.
---
 -- Usage:
 --
 -- @
--- eval <- interpret matmul
+-- eval <- interpret \@Double matmul
 --           (Map.fromList [(\"N\", 3)])
 --           (Map.fromList [(\"A\", \\[i,j] -> a V.! (i*3+j)),
 --                          (\"B\", \\[i,j] -> b V.! (i*3+j))])
--- val <- eval \"C\" [1, 2]  -- evaluates C[1,2] on demand
+-- val <- eval \"C\" [1, 2]
 -- @
 module Alpha.Interpret
   ( interpret
@@ -55,7 +49,9 @@ import Isl.TypeLevel.Sing
   ( knownConstraints, reifySTConstraintsSet )
 
 import Alpha.Core
-import Alpha.Codegen.COp (evalBinOp, evalUnaryOp, evalReduceOp)
+import Alpha.Scalar
+  ( ScalarDesc(..), AlphaScalar, scalarDesc
+  , HsInterp(..), evalBinOp, evalUnaryOp, evalReduceOp )
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -63,35 +59,31 @@ import Alpha.Codegen.COp (evalBinOp, evalUnaryOp, evalReduceOp)
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | Interpret a system at concrete parameter values.
---
--- Returns a memoized lookup function: given a variable name and an
--- integer point, evaluates the recurrence equation lazily (caching
--- results for future lookups).
---
--- Input variables are provided as pure functions from integer
--- coordinates to 'Double'.  Output and local variables are evaluated
--- on demand from their equations.
 interpret
-  :: forall ps inputs outputs locals.
-     ( KnownSymbols ps )
+  :: forall a ps inputs outputs locals.
+     ( AlphaScalar a, KnownSymbols ps )
   => System ps inputs outputs locals
   -> Map String Int                -- ^ parameter name → concrete value
-  -> Map String ([Int] -> Double)  -- ^ input variable name → point accessor
-  -> IO (String -> [Int] -> IO Double)
+  -> Map String ([Int] -> a)       -- ^ input variable name → point accessor
+  -> IO (String -> [Int] -> IO a)
 interpret (System decls eqs) params inputFns = do
-  -- Validate: all params provided
   let paramNames = symbolVals @ps
   mapM_ (\p -> case Map.lookup p params of
     Nothing -> error $ "Alpha.Interpret: missing parameter " ++ show p
     Just _  -> pure ()
     ) paramNames
-  -- Validate: all inputs provided
   let inputNames = declListNames (dInputs decls)
   mapM_ (\n -> case Map.lookup n inputFns of
     Nothing -> error $ "Alpha.Interpret: missing input " ++ show n
     Just _  -> pure ()
     ) inputNames
-  -- Build environment
+  let erasedInputs = Map.map (\f -> \pt -> toCarrier (f pt)) inputFns
+  -- All variables share the same ScalarDesc
+  let desc = scalarDesc @a
+      allNames = declListNames (dInputs decls)
+              ++ declListNames (dOutputs decls)
+              ++ declListNames (dLocals decls)
+      descs = Map.fromList [(n, desc) | n <- allNames]
   cacheRef <- newIORef Map.empty
   let maxParam = if Map.null params then 0
                  else maximum (Map.elems params)
@@ -99,27 +91,43 @@ interpret (System decls eqs) params inputFns = do
         { envParams    = params
         , envParamVec  = paramNames
         , envMaxParam  = maxParam
-        , envInputs    = inputFns
+        , envInputs    = erasedInputs
         , envCache     = cacheRef
+        , envDescs     = descs
         , envLookupEq  = \name pt -> evalEquation env eqs name pt
         }
   pure $ \varName point ->
-    case Map.lookup varName inputFns of
-      Just f  -> pure (f point)
-      Nothing -> lookupCached env varName point
+    case Map.lookup varName erasedInputs of
+      Just f  -> pure (fromCarrier (f point))
+      Nothing -> do
+        v <- lookupCached env varName point
+        pure (fromCarrier v)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §2. Environment
 -- ═══════════════════════════════════════════════════════════════════════
 
+-- Type-erased box. Safe for any lifted type: store via MkCarrier,
+-- recover via unsafeCoerce on the existential payload.
+data Carrier = forall a. MkCarrier !a
+
+toCarrier :: a -> Carrier
+toCarrier = MkCarrier
+{-# INLINE toCarrier #-}
+
+fromCarrier :: Carrier -> a
+fromCarrier (MkCarrier x) = unsafeCoerce x
+{-# INLINE fromCarrier #-}
+
 data Env = Env
   { envParams    :: !(Map String Int)
-  , envParamVec  :: ![String]           -- param names in positional order
-  , envMaxParam  :: !Int                -- max of all param values
-  , envInputs    :: !(Map String ([Int] -> Double))
-  , envCache     :: !(IORef (Map String (Map [Int] Double)))
-  , envLookupEq  :: !(String -> [Int] -> IO Double)
+  , envParamVec  :: ![String]
+  , envMaxParam  :: !Int
+  , envInputs    :: !(Map String ([Int] -> Carrier))
+  , envCache     :: !(IORef (Map String (Map [Int] Carrier)))
+  , envDescs     :: !(Map String ScalarDesc)
+  , envLookupEq  :: !(String -> [Int] -> IO Carrier)
   }
 
 
@@ -127,7 +135,7 @@ data Env = Env
 -- §3. Memoized variable lookup
 -- ═══════════════════════════════════════════════════════════════════════
 
-lookupCached :: Env -> String -> [Int] -> IO Double
+lookupCached :: Env -> String -> [Int] -> IO Carrier
 lookupCached env varName point = do
   cache <- readIORef (envCache env)
   case Map.lookup varName cache >>= Map.lookup point of
@@ -142,14 +150,15 @@ evalEquation
   :: forall ps decls defined.
      Env
   -> EqList ps decls defined
-  -> String -> [Int] -> IO Double
+  -> String -> [Int] -> IO Carrier
 evalEquation _   EqNil target _ =
   error $ "Alpha.Interpret: no equation for variable " ++ show target
 evalEquation env (Defines (Proxy :: Proxy name) body :& rest) target point
   | symbolVal (Proxy @name) == target =
-      -- body :: Expr ps decls n d a  where a = DeclType decl
-      -- All current examples use a ~ Double; unsafeCoerce at boundary.
-      unsafeCoerce (evalExpr env body point)
+      let desc = case Map.lookup target (envDescs env) of
+            Just d  -> d
+            Nothing -> error $ "Alpha.Interpret: no ScalarDesc for " ++ show target
+      in do { !v <- evalExpr desc env body point; pure (toCarrier v) }
   | otherwise =
       evalEquation env rest target point
 
@@ -160,33 +169,40 @@ evalEquation env (Defines (Proxy :: Proxy name) body :& rest) target point
 
 evalExpr
   :: forall ps decls n (d :: DomTag ps n) a.
-     Env -> Expr ps decls n d a -> [Int] -> IO a
+     ScalarDesc -> Env -> Expr ps decls n d a -> [Int] -> IO a
 
-evalExpr env (Var (Proxy :: Proxy name)) point = do
+evalExpr _desc env (Var (Proxy :: Proxy name)) point = do
   let varName = symbolVal (Proxy @name)
   case Map.lookup varName (envInputs env) of
-    Just f  -> pure (unsafeCoerce (f point) :: a)
-    Nothing -> unsafeCoerce (lookupCached env varName point)
+    Just f  -> pure (fromCarrier (f point))
+    Nothing -> do !v <- lookupCached env varName point
+                  pure (fromCarrier v)
 
-evalExpr _ (Const v) _ = pure v
+evalExpr _desc _ (Const v) _ = pure v
 
-evalExpr env (Pw op e1 e2) point = do
-  !v1 <- evalExpr env e1 point
-  !v2 <- evalExpr env e2 point
-  pure $! unsafeCoerce (evalBinOp op (unsafeCoerce v1 :: Double) (unsafeCoerce v2 :: Double))
+evalExpr desc env (Pw op e1 e2) point = do
+  !v1 <- evalExpr desc env e1 point
+  !v2 <- evalExpr desc env e2 point
+  case desc of
+    MkScalarDesc { sdHsInterp = Just hi } ->
+      pure $! unsafeCoerce (evalBinOp hi op (unsafeCoerce v1) (unsafeCoerce v2))
+    _ -> error "Alpha.Interpret: no HsInterp for this scalar type"
 
-evalExpr env (PMap op e) point = do
-  !v <- evalExpr env e point
-  pure $! unsafeCoerce (evalUnaryOp op (unsafeCoerce v :: Double))
+evalExpr desc env (PMap op e) point = do
+  !v <- evalExpr desc env e point
+  case desc of
+    MkScalarDesc { sdHsInterp = Just hi } ->
+      pure $! unsafeCoerce (evalUnaryOp hi op (unsafeCoerce v))
+    _ -> error "Alpha.Interpret: no HsInterp for this scalar type"
 
-evalExpr env (Dep (Proxy :: Proxy mapCs)
+evalExpr desc env (Dep (Proxy :: Proxy mapCs)
                   (inner :: Expr ps decls no dInner a)) point = do
   let niVal = fromIntegral (natVal (Proxy @n)) :: Int
       cs = reifySTConstraintsSet (knownConstraints @ps @(n + no) @mapCs)
       innerPoint = applyAffineMap niVal (envParams env) (envParamVec env) cs point
-  evalExpr env inner innerPoint
+  evalExpr desc env inner innerPoint
 
-evalExpr env (Reduce reduceOp (Proxy :: Proxy projCs)
+evalExpr desc env (Reduce reduceOp (Proxy :: Proxy projCs)
                      (body :: Expr ps decls nBody dBody a)) point = do
   let nVal     = fromIntegral (natVal (Proxy @n)) :: Int
       nBodyVal = fromIntegral (natVal (Proxy @nBody)) :: Int
@@ -200,18 +216,21 @@ evalExpr env (Reduce reduceOp (Proxy :: Proxy projCs)
         | red <- candidates
         , islMember (envParams env) (envParamVec env) nBodyVal bodyDomStr (point ++ red)
         ]
-  vals <- mapM (evalExpr env body) validBodyPoints
-  let identity = case reduceOp of
-        ReduceSum  -> 0.0
-        ReduceProd -> 1.0
-        ReduceMin  -> 1/0    -- Infinity
-        ReduceMax  -> -1/0   -- -Infinity
-      result = foldl' (evalReduceOp reduceOp) identity
-                 (map unsafeCoerce vals :: [Double])
-  pure $! unsafeCoerce result
+  vals <- mapM (evalExpr desc env body) validBodyPoints
+  case desc of
+    MkScalarDesc { sdHsInterp = Just hi } ->
+      let typed = map unsafeCoerce vals
+          step = evalReduceOp hi reduceOp
+          result = case reduceOp of
+            ReduceSum  -> foldl' step (hiFromInteger hi 0) typed
+            ReduceProd -> foldl' step (hiFromInteger hi 1) typed
+            ReduceMin  -> strictFoldl1 step typed
+            ReduceMax  -> strictFoldl1 step typed
+      in pure $! unsafeCoerce result
+    _ -> error "Alpha.Interpret: no HsInterp for this scalar type"
 
-evalExpr env (Case branches) point =
-  evalBranches env branches point
+evalExpr desc env (Case branches) point =
+  evalBranches desc env branches point
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -220,57 +239,43 @@ evalExpr env (Case branches) point =
 
 evalBranches
   :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
-     Env
+     ScalarDesc -> Env
   -> Branches ps decls n amb branchDoms a
   -> [Int] -> IO a
-evalBranches _ BNil point =
+evalBranches _ _ BNil point =
   error $ "Alpha.Interpret: no branch matches point " ++ show point
-evalBranches env (BCons (_ :: Proxy d) body rest) point = do
+evalBranches desc env (BCons (_ :: Proxy d) body rest) point = do
   let effDomStr = reflectDomString @ps @n @(EffectiveDomTag d amb)
       nDims = length point
   if islMember (envParams env) (envParamVec env) nDims effDomStr point
-    then evalExpr env body point
-    else evalBranches env rest point
+    then evalExpr desc env body point
+    else evalBranches desc env rest point
+
+
+strictFoldl1 :: (a -> a -> a) -> [a] -> a
+strictFoldl1 _ []     = error "Alpha.Interpret: reduction over empty domain"
+strictFoldl1 f (x:xs) = foldl' f x xs
 
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §6. Affine map evaluation (pure Haskell)
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | Apply an affine map (encoded as equality constraints in the joined
--- ni+no space) to an input point, producing the output point.
 applyAffineMap
-  :: Int                    -- ^ ni (number of input dims)
-  -> Map String Int         -- ^ parameter values
-  -> [String]               -- ^ parameter names in positional order
-  -> [C.Constraint SetIx]     -- ^ map constraints in the joined space
-  -> [Int]                  -- ^ input point
-  -> [Int]                  -- ^ output point
+  :: Int -> Map String Int -> [String]
+  -> [C.Constraint SetIx] -> [Int] -> [Int]
 applyAffineMap ni params paramNames cs inputPoint =
-  -- For IslMultiAffToMap constraints: each equality defines exactly
-  -- one output dim.  The constraints are in the joined ni+no space
-  -- where dims 0..ni-1 are input and ni..ni+no-1 are output.
-  --
-  -- Strategy: for each equality, evaluate with output dims = 0.
-  -- The result is -f(inputs, params).  The output dim has coefficient 1
-  -- (guaranteed by IslMultiAffToMap normalization), so output = -result.
   let paramLookup p
         | p >= 0 && p < length paramNames =
             Map.findWithDefault 0 (paramNames !! p) params
         | otherwise = 0
-
       dimLookup d
         | d < ni    = inputPoint !! d
-        | otherwise = 0  -- output dim = 0 for evaluation
-
-      -- Collect output dim → value from equalities
+        | otherwise = 0
       outputMap = Map.fromList
         [ (outIdx, outVal)
         | C.EqualityConstraint expr <- cs
-          -- Evaluate with all output dims = 0
         , let val0 = evalAff dimLookup paramLookup expr
-          -- Find which output dim has non-zero coefficient
-          -- by evaluating with that dim = 1
         , outIdx <- [ni .. ni + length inputPoint]
         , let dimLookup1 d = if d == outIdx then 1 else dimLookup d
               val1 = evalAff dimLookup1 paramLookup expr
@@ -278,12 +283,10 @@ applyAffineMap ni params paramNames cs inputPoint =
         , coeff /= 0
         , let outVal = negate val0 `div` coeff
         ]
-
       no = if Map.null outputMap then 0
            else maximum (Map.keys outputMap) - ni + 1
   in [ Map.findWithDefault 0 (ni + j) outputMap | j <- [0 .. no - 1] ]
 
--- | Evaluate an affine expression with concrete dim and param values.
 evalAff :: (Int -> Int) -> (Int -> Int) -> C.Expr SetIx -> Int
 evalAff dimVal paramVal = go
   where
@@ -299,26 +302,15 @@ evalAff dimVal paramVal = go
 -- §7. ISL-backed domain membership testing
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | Test whether a point lies in a domain described by an ISL string.
---
--- Uses the ISL C library directly via 'unsafePerformIO'.
 islMember
-  :: Map String Int  -- ^ parameter values
-  -> [String]        -- ^ parameter names in positional order
-  -> Int             -- ^ number of dimensions
-  -> String          -- ^ ISL domain string (from 'reflectDomString')
-  -> [Int]           -- ^ point coordinates
-  -> Bool
+  :: Map String Int -> [String] -> Int -> String -> [Int] -> Bool
 islMember params paramNames _nDims domStr point = unsafePerformIO $ do
   ctxPtr <- c_ctx_alloc
   let ctx = Ctx ctxPtr
   domCStr <- newCString domStr
   set0 <- RS.c_readFromStr ctx domCStr
-  -- Fix each parameter to its concrete value
   set1 <- fixAllParams (0 :: Int) paramNames params set0
-  -- Fix each dimension to the point's coordinate
   set2 <- fixAllDims (0 :: Int) point set1
-  -- isEmpty uses __isl_keep (borrowed ref), safe to call then free
   let !result = not (RS.isEmpty (IT.SetRef (IT.unSet set2)))
   RS.c_free set2
   c_ctx_free ctxPtr
