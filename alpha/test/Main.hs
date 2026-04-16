@@ -1,3 +1,4 @@
+{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
@@ -46,9 +47,15 @@ module Main where
 
 import Control.Exception (SomeException, try)
 import Control.Monad (forM_)
+import Data.Int (Int64)
 import Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
+import Foreign.Marshal.Alloc (allocaBytes)
+import Foreign.Marshal.Utils (fillBytes)
+import Foreign.Ptr (Ptr, FunPtr, castFunPtr)
+import Foreign.Storable (peekElemOff, pokeElemOff)
 import System.Exit (ExitCode(..))
+import System.Posix.DynamicLinker (dlopen, dlsym, dlclose, RTLDFlags(..))
 import System.Process (system)
 import Data.Proxy (Proxy(..))
 import Test.Tasty
@@ -586,5 +593,94 @@ main = defaultMain $ testGroup "alpha-test"
             Right () -> assertFailure "expected carried-dep error for parallel on k dim"
       ]
 
+  , testGroup "phase-L codegen end-to-end"
+      [ testCase "matmul identity N=4 vs reference" $ do
+          let n = 4
+              s = scheduling $ sched @"C" @Matmul.MatmulDecls $ \_ -> identity 2
+              a = Allocation Map.empty
+              fm = defaultMapping "matmul" Matmul.matmul
+
+          Right cSrc <- codegen Matmul.matmul s a fm
+          writeFile "/tmp/alpha_e2e_matmul.c" cSrc
+          ExitSuccess <- system "gcc -O2 -shared -fPIC /tmp/alpha_e2e_matmul.c -o /tmp/alpha_e2e_matmul.so -lm 2>&1"
+
+          dl <- dlopen "/tmp/alpha_e2e_matmul.so" [RTLD_NOW]
+          fp <- dlsym dl "matmul"
+          let call = mkMatmulFn (castFunPtr fp)
+
+          let sz = n * n
+              aVec = V.fromList [ fromIntegral (i*n+j+1) :: Double
+                                | i <- [0..n-1], j <- [0..n-1] ]
+              bVec = V.fromList [ fromIntegral (i+j+1) :: Double
+                                | i <- [0..n-1], j <- [0..n-1] ]
+              expected = Ref.referenceMatmul n aVec bVec
+
+          allocaBytes (sz * 8) $ \aPtr ->
+            allocaBytes (sz * 8) $ \bPtr ->
+              allocaBytes (sz * 8) $ \cPtr -> do
+                -- Fill input buffers
+                forM_ [0..sz-1] $ \i -> pokeElemOff aPtr i (aVec V.! i)
+                forM_ [0..sz-1] $ \i -> pokeElemOff bPtr i (bVec V.! i)
+                fillBytes cPtr 0 (sz * 8)  -- zero C
+                -- Call generated function
+                call (fromIntegral n) aPtr bPtr cPtr
+                -- Compare against reference
+                forM_ [0..sz-1] $ \i -> do
+                  got <- peekElemOff cPtr i
+                  let exp' = expected V.! i
+                  assertBool ("C[" ++ show (i `div` n) ++ "," ++ show (i `mod` n)
+                              ++ "] = " ++ show got ++ " /= " ++ show exp')
+                             (abs (got - exp') < 1e-10)
+
+          dlclose dl
+
+      , testCase "matmul tiled (tile i by 2) N=4 vs reference" $ do
+          let n = 4
+              s = scheduling $ sched @"C" @Matmul.MatmulDecls $ \_ ->
+                    tile 0 2 $ identity 2
+              a = Allocation Map.empty
+              fm = defaultMapping "matmul_tiled" Matmul.matmul
+
+          Right cSrc <- codegen Matmul.matmul s a fm
+          writeFile "/tmp/alpha_e2e_matmul_tiled.c" cSrc
+          ExitSuccess <- system "gcc -O2 -shared -fPIC /tmp/alpha_e2e_matmul_tiled.c -o /tmp/alpha_e2e_matmul_tiled.so -lm 2>&1"
+
+          dl <- dlopen "/tmp/alpha_e2e_matmul_tiled.so" [RTLD_NOW]
+          fp <- dlsym dl "matmul_tiled"
+          let call = mkMatmulFn (castFunPtr fp)
+
+          let sz = n * n
+              aVec = V.fromList [ fromIntegral (i*n+j+1) :: Double
+                                | i <- [0..n-1], j <- [0..n-1] ]
+              bVec = V.fromList [ fromIntegral (i+j+1) :: Double
+                                | i <- [0..n-1], j <- [0..n-1] ]
+              expected = Ref.referenceMatmul n aVec bVec
+
+          allocaBytes (sz * 8) $ \aPtr ->
+            allocaBytes (sz * 8) $ \bPtr ->
+              allocaBytes (sz * 8) $ \cPtr -> do
+                forM_ [0..sz-1] $ \i -> pokeElemOff aPtr i (aVec V.! i)
+                forM_ [0..sz-1] $ \i -> pokeElemOff bPtr i (bVec V.! i)
+                fillBytes cPtr 0 (sz * 8)
+                call (fromIntegral n) aPtr bPtr cPtr
+                forM_ [0..sz-1] $ \i -> do
+                  got <- peekElemOff cPtr i
+                  let exp' = expected V.! i
+                  assertBool ("tiled C[" ++ show (i `div` n) ++ "," ++ show (i `mod` n)
+                              ++ "] = " ++ show got ++ " /= " ++ show exp')
+                             (abs (got - exp') < 1e-10)
+
+          dlclose dl
+      ]
+
   ]
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- FFI wrappers for dynamically loaded codegen functions
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- matmul(N, A_buf, B_buf, C_buf)
+type MatmulFn = Int64 -> Ptr Double -> Ptr Double -> Ptr Double -> IO ()
+foreign import ccall "dynamic" mkMatmulFn :: FunPtr MatmulFn -> MatmulFn
 

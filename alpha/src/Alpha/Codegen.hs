@@ -92,9 +92,10 @@ codegen sys@(System _decls eqs) sched alloc fmap' = runIslT $ Isl.do
       -- unsafeIslFromIO to avoid linear multiplicity conflict.
       Ur cTree <- walkAndFree node
 
-      -- Compute domain bounds for stride linearization
-      let domBounds = extractAllBounds domains params
-          macros = generateMacros sys sched alloc params domBounds
+      -- Extract ISL-determined iterator names from CUser calls
+      let stmtArgs = extractStmtArgs cTree
+          domBounds = extractAllBounds domains params
+          macros = generateMacros sys sched alloc params domBounds stmtArgs
           annotations = mergeAnnotations sched
           skeleton = renderCNodeToC annotations cTree
           cSrc = assembleCSource params fmap' alloc macros skeleton
@@ -148,6 +149,32 @@ lowerScheduleMaps (Schedule entries) domains reduceMap =
 -- §4. Macro generation
 -- ═══════════════════════════════════════════════════════════════════════
 
+-- | Extract statement name → iterator arg names from CUser nodes.
+-- Parses ISL-generated calls like @"C(c1, c2, c3);"@.
+extractStmtArgs :: CNode -> Map.Map String [String]
+extractStmtArgs = go
+  where
+    go (CFor _ _ _ _ body)  = go body
+    go (CIf _ thn mels)     = go thn <> maybe Map.empty go mels
+    go (CBlock cs)           = foldMap go cs
+    go (CUser stmt)          = case parseStmtCall stmt of
+      Just (name, args) -> Map.singleton name args
+      Nothing           -> Map.empty
+
+    parseStmtCall :: String -> Maybe (String, [String])
+    parseStmtCall s =
+      let s' = filter (/= ';') (filter (/= ' ') s)
+      in case break (== '(') s' of
+        (name, '(':rest) -> case break (== ')') rest of
+          (argStr, _) -> Just (name, splitOn ',' argStr)
+        _ -> Nothing
+
+    splitOn :: Char -> String -> [String]
+    splitOn _ [] = []
+    splitOn sep str = case break (== sep) str of
+      (tok, [])     -> [tok]
+      (tok, _:rest) -> tok : splitOn sep rest
+
 generateMacros
   :: forall ps inputs outputs locals.
      KnownSymbols ps
@@ -156,10 +183,11 @@ generateMacros
   -> Allocation
   -> [String]       -- parameter names
   -> Map.Map String [String]  -- domain bounds per variable
+  -> Map.Map String [String]  -- ISL-determined stmt args per equation
   -> String         -- all #define lines
-generateMacros (System _decls eqs) sched alloc params domBounds =
+generateMacros (System _decls eqs) sched alloc params domBounds stmtArgs =
   let storMap = allocEntries alloc
-      macroLines = generateFromEqList eqs sched storMap params domBounds
+      macroLines = generateFromEqList eqs sched storMap params domBounds stmtArgs
   in unlines macroLines
 
 generateFromEqList
@@ -170,18 +198,20 @@ generateFromEqList
   -> Map.Map String EqStorage
   -> [String]
   -> Map.Map String [String]
+  -> Map.Map String [String]  -- ISL stmt args
   -> [String]
-generateFromEqList EqNil _ _ _ _ = []
-generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap params domBounds =
+generateFromEqList EqNil _ _ _ _ _ = []
+generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap params domBounds stmtArgs =
   let eqName = symbolVal (Proxy @name)
-      nSchedDims = case Map.lookup eqName (schedEntries sched) of
-        Just es -> esNTime es
-        Nothing -> 0
-      nRedDims = case extractReduceInfo body of
-        Just ri -> riRedDims ri
-        Nothing -> 0
-      nTime = nSchedDims + nRedDims
-      iterVars = ["c" ++ show i | i <- [0 .. nTime - 1]]
+      -- Use ISL-determined args if available, else fall back to schedule dims
+      iterVars = case Map.lookup eqName stmtArgs of
+        Just args -> args
+        Nothing ->
+          let nSchedDims = case Map.lookup eqName (schedEntries sched) of
+                Just es -> esNTime es; Nothing -> 0
+              nRedDims = case extractReduceInfo body of
+                Just ri -> riRedDims ri; Nothing -> 0
+          in ["c" ++ show i | i <- [0 .. nSchedDims + nRedDims - 1]]
       ctx = RenderCtx
         { rcParams    = params
         , rcIterVars  = iterVars
@@ -193,7 +223,7 @@ generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap pa
         Just es -> esNIter es
         Nothing -> 0
       macro = renderEquationMacro eqName nOutDims body ctx
-  in macro : generateFromEqList rest sched storMap params domBounds
+  in macro : generateFromEqList rest sched storMap params domBounds stmtArgs
 
 -- | Extract reduction info from an equation body: number of reduction
 -- dims and the body domain constraints (for ISL loop generation).
