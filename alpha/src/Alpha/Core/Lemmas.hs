@@ -23,6 +23,12 @@ module Alpha.Core.Lemmas
   , replaceDeclList
   , definesAllReplace
   , replaceDeclConcat
+    -- * Variable introduction axioms
+  , definesAllIntroduce
+  , introduceDecls
+  , introduceEqList
+  , lookupIntroduce
+  , lookupIntroduceDecl
   ) where
 
 import Data.Kind (Constraint)
@@ -35,7 +41,8 @@ import Isl.TypeLevel.Reflection (Dict(..))
 
 import Alpha.Core
   ( VarDecl, Lookup, ReplaceDecl
-  , DeclList
+  , DeclList((:>)), Decl, Decls(..)
+  , EqList
   , DefinesAllExactlyOnce
   , type (++)
   )
@@ -113,3 +120,88 @@ replaceDeclConcat
      ReplaceDecl target newDecl (inputs ++ (outputs ++ locals))
 replaceDeclConcat = unsafeCoerce Refl
 {-# INLINE replaceDeclConcat #-}
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Variable introduction axioms
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | 'DefinesAllExactlyOnce' extends when adding a fresh local
+-- with its matching equation.
+--
+-- Soundness: @newName@ is fresh (not in @outputs ++ locals@), so
+-- @CountName newName (outputs ++ (newDecl ': locals)) = 1@ (the new
+-- entry) and @RemoveName@ leaves @outputs ++ locals@ for the rest.
+-- Then @defined@ recurses on the original @DefinesAllExactlyOnce@.
+definesAllIntroduce
+  :: forall (ps :: [Symbol]) (newDecl :: VarDecl ps)
+            (newName :: Symbol) (outputs :: [VarDecl ps])
+            (locals :: [VarDecl ps]) (defined :: [Symbol]).
+     DefinesAllExactlyOnce (outputs ++ locals) defined
+  => Dict (DefinesAllExactlyOnce
+             (outputs ++ (newDecl ': locals))
+             (newName ': defined))
+definesAllIntroduce = unsafeCoerce (Dict :: Dict (() :: Constraint))
+{-# INLINE definesAllIntroduce #-}
+
+-- | Cons a fresh local onto the 'Decls' record.
+-- Runtime: just widens the phantom type on @dLocals@.
+introduceDecls
+  :: forall (ps :: [Symbol]) (newDecl :: VarDecl ps)
+            (inputs :: [VarDecl ps]) (outputs :: [VarDecl ps])
+            (locals :: [VarDecl ps]).
+     Decl ps newDecl
+  -> Decls ps inputs outputs locals
+  -> Decls ps inputs outputs (newDecl ': locals)
+introduceDecls newD (Decls ins outs locs) =
+  unsafeCoerce (Decls ins outs (newD Alpha.Core.:> locs))
+{-# INLINE introduceDecls #-}
+
+-- | Transport an 'EqList' from old decl environment to augmented one.
+-- Sound when @newDecl@ has a fresh name: 'Lookup' for every existing
+-- name gives the same result in both environments.
+introduceEqList
+  :: forall (ps :: [Symbol]) (newDecl :: VarDecl ps)
+            (inputs :: [VarDecl ps]) (outputs :: [VarDecl ps])
+            (locals :: [VarDecl ps]) (defined :: [Symbol]).
+     EqList ps (inputs ++ (outputs ++ locals)) defined
+  -> EqList ps (inputs ++ (outputs ++ (newDecl ': locals))) defined
+introduceEqList = unsafeCoerce
+{-# INLINE introduceEqList #-}
+
+-- | Lookup the freshly-introduced variable in the augmented decl list.
+-- Soundness: @newDecl@ has @DeclName newDecl ~ proxyName@ and is
+-- consed onto locals. Since @proxyName@ is fresh, @Lookup@ traverses
+-- inputs and outputs without matching, then finds @newDecl@ at the
+-- head of the new locals.
+lookupIntroduce
+  :: forall (ps :: [Symbol]) (proxyName :: Symbol)
+            (newDecl :: VarDecl ps)
+            (inputs :: [VarDecl ps]) (outputs :: [VarDecl ps])
+            (locals :: [VarDecl ps]).
+     Dict (Lookup proxyName (inputs ++ (outputs ++ (newDecl ': locals))) ~ newDecl)
+lookupIntroduce = unsafeCoerce (Dict :: Dict (() :: Constraint))
+{-# INLINE lookupIntroduce #-}
+
+-- | Axiom: 'Lookup' over introduce (cons-new-local).
+--
+-- Same dispatch as 'lookupReplaceDecl': if @name ~ proxy@, Lookup
+-- finds the freshly-introduced @newDecl@; otherwise Lookup returns
+-- the same result as in the original decl list.
+--
+-- Precondition: @proxy@ is fresh in @oldDecls@.
+lookupIntroduceDecl
+  :: forall (ps :: [Symbol]) (proxy :: Symbol) (name :: Symbol)
+            (newDecl :: VarDecl ps)
+            (oldDecls :: [VarDecl ps]) (newDecls :: [VarDecl ps]).
+     ( KnownSymbol proxy, KnownSymbol name )
+  => Proxy proxy -> Proxy name
+  -> Either
+       ( name :~: proxy
+       , Dict (Lookup name newDecls ~ newDecl) )
+       ( Dict (Lookup name newDecls ~ Lookup name oldDecls) )
+lookupIntroduceDecl proxy name =
+  case sameSymbol name proxy of
+    Just Refl -> Left  (Refl, unsafeCoerce (Dict :: Dict (() :: Constraint)))
+    Nothing   -> Right (unsafeCoerce (Dict :: Dict (() :: Constraint)))
+{-# INLINE lookupIntroduceDecl #-}

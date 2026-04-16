@@ -35,14 +35,9 @@ import Alpha.Core
 import Alpha.Core.Lemmas
   (lookupReplaceDecl, replaceDeclList, definesAllReplace, replaceDeclConcat)
 import Alpha.Transform.Types (TransformError(..))
-import Isl.Typed.Constraints (Conjunction(..), MapIx, Constraint)
-import qualified Isl.Typed.Constraints as TC
-import Isl.Monad (runIslT, Ur(..))
-import Isl.Linear (queryM_, urWrap)
-import qualified Isl.Linear as Isl
+import Alpha.Transform.Walk (composeAccess)
+import Isl.Typed.Constraints (MapIx, Constraint)
 import Isl.Typed.Params (KnownSymbols(..), Length)
-import qualified Isl.Map as RawM
-import qualified Isl.Set as RawS
 import Isl.TypeLevel.Constraint
   ( IslPreimageMultiAff, TConstraint )
 import Isl.TypeLevel.Expr (TExpr)
@@ -54,8 +49,7 @@ import Isl.TypeLevel.Reflection
   , islImageSubsetCheckS
   )
 import Isl.TypeLevel.Sing
-  ( KnownConstraints(..), KnownExprs(..), SBasicMap(..), SMultiAff(..)
-  , evalSBasicMap, evalSMultiAff
+  ( KnownConstraints(..), KnownExprs(..)
   , liftConstraintsMap, withKnownConstraints
   )
 
@@ -65,77 +59,7 @@ import Isl.TypeLevel.Sing
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §2. Runtime ISL verification (pure, via unsafePerformIO)
--- ═══════════════════════════════════════════════════════════════════════
-
--- | Compose a reindexed Dep's map and verify its image-subset obligation.
---
--- Given:
---   * Old dep map (ni → oldNo) as KnownConstraints singleton
---   * Reindex multi-aff (newNo → oldNo) as KnownExprs singleton
---   * Source domain (ni-dim) as ISL string (from reflectDomString)
---   * Destination domain (newNo-dim) as ISL string
---
--- Computes:
---   1. Reverse the reindex multi-aff's map: oldNo → newNo
---   2. Compose: old dep map ; reversed reindex = ni → newNo
---   3. Decompose the composed map to extract its constraints and ISL string
---   4. Image of source domain under composed map
---   5. Check image ⊆ destination domain
---
--- Returns @Just (mapStr, constraints)@ on success (the composed map's ISL
--- string and constraint list), or @Nothing@ if the image-subset check fails.
---
--- All map operations are direct ISL object operations — no string
--- intermediaries for maps.  Domains come as strings from
--- reflectDomString (the existing KnownDom API).
-composeDepReindex
-  :: forall ps ni oldNo newNo
-            (mapCs :: [TConstraint ps (ni + oldNo)])
-            (mapExprs :: [TExpr ps newNo]).
-     ( KnownNat ni, KnownNat oldNo, KnownNat newNo
-     , KnownSymbols ps, KnownNat (Length ps)
-     , KnownConstraints ps (ni + oldNo) mapCs
-     , KnownExprs ps newNo mapExprs
-     )
-  => String  -- ^ source domain ISL text (ni-dim)
-  -> String  -- ^ destination domain ISL text (newNo-dim)
-  -> Maybe (String, [Constraint MapIx])
-composeDepReindex srcStr dstStr = unsafePerformIO $ runIslT $ Isl.do
-  -- 1. Build old dep map from KnownConstraints singleton
-  oldMap <- evalSBasicMap @ps @ni @oldNo
-              (MkSBasicMap (knownConstraints @ps @(ni + oldNo) @mapCs))
-  -- 2. Build reindex multi-aff, convert to map, reverse
-  reindexMA <- evalSMultiAff @ps @newNo @oldNo
-                 (MkSMultiAff (knownExprs @ps @newNo @mapExprs))
-  fwdMap    <- RawM.fromMultiAff reindexMA
-  revMap    <- RawM.reverse fwdMap
-  -- 3. Compose: old dep (ni → oldNo) ; reverse reindex (oldNo → newNo)
-  composed  <- RawM.applyRange oldMap revMap
-  -- 4. Extract the composed map's string and constraints
-  let nParams = fromIntegral (natVal (Proxy @(Length ps)))
-      nIn = fromIntegral (natVal (Proxy @ni))
-      nNewNo = fromIntegral (natVal (Proxy @newNo))
-  let !(composed1, composed2) = Isl.dup composed
-  Ur (composedStr, constrs) <- queryM_ composed1 (\composedRef -> Isl.do
-    let !str = RawM.toStr composedRef
-    conjs <- TC.decomposeMap nIn nNewNo nParams composedRef
-    Ur cs <- urWrap conjs
-    let constrs' = case cs of
-          [Conjunction c] -> c
-          _ -> error "composeDepReindex: non-basic composed map"
-    Isl.pure (Ur (str, constrs')))
-  -- 5. Apply composed map to source domain, check image ⊆ destination
-  src <- RawS.readFromStr srcStr
-  img <- RawS.apply src composed2
-  dst <- RawS.readFromStr dstStr
-  Ur b <- queryM_ img (\imgRef ->
-    Isl.query_ dst (\dstRef -> RawS.isSubset imgRef dstRef))
-  Isl.pure (Ur (if b then Just (composedStr, constrs) else Nothing))
-
-
--- ═══════════════════════════════════════════════════════════════════════
--- §3. Expression walker (non-target equations)
+-- §2. Expression walker (non-target equations)
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | Walk an expression, changing @decls@ to @ReplaceDecl target nv decls@.
@@ -192,7 +116,7 @@ walkExprNonTarget = go
           let srcStr = reflectDomString @ps @ni @dOuter
               dstStr = reflectDomString @ps @(DeclDims nv) @(DeclDomTag nv)
               ni_val = fromIntegral (natVal (Proxy @ni))
-          in case composeDepReindex @ps @ni @no @(DeclDims nv)
+          in case composeAccess @ps @ni @no @(DeclDims nv)
                     @mapCs @mapExprs srcStr dstStr of
                Nothing -> Left (ImageOutOfBounds
                  "reindex: dep access out of bounds after map composition"

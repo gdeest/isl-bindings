@@ -36,7 +36,9 @@ library
                    , Alpha.Transform.Types
                    , Alpha.Transform.Domain
                    , Alpha.Transform.Reindex
+                   , Alpha.Transform.Introduce
                    , Alpha.Transform.Tile
+                   , Alpha.Transform.Walk
                    , Alpha.Polyhedral.Dependence
                    , Alpha.Polyhedral.Schedule
                    , Alpha.Polyhedral.Contraction
