@@ -57,8 +57,12 @@ import Test.Tasty.HUnit
 import qualified Data.Vector.Unboxed as V
 
 import Alpha.Codegen (codegen)
-import Alpha.Codegen.Compile (withCompiledKernel, runKernel, uniformDescs)
+import Alpha.Codegen.Compile (uniformDescs)
+import qualified Alpha.Codegen.Compile as Untyped
 import Alpha.Scalar (scalarDesc, AlphaScalar)
+import Alpha.Kernel
+  ( TypedKernel, Params(PNil, (:>))
+  , withCompiledKernel, runKernel )
 import Alpha.Codegen.FunctionMapping (defaultMapping)
 import Alpha.Codegen.Parallel (validateAnnotations, AnnotationError(..))
 import Alpha.Compile (validateSchedule, CompileError(..))
@@ -591,11 +595,11 @@ main = defaultMain $ testGroup "alpha-test"
               bVec = V.fromList [ fromIntegral (i+j+1) :: Double
                                 | i <- [0..n-1], j <- [0..n-1] ]
               expected = Ref.referenceMatmul n aVec bVec
-          withCompiledKernel @Double Matmul.matmul
+          withCompiledKernel Matmul.matmul
             (scheduling $ sched @"C" @Matmul.MatmulDecls $ \_ -> identity 2)
             (Allocation Map.empty)
             (defaultMapping "matmul" Matmul.matmul) $ \kernel -> do
-              [cResult] <- runKernel kernel [n] [aVec, bVec]
+              cResult <- runKernel kernel (n :> PNil) aVec bVec
               assertVecApprox "matmul C" 1e-10 expected cResult
 
       , testCase "matmul tiled (tile i by 2) N=4 vs reference" $ do
@@ -605,11 +609,11 @@ main = defaultMain $ testGroup "alpha-test"
               bVec = V.fromList [ fromIntegral (i+j+1) :: Double
                                 | i <- [0..n-1], j <- [0..n-1] ]
               expected = Ref.referenceMatmul n aVec bVec
-          withCompiledKernel @Double Matmul.matmul
+          withCompiledKernel Matmul.matmul
             (scheduling $ sched @"C" @Matmul.MatmulDecls $ \_ -> tile 0 2 $ identity 2)
             (Allocation Map.empty)
             (defaultMapping "matmul_tiled" Matmul.matmul) $ \kernel -> do
-              [cResult] <- runKernel kernel [n] [aVec, bVec]
+              cResult <- runKernel kernel (n :> PNil) aVec bVec
               assertVecApprox "matmul tiled C" 1e-10 expected cResult
       ]
 

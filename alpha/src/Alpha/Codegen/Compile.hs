@@ -12,6 +12,7 @@ module Alpha.Codegen.Compile
   , compileKernel
   , withCompiledKernel
   , runKernel
+  , executeKernelHet
   , evalBoundStr
   , uniformDescs
   ) where
@@ -23,7 +24,7 @@ import qualified Data.Map.Strict as Map
 import Data.Word (Word8)
 import qualified Data.Vector.Unboxed as V
 import Foreign.Marshal.Alloc (mallocBytes, free)
-import Foreign.Marshal.Utils (fillBytes)
+import Foreign.Marshal.Utils (fillBytes, copyBytes)
 import Foreign.Ptr (Ptr, FunPtr, castFunPtr, castPtr)
 import Foreign.Storable (sizeOf, pokeElemOff, peekElemOff)
 import System.Exit (ExitCode(..))
@@ -37,8 +38,10 @@ import Alpha.Codegen.FunctionMapping
   ( CFunctionMapping(..), ArgPassing(..), declListNames, declListBounds )
 import Alpha.Schedule (Schedule)
 import Alpha.Allocation (Allocation)
+import Foreign.ForeignPtr (mallocForeignPtrBytes, withForeignPtr)
 import Alpha.Scalar
-  ( ScalarDesc(..), AlphaScalar(..), scalarDesc, Marshal(..), cTypeName )
+  ( ScalarDesc(..), AlphaScalar(..), scalarDesc, Marshal(..), cTypeName
+  , SomeBuffer(..) )
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -181,7 +184,74 @@ runKernel ck paramVals inputVecs = do
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §4. Helpers
+-- §4. Heterogeneous execution
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | Execute a compiled kernel with per-variable typed buffers.
+-- Input SomeBuffers are matched to ckInputNames by position.
+-- Returns output SomeBuffers in ckOutputNames order.
+executeKernelHet
+  :: CompiledKernel -> [Int] -> [SomeBuffer] -> IO [SomeBuffer]
+executeKernelHet ck paramVals inputBufs = do
+  let call     = mkAlphaCall (ckCall ck)
+      paramMap = Map.fromList (zip (ckParamNames ck) paramVals)
+      bufNames = ckBufNames ck
+      inputMap = Map.fromList (zip (ckInputNames ck) inputBufs)
+
+      bufSize name = case Map.lookup name (ckBounds ck) of
+        Just bs -> product [ evalBoundStr paramMap b | b <- bs ]
+        Nothing -> 0
+
+      lookupDesc name = case Map.lookup name (ckDescs ck) of
+        Just d  -> d
+        Nothing -> error $ "executeKernelHet: no ScalarDesc for " ++ name
+
+      elemSz name = case lookupDesc name of
+        MkScalarDesc { sdMarshal = Just m } -> maElemSize m
+        _ -> error $ "executeKernelHet: no Marshal for " ++ name
+
+  -- Allocate raw buffers for all variables
+  rawBufs <- mapM (\name -> mallocBytes (bufSize name * elemSz name)) bufNames
+  let rawBufMap = Map.fromList (zip bufNames rawBufs)
+
+  -- Copy input data into allocated buffers; zero non-input buffers
+  sequence_
+    [ case Map.lookup name inputMap of
+        Just sb -> withForeignPtr (sbData sb) $ \srcPtr -> do
+          let dst = rawBufMap Map.! name
+              bytes = sbElemCount sb * elemSz name
+          copyBytes dst (castPtr srcPtr) bytes
+        Nothing ->
+          fillBytes (rawBufMap Map.! name) 0 (bufSize name * elemSz name)
+    | name <- bufNames ]
+
+  -- Call the kernel
+  let paramI64s = map fromIntegral paramVals :: [Int64]
+      bufPtrs = map (\n -> castPtr (rawBufMap Map.! n)) bufNames
+  withInt64Array paramI64s $ \pPtr ->
+    withPtrArray bufPtrs $ \bPtr ->
+      call pPtr bPtr
+
+  -- Read output buffers into SomeBuffers
+  outBufs <- mapM (\name -> do
+    let sz = bufSize name
+        esz = elemSz name
+    fptr <- mallocForeignPtrBytes (sz * esz)
+    withForeignPtr fptr $ \dst ->
+      copyBytes (castPtr dst) (rawBufMap Map.! name) (sz * esz)
+    pure SomeBuffer
+      { sbDesc = lookupDesc name
+      , sbData = fptr
+      , sbElemCount = sz
+      }
+    ) (ckOutputNames ck)
+
+  mapM_ free rawBufs
+  pure outBufs
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §5. Helpers
 -- ═══════════════════════════════════════════════════════════════════════
 
 evalBoundStr :: Map String Int -> String -> Int

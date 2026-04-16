@@ -30,6 +30,7 @@ library
                    , Alpha.Allocation
                    , Alpha.Compile
                    , Alpha.Interpret
+                   , Alpha.Kernel
                    , Alpha.Scalar
                    , Alpha.TypeLevel.Tiling
                    , Alpha.Transform.Types
