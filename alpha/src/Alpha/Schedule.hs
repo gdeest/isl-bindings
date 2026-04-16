@@ -33,6 +33,7 @@ module Alpha.Schedule
   , scheduling
     -- * Typed combinator
   , sched
+  , schedOf
     -- * Untyped combinator (escape hatch)
   , schedule
     -- * Annotation combinators
@@ -56,7 +57,7 @@ import GHC.TypeLits (KnownNat, KnownSymbol, Symbol, natVal, symbolVal)
 import qualified Alpha.Polyhedral.Schedule as S
 import Isl.Typed.Constraints (Expr(..))
 
-import Alpha.Core (VarDecl(..), Lookup, DeclDims)
+import Alpha.Core (VarDecl(..), Lookup, DeclDims, System, type (++))
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -116,6 +117,23 @@ sched
 sched mkDef =
   let nIter = fromIntegral (natVal (Proxy @(DeclDims decl)))
   in schedule (symbolVal (Proxy @name)) nIter (mkDef nIter)
+
+-- | Like 'sched', but infers the declaration list from a 'System' value.
+-- The system is not evaluated — only its type is used.
+--
+-- @
+-- schedOf \@\"Bt\" matmulT $ \\_ -> embedAt 0 (identity 2)
+-- schedOf \@\"C\"  matmulT $ \\_ -> embedAt 1 (identity 2)
+-- @
+schedOf
+  :: forall (name :: Symbol) {ps} {inputs} {outputs} {locals} {decl}.
+     ( decl ~ Lookup name (inputs ++ (outputs ++ locals))
+     , KnownSymbol name
+     , KnownNat (DeclDims decl)
+     )
+  => System ps inputs outputs locals
+  -> (Int -> S.ScheduleDef) -> ScheduleBuilder ()
+schedOf _ = sched @name @(inputs ++ (outputs ++ locals))
 
 
 -- ═══════════════════════════════════════════════════════════════════════

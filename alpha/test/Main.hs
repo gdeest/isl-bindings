@@ -626,8 +626,8 @@ main = defaultMain $ testGroup "alpha-test"
               expected = Ref.referenceMatmul n aVec bVec
           withCompiledKernel MatT.matmulT
             (scheduling $ do
-               sched @"Bt" @MatT.MatmulTDecls $ \_ -> embedAt 0 (identity 2)
-               sched @"C"  @MatT.MatmulTDecls $ \_ -> embedAt 1 (identity 2))
+               schedOf @"Bt" MatT.matmulT $ \_ -> embedAt 0 (identity 2)
+               schedOf @"C"  MatT.matmulT $ \_ -> embedAt 1 (identity 2))
             (Allocation Map.empty)
             (defaultMapping "matmul_t" MatT.matmulT) $ \kernel -> do
               cResult <- runKernel kernel (n :> PNil) aVec bVec

@@ -24,16 +24,12 @@
 -- The B transpose makes the inner‐loop access to Bt contiguous.
 module Examples.MatmulTransposed
   ( matmulT
-  , MatmulTDecls
   ) where
 
-import Alpha.Core (VarDecl(..))
-import Examples.Matmul (matmul, SquareN)
+import Examples.Matmul (matmul)
 import Alpha.Transform.Introduce (introduce)
 import Alpha.Transform.Types (TransformError(..))
-import Isl.TypeLevel.Constraint (TConstraint, IslPreimageMultiAff)
 import Isl.TypeLevel.Expr (D, TExpr(..))
-import Isl.TypeLevel.Reflection (DomTag(..))
 
 
 -- The transpose map: Bt[j,k] → B[k,j], i.e. [D 1, D 0].
@@ -46,12 +42,3 @@ matmulT :: _
 matmulT = case introduce @"B" @"Bt" @2 @'["N"] @TransposeMap matmul of
   Right sys -> sys
   Left err  -> error $ "matmulT: " ++ show err
-
-type BtDomCs = IslPreimageMultiAff '["N"] 2 2 TransposeMap SquareN
-
-type MatmulTDecls =
-  '[ 'VarDecl @'["N"] @"A"  @2 @('Literal SquareN)  @Double
-   , 'VarDecl @'["N"] @"B"  @2 @('Literal SquareN)  @Double
-   , 'VarDecl @'["N"] @"C"  @2 @('Literal SquareN)  @Double
-   , 'VarDecl @'["N"] @"Bt" @2 @('Literal BtDomCs)  @Double
-   ]
