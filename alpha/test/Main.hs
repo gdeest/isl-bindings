@@ -45,7 +45,7 @@
 -- traps) govern how the negative tests fire at runtime.
 module Main where
 
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, bracket, try)
 import Control.Monad (forM_)
 import Data.Int (Int64)
 import Data.List (isInfixOf)
@@ -601,38 +601,10 @@ main = defaultMain $ testGroup "alpha-test"
               fm = defaultMapping "matmul" Matmul.matmul
 
           Right cSrc <- codegen Matmul.matmul s a fm
-          writeFile "/tmp/alpha_e2e_matmul.c" cSrc
-          ExitSuccess <- system "gcc -O2 -shared -fPIC /tmp/alpha_e2e_matmul.c -o /tmp/alpha_e2e_matmul.so -lm 2>&1"
-
-          dl <- dlopen "/tmp/alpha_e2e_matmul.so" [RTLD_NOW]
-          fp <- dlsym dl "matmul"
-          let call = mkMatmulFn (castFunPtr fp)
-
-          let sz = n * n
-              aVec = V.fromList [ fromIntegral (i*n+j+1) :: Double
-                                | i <- [0..n-1], j <- [0..n-1] ]
-              bVec = V.fromList [ fromIntegral (i+j+1) :: Double
-                                | i <- [0..n-1], j <- [0..n-1] ]
-              expected = Ref.referenceMatmul n aVec bVec
-
-          allocaBytes (sz * 8) $ \aPtr ->
-            allocaBytes (sz * 8) $ \bPtr ->
-              allocaBytes (sz * 8) $ \cPtr -> do
-                -- Fill input buffers
-                forM_ [0..sz-1] $ \i -> pokeElemOff aPtr i (aVec V.! i)
-                forM_ [0..sz-1] $ \i -> pokeElemOff bPtr i (bVec V.! i)
-                fillBytes cPtr 0 (sz * 8)  -- zero C
-                -- Call generated function
-                call (fromIntegral n) aPtr bPtr cPtr
-                -- Compare against reference
-                forM_ [0..sz-1] $ \i -> do
-                  got <- peekElemOff cPtr i
-                  let exp' = expected V.! i
-                  assertBool ("C[" ++ show (i `div` n) ++ "," ++ show (i `mod` n)
-                              ++ "] = " ++ show got ++ " /= " ++ show exp')
-                             (abs (got - exp') < 1e-10)
-
-          dlclose dl
+          runGeneratedMatmul "matmul" cSrc n
+            (V.fromList [ fromIntegral (i*n+j+1) :: Double | i <- [0..n-1], j <- [0..n-1] ])
+            (V.fromList [ fromIntegral (i+j+1)   :: Double | i <- [0..n-1], j <- [0..n-1] ])
+            (Ref.referenceMatmul n)
 
       , testCase "matmul tiled (tile i by 2) N=4 vs reference" $ do
           let n = 4
@@ -642,38 +614,47 @@ main = defaultMain $ testGroup "alpha-test"
               fm = defaultMapping "matmul_tiled" Matmul.matmul
 
           Right cSrc <- codegen Matmul.matmul s a fm
-          writeFile "/tmp/alpha_e2e_matmul_tiled.c" cSrc
-          ExitSuccess <- system "gcc -O2 -shared -fPIC /tmp/alpha_e2e_matmul_tiled.c -o /tmp/alpha_e2e_matmul_tiled.so -lm 2>&1"
-
-          dl <- dlopen "/tmp/alpha_e2e_matmul_tiled.so" [RTLD_NOW]
-          fp <- dlsym dl "matmul_tiled"
-          let call = mkMatmulFn (castFunPtr fp)
-
-          let sz = n * n
-              aVec = V.fromList [ fromIntegral (i*n+j+1) :: Double
-                                | i <- [0..n-1], j <- [0..n-1] ]
-              bVec = V.fromList [ fromIntegral (i+j+1) :: Double
-                                | i <- [0..n-1], j <- [0..n-1] ]
-              expected = Ref.referenceMatmul n aVec bVec
-
-          allocaBytes (sz * 8) $ \aPtr ->
-            allocaBytes (sz * 8) $ \bPtr ->
-              allocaBytes (sz * 8) $ \cPtr -> do
-                forM_ [0..sz-1] $ \i -> pokeElemOff aPtr i (aVec V.! i)
-                forM_ [0..sz-1] $ \i -> pokeElemOff bPtr i (bVec V.! i)
-                fillBytes cPtr 0 (sz * 8)
-                call (fromIntegral n) aPtr bPtr cPtr
-                forM_ [0..sz-1] $ \i -> do
-                  got <- peekElemOff cPtr i
-                  let exp' = expected V.! i
-                  assertBool ("tiled C[" ++ show (i `div` n) ++ "," ++ show (i `mod` n)
-                              ++ "] = " ++ show got ++ " /= " ++ show exp')
-                             (abs (got - exp') < 1e-10)
-
-          dlclose dl
+          runGeneratedMatmul "matmul_tiled" cSrc n
+            (V.fromList [ fromIntegral (i*n+j+1) :: Double | i <- [0..n-1], j <- [0..n-1] ])
+            (V.fromList [ fromIntegral (i+j+1)   :: Double | i <- [0..n-1], j <- [0..n-1] ])
+            (Ref.referenceMatmul n)
       ]
 
   ]
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- End-to-end test helpers
+-- ═══════════════════════════════════════════════════════════════════════
+
+runGeneratedMatmul
+  :: String -> String -> Int
+  -> V.Vector Double -> V.Vector Double
+  -> (V.Vector Double -> V.Vector Double -> V.Vector Double)
+  -> Assertion
+runGeneratedMatmul funcName cSrc n aVec bVec refFn = do
+  let cFile  = "/tmp/alpha_e2e_" ++ funcName ++ ".c"
+      soFile = "/tmp/alpha_e2e_" ++ funcName ++ ".so"
+      sz     = n * n
+      expected = refFn aVec bVec
+  writeFile cFile cSrc
+  ExitSuccess <- system $ "gcc -O2 -shared -fPIC " ++ cFile ++ " -o " ++ soFile ++ " -lm 2>&1"
+  bracket (dlopen soFile [RTLD_NOW]) dlclose $ \dl -> do
+    fp <- dlsym dl funcName
+    let call = mkMatmulFn (castFunPtr fp)
+    allocaBytes (sz * 8) $ \aPtr ->
+      allocaBytes (sz * 8) $ \bPtr ->
+        allocaBytes (sz * 8) $ \cPtr -> do
+          forM_ [0..sz-1] $ \i -> pokeElemOff aPtr i (aVec V.! i)
+          forM_ [0..sz-1] $ \i -> pokeElemOff bPtr i (bVec V.! i)
+          fillBytes cPtr 0 (sz * 8)
+          call (fromIntegral n) aPtr bPtr cPtr
+          forM_ [0..sz-1] $ \i -> do
+            got <- peekElemOff cPtr i
+            let exp' = expected V.! i
+            assertBool (funcName ++ " C[" ++ show (i `div` n) ++ "," ++ show (i `mod` n)
+                        ++ "] = " ++ show got ++ " /= " ++ show exp')
+                       (abs (got - exp') < 1e-10)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
