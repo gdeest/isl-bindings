@@ -69,6 +69,7 @@ test-suite alpha-test
   other-modules:     Examples.DepReindex
                    , Examples.Matmul
                    , Examples.Zero1D
+                   , Examples.Copy1D
                    , Examples.TiledZero1D
                    , Examples.Const3D
                    , Examples.TiledConst3D

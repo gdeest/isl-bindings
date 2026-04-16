@@ -77,7 +77,8 @@ import Alpha.Codegen.FunctionMapping (defaultMapping)
 import Alpha.Codegen.Parallel (validateAnnotations, AnnotationError(..))
 import Alpha.Compile (validateSchedule, compile, CompileError(..))
 import Alpha.Interpret (interpret)
-import Alpha.Allocation (Allocation(..), allocating)
+import Alpha.Allocation (Allocation(..), EqStorage(..), allocating, allocate)
+import Alpha.Polyhedral.Contraction (modularTime)
 import Alpha.Schedule
 import Isl.Typed.Constraints (Expr(..), MapIx(..), Conjunction(..), Constraint(..))
 import Isl.TypeLevel.Constraint (TConstraint)
@@ -96,6 +97,8 @@ import qualified Examples.MatmulTransposed as MatT
 import qualified Examples.IntRowMax as IRM
 import qualified Examples.SumIndex2D as SI2
 import qualified Examples.TiledZero1D as TiledZero1D
+import qualified Examples.Zero1D as Zero1D
+import qualified Examples.Copy1D as Copy1D
 import qualified Examples.TiledConst3D as TiledConst3D
 import qualified Examples.Heat3DElsewhere as H3E
 import qualified Examples.UnionCompose as UC
@@ -962,6 +965,56 @@ main = defaultMain $ testGroup "alpha-test"
             (defaultMapping "sum_index_2d" SI2.sumIndex2D) $ \kernel -> do
               aResult <- runKernel kernel (n :> PNil) bVec
               assertVecApprox "A[i,j] = B[i+j]" 1e-10 expected aResult
+      ]
+
+  , testGroup "Batch D regress (#13 post-contraction WAW lex check)"
+      [ testCase "regress_13_contraction_waw_violation" $ do
+          -- y[i] = 0 on [0, N-1] with modularTime storage (y[i] → buf[i mod 2])
+          -- and a constant schedule [0] placing every iteration at the same
+          -- schedule point.  Pre-fix: returns Right () — validateSchedule's
+          -- empty-allocation path ignores storage aliasing, and even with a
+          -- populated Allocation there is no WAW check, so two iterations
+          -- writing the same buffer cell at the same schedule time go
+          -- undetected.
+          let schedAllZero = scheduling $
+                schedule "y" 1 (ScheduleDef [Constant 0])
+              allocMod2 = allocating $ allocate "y" (Contracted (modularTime 1 2))
+          result <- compile Copy1D.copy1D schedAllZero allocMod2
+          case result of
+            Left (OutputDependenceViolated "y") -> pure ()
+            other -> assertFailure $
+              "expected Left (OutputDependenceViolated \"y\"), got: "
+              ++ show other
+
+      , testCase "regress_13_contraction_waw_clean" $ do
+          -- Same aliasing storage (y[i] → buf[i mod 2]) but the identity
+          -- schedule [i] gives every write a distinct schedule time.  The
+          -- aliasing pairs (y[0],y[2]), (y[1],y[3]), ... are each mapped to
+          -- distinct schedule coordinates, so no race and the compile
+          -- succeeds.
+          let schedIdentity = scheduling $
+                schedOf @"y" Copy1D.copy1D $ \n -> identity n
+              allocMod2 = allocating $ allocate "y" (Contracted (modularTime 1 2))
+          result <- compile Copy1D.copy1D schedIdentity allocMod2
+          case result of
+            Right () -> pure ()
+            other -> assertFailure $
+              "expected Right (), got: " ++ show other
+
+      , testCase "regress_13_contraction_waw_full_storage_skips" $ do
+          -- Sanity: if every equation is FullStorage the WAW path must not
+          -- run (pre-contraction SARE is single-assignment by construction).
+          -- We pick a schedule that *would* be flagged by a naive "any
+          -- aliasing ⇒ fail" check (constant 0) to ensure the guard is
+          -- structural — FullStorage means no storageMap, so no WAW check.
+          let schedAllZero = scheduling $
+                schedule "y" 1 (ScheduleDef [Constant 0])
+              allocFull = allocating $ allocate "y" FullStorage
+          result <- compile Copy1D.copy1D schedAllZero allocFull
+          case result of
+            Right () -> pure ()
+            other -> assertFailure $
+              "expected Right () for FullStorage, got: " ++ show other
       ]
 
   ]
