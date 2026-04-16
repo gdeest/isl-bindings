@@ -292,9 +292,9 @@ assembleCSource params fmap' alloc macros skeleton =
       -- Parameters as function args
       paramDecls = intercalate ", " ["int64_t " ++ p | p <- params]
 
-      -- Buffer arguments (CallerAllocated)
-      callerArgs = [ ", double *restrict " ++ n ++ "_buf"
-                   | (n, CallerAllocated) <- Map.toAscList passing ]
+      -- Buffer arguments (CallerAllocated only — locals are stack-managed)
+      callerBufNames = [ n | (n, CallerAllocated) <- Map.toAscList passing ]
+      callerArgs = [ ", double *restrict " ++ n ++ "_buf" | n <- callerBufNames ]
 
       -- Local buffer allocations
       localAllocs = [ "  double *" ++ n ++ "_buf = (double*)calloc("
@@ -342,7 +342,7 @@ assembleCSource params fmap' alloc macros skeleton =
        , "  " ++ funcName ++ "("
          ++ intercalate ", "
               (  [ "params[" ++ show i ++ "]" | i <- [0 .. length params - 1] ]
-              ++ [ "bufs[" ++ show i ++ "]"   | i <- [0 .. length (Map.keys passing) - 1] ])
+              ++ [ "bufs[" ++ show i ++ "]"   | (i, _) <- zip [0..] callerBufNames ])
          ++ ");"
        , "}"
        ]

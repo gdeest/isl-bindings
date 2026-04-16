@@ -69,13 +69,12 @@ compileKernel sys@(System decls _eqs) sched alloc fmap' = do
   let params = symbolVals @ps
       inputNames  = declListNames (dInputs decls)
       outputNames = declListNames (dOutputs decls)
-      localNames  = declListNames (dLocals decls)
       allBounds   = Map.unions
         [ declListBounds params (dInputs decls)
         , declListBounds params (dOutputs decls)
         , declListBounds params (dLocals decls)
         ]
-      bufNames = map fst $ Map.toAscList (cfArgPassing fmap')
+      bufNames = [ n | (n, CallerAllocated) <- Map.toAscList (cfArgPassing fmap') ]
 
   result <- codegen sys sched alloc fmap'
   case result of
@@ -182,19 +181,13 @@ evalBoundStr params s = case Map.lookup s params of
     _         -> error $ "evalBoundStr: can't evaluate '" ++ s ++ "'"
 
 withInt64Array :: [Int64] -> (Ptr Int64 -> IO a) -> IO a
-withInt64Array xs action = do
-  let n = length xs
-  ptr <- mallocBytes (n * sizeOf (0 :: Int64))
-  mapM_ (\(i, v) -> pokeElemOff ptr i v) (zip [0..] xs)
-  result <- action ptr
-  free ptr
-  pure result
+withInt64Array xs action =
+  bracket (mallocBytes (length xs * sizeOf (0 :: Int64))) free $ \ptr -> do
+    mapM_ (\(i, v) -> pokeElemOff ptr i v) (zip [0..] xs)
+    action ptr
 
 withPtrArray :: [Ptr Double] -> (Ptr (Ptr Double) -> IO a) -> IO a
-withPtrArray xs action = do
-  let n = length xs
-  ptr <- mallocBytes (n * sizeOf (undefined :: Ptr Double))
-  mapM_ (\(i, v) -> pokeElemOff (castPtr ptr) i v) (zip [0..] xs)
-  result <- action (castPtr ptr)
-  free ptr
-  pure result
+withPtrArray xs action =
+  bracket (mallocBytes (length xs * sizeOf (undefined :: Ptr Double))) free $ \ptr -> do
+    mapM_ (\(i, v) -> pokeElemOff (castPtr ptr) i v) (zip [0..] xs)
+    action (castPtr ptr)

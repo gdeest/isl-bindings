@@ -625,7 +625,8 @@ main = defaultMain $ testGroup "alpha-test"
 -- ═══════════════════════════════════════════════════════════════════════
 
 assertVecApprox :: String -> Double -> V.Vector Double -> V.Vector Double -> Assertion
-assertVecApprox label tol expected got =
+assertVecApprox label tol expected got = do
+  assertEqual (label ++ " length") (V.length expected) (V.length got)
   V.iforM_ got $ \i g -> do
     let e = expected V.! i
     assertBool (label ++ "[" ++ show i ++ "] = " ++ show g ++ " /= " ++ show e)
