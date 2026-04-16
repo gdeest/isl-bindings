@@ -18,6 +18,8 @@ module Alpha.Codegen
     -- * Reduction metadata (exposed for validation / external callers)
   , ReduceInfo(..)
   , buildReduceMap
+    -- * AST walking (exposed for regression tests)
+  , extractStmtArgs
   ) where
 
 import Control.DeepSeq (NFData(..))
@@ -209,30 +211,13 @@ lowerScheduleMaps (Schedule entries) domains reduceMap =
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | Extract statement name → iterator arg names from CUser nodes.
--- Parses ISL-generated calls like @"C(c1, c2, c3);"@.
+-- 'CUser' carries structured args post-#7 — no string parsing required.
 extractStmtArgs :: CNode -> Map.Map String [String]
-extractStmtArgs = go
-  where
-    go (CFor _ _ _ _ body)  = go body
-    go (CIf _ thn mels)     = go thn <> maybe Map.empty go mels
-    go (CBlock cs)           = foldMap go cs
-    go (CUser stmt)          = case parseStmtCall stmt of
-      Just (name, args) -> Map.singleton name args
-      Nothing           -> Map.empty
-
-    parseStmtCall :: String -> Maybe (String, [String])
-    parseStmtCall s =
-      let s' = filter (/= ';') (filter (/= ' ') s)
-      in case break (== '(') s' of
-        (name, '(':rest) -> case break (== ')') rest of
-          (argStr, _) -> Just (name, splitOn ',' argStr)
-        _ -> Nothing
-
-    splitOn :: Char -> String -> [String]
-    splitOn _ [] = []
-    splitOn sep str = case break (== sep) str of
-      (tok, [])     -> [tok]
-      (tok, _:rest) -> tok : splitOn sep rest
+extractStmtArgs (CFor _ _ _ _ body) = extractStmtArgs body
+extractStmtArgs (CIf _ thn mels)    = extractStmtArgs thn
+                                        <> maybe Map.empty extractStmtArgs mels
+extractStmtArgs (CBlock cs)         = foldMap extractStmtArgs cs
+extractStmtArgs (CUser name args)   = Map.singleton name args
 
 generateMacros
   :: forall ps inputs outputs locals.
@@ -263,30 +248,26 @@ generateFromEqList
 generateFromEqList EqNil _ _ _ _ _ _ = Right []
 generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap params domBounds stmtArgs descs =
   let eqName = symbolVal (Proxy @name)
-      iterVars = case Map.lookup eqName stmtArgs of
-        Just args -> args
-        Nothing ->
-          let nSchedDims = case Map.lookup eqName (schedEntries sched) of
-                Just es -> esNTime es; Nothing -> 0
-              nRedDims = case extractReduceInfo body of
-                Just ri -> riRedDims ri; Nothing -> 0
-          in ["c" ++ show i | i <- [0 .. nSchedDims + nRedDims - 1]]
       nOutDims = case Map.lookup eqName (schedEntries sched) of
         Just es -> esNIter es
         Nothing -> 0
-  in case Map.lookup eqName descs of
-    Nothing -> Left (MissingScalarDesc eqName)
-    Just desc ->
-      let ctx = RenderCtx
-            { rcParams    = params
-            , rcIterVars  = iterVars
-            , rcStorage   = storMap
-            , rcDomBounds = domBounds
-            , rcDesc      = desc
-            }
-          macro = renderEquationMacro eqName nOutDims body ctx
-      in (macro :) <$>
-           generateFromEqList rest sched storMap params domBounds stmtArgs descs
+  in case Map.lookup eqName stmtArgs of
+    Nothing -> Left (CodegenInternalError
+      ("generateFromEqList: no CUser for equation " ++ show eqName
+       ++ " — walkAstNode didn't emit a call for a defined equation"))
+    Just iterVars -> case Map.lookup eqName descs of
+      Nothing -> Left (MissingScalarDesc eqName)
+      Just desc ->
+        let ctx = RenderCtx
+              { rcParams    = params
+              , rcIterVars  = iterVars
+              , rcStorage   = storMap
+              , rcDomBounds = domBounds
+              , rcDesc      = desc
+              }
+            macro = renderEquationMacro eqName nOutDims body ctx
+        in (macro :) <$>
+             generateFromEqList rest sched storMap params domBounds stmtArgs descs
 
 -- | Extract reduction info from an equation body: number of reduction
 -- dims and the body domain constraints (for ISL loop generation).

@@ -57,8 +57,9 @@ import Test.Tasty.HUnit
 
 import qualified Data.Vector.Unboxed as V
 
-import Alpha.Codegen (codegen, CodegenError(..), BoundError(..))
-import Alpha.Codegen.Compile (uniformDescs)
+import Alpha.Codegen (codegen, CodegenError(..), BoundError(..), extractStmtArgs)
+import Alpha.Codegen.Compile (uniformDescs, CompileException(..))
+import Isl.AstBuild (CNode(..))
 import Alpha.Codegen.ExprRender
   ( extractOneBound, extractBoundsISLM, BoundErr(..)
   , RenderCtx(..), renderExprToC )
@@ -852,6 +853,45 @@ main = defaultMain $ testGroup "alpha-test"
             (defaultMapping "int_rowmax" IRM.intRowMax) $ \kernel -> do
               yResult <- runKernel kernel (n :> PNil) aVec
               assertEqual "int row-max" expected yResult
+      ]
+
+  , testGroup "Batch B regress (#7 + #14 + Blocker #1)"
+      [ testCase "regress_7_extractStmtArgs_preserves_inner_commas" $ do
+          -- The deleted regex parsed ISL calls by filtering spaces and
+          -- splitting on comma — it would mis-split @"S(min(N,c0), c1);"@
+          -- into @["min(N", "c0)", "c1"]@.  Post-#7, CUser carries
+          -- structured args extracted via isl_ast_expr_get_op_arg, so
+          -- extractStmtArgs just reads them verbatim.
+          let tree = CFor "t0" "0" "t0 < N" "1"
+                       (CBlock
+                          [ CUser "S" ["min(N,c0)", "c1 + 2"]
+                          , CUser "T" ["c0"]
+                          ])
+              stmtArgs = extractStmtArgs tree
+          assertEqual "S args preserved verbatim"
+            (Just ["min(N,c0)", "c1 + 2"]) (Map.lookup "S" stmtArgs)
+          assertEqual "T args preserved"
+            (Just ["c0"]) (Map.lookup "T" stmtArgs)
+
+      , testCase "regress_compile_blocker1_propagation" $ do
+          -- Pre-fix: compileKernel used @error $ "compileKernel: codegen
+          -- failed: " ++ show err@, producing an untyped ErrorCall that
+          -- callers could only catch by pattern-matching on Strings.
+          -- Post-fix: typed CompileException wraps the CodegenError so
+          -- callers can 'try' on a structured exception.
+          result <- try @CompileException $
+            Untyped.compileKernel Matmul.matmul Map.empty
+              (scheduling $
+                 sched @"C" @Matmul.MatmulDecls $ \n -> identity n)
+              (Allocation Map.empty)
+              (defaultMapping "matmul_r_blocker1" Matmul.matmul)
+          case result of
+            Left (CompileCodegenFailed (MissingScalarDesc "C")) -> pure ()
+            Left other -> assertFailure $
+              "expected CompileCodegenFailed (MissingScalarDesc \"C\"), got: "
+              ++ show other
+            Right _ -> assertFailure
+              "expected CompileException, but compileKernel succeeded"
       ]
 
   ]

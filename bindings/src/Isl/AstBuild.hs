@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE LinearTypes #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
@@ -33,7 +34,7 @@ module Isl.AstBuild
   ) where
 
 import Foreign.C.String (peekCString)
-import Foreign.C.Types (CChar)
+import Foreign.C.Types (CChar, CInt(..))
 import Foreign.Marshal.Alloc (free)
 import Foreign.Ptr (Ptr)
 import Control.Monad.IO.Class (MonadIO, liftIO)
@@ -43,6 +44,7 @@ import Unsafe.Coerce (unsafeCoerce)
 import Isl.Types
 import Isl.Types.Internal (Consumable(..), Borrow(..))
 import Isl.Monad.Internal (IslT(..), unsafeIslFromIO)
+import qualified Isl.Id.Generated as Id
 
 
 -- Raw C imports
@@ -111,6 +113,16 @@ foreign import ccall "isl_ast_expr_to_C_str"
   c_ast_expr_to_C_str :: AstExprRef -> IO (Ptr CChar)
 foreign import ccall "isl_ast_expr_free"
   c_ast_expr_free :: AstExpr -> IO ()
+
+-- Structured access to call expressions (see ISL's isl/ast.h).
+-- For a call expression @S(a0, a1, …)@: arg 0 is the callee id, args 1..n-1
+-- are the call arguments.
+foreign import ccall "isl_ast_expr_get_op_n_arg"
+  c_ast_expr_get_op_n_arg :: AstExprRef -> IO CInt
+foreign import ccall "isl_ast_expr_get_op_arg"
+  c_ast_expr_get_op_arg :: AstExprRef -> CInt -> IO AstExpr
+foreign import ccall "isl_ast_expr_get_id"
+  c_ast_expr_get_id :: AstExprRef -> IO Id
 
 
 
@@ -191,8 +203,9 @@ data CNode
     -- ^ @CIf condition then_body else_body@
   | CBlock [CNode]
     -- ^ Sequence of statements
-  | CUser !String
-    -- ^ Statement call (e.g., @"Acc(c1, c2, c3)"@)
+  | CUser !String ![String]
+    -- ^ @CUser stmtName argExprs@ — callee name and rendered argument
+    -- expressions, extracted structurally via 'isl_ast_expr_get_op_arg'.
   deriving (Show)
 
 -- | Walk an ISL AST node tree and convert to 'CNode'.
@@ -209,7 +222,7 @@ walkAstNode (AstNode ptr) = unsafeIslFromIO $ \_ -> walkIO (AstNodeRef ptr)
         3 -> walkBlock ref   -- isl_ast_node_block
         4 -> walkMark ref    -- isl_ast_node_mark (unwrap to inner node)
         5 -> walkUser ref    -- isl_ast_node_user
-        _ -> pure (CUser ("/* unknown node type " ++ show ty ++ " */"))
+        _ -> fail ("walkAstNode: unexpected ISL AST node type " ++ show ty)
 
     walkFor ref = do
       iter <- c_ast_node_for_get_iterator ref
@@ -261,8 +274,20 @@ walkAstNode (AstNode ptr) = unsafeIslFromIO $ \_ -> walkIO (AstNodeRef ptr)
 
     walkUser ref = do
       expr <- c_ast_node_user_get_expr ref
-      s <- exprToC expr
-      pure (CUser (s ++ ";"))
+      let exprRef = AstExprRef (unAstExpr expr)
+      nArgs <- c_ast_expr_get_op_n_arg exprRef
+      -- Arg 0 is the callee id; args 1..n-1 are the call arguments.
+      nameExpr <- c_ast_expr_get_op_arg exprRef 0
+      ident    <- c_ast_expr_get_id (AstExprRef (unAstExpr nameExpr))
+      let !name = Id.getName (IdRef (unId ident))
+      Id.c_free ident
+      c_ast_expr_free nameExpr
+      args <- mapM (\i -> do
+          argExpr <- c_ast_expr_get_op_arg exprRef i
+          exprToC argExpr
+        ) [1 .. nArgs - 1]
+      c_ast_expr_free expr
+      pure (CUser name args)
 
     walkMark ref = do
       inner <- c_ast_node_mark_get_node ref

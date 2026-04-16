@@ -14,6 +14,7 @@ module Alpha.Codegen.CRender
   ( renderCNodeToC
   ) where
 
+import Data.List (intercalate)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
@@ -62,8 +63,8 @@ renderCNodeToC pragmas tree = fst (rn 2 0 tree)
                          in (s ++ rest, di'')
       in go dimIdx children
 
-    rn d dimIdx (CUser stmt) =
-      (ind d ++ stmt ++ "\n", dimIdx)
+    rn d dimIdx (CUser name args) =
+      (ind d ++ name ++ "(" ++ intercalate ", " args ++ ");\n", dimIdx)
 
     ind :: Int -> String
     ind n = replicate n ' '

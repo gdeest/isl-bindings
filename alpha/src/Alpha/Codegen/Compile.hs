@@ -10,6 +10,7 @@
 
 module Alpha.Codegen.Compile
   ( CompiledKernel(..)
+  , CompileException(..)
   , compileKernel
   , withCompiledKernel
   , runKernel
@@ -18,7 +19,7 @@ module Alpha.Codegen.Compile
   , uniformDescs
   ) where
 
-import Control.Exception (bracket, finally)
+import Control.Exception (Exception, bracket, finally, throwIO)
 import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -36,7 +37,7 @@ import Isl.Typed.Params (KnownSymbols, symbolVals)
 import Isl.Monad (Ur(..), runIslT)
 import qualified Isl.Linear as Isl
 import Alpha.Core (System, pattern System, Decls(..))
-import Alpha.Codegen (codegen)
+import Alpha.Codegen (codegen, CodegenError)
 import Alpha.Codegen.FunctionMapping
   ( CFunctionMapping(..), ArgPassing(..), declListNames, declListBoundsM )
 import Alpha.Schedule (Schedule)
@@ -66,6 +67,19 @@ data CompiledKernel = CompiledKernel
 type AlphaCallFn = Ptr Int64 -> Ptr (Ptr ()) -> IO ()
 foreign import ccall "dynamic" mkAlphaCall :: FunPtr AlphaCallFn -> AlphaCallFn
 
+-- | Structured failure modes of 'compileKernel'.  Thrown instead of
+-- 'error' so callers can 'try' on a typed exception rather than
+-- pattern-matching on a stringly-typed 'ErrorCall' (Batch A Blocker #1).
+data CompileException
+  = CompileBoundExtractionFailed !String !Int !String
+    -- ^ @declListBoundsM@ failed for @(varName, dim, reason)@.
+  | CompileCodegenFailed !CodegenError
+  | CompileGccFailed !String
+    -- ^ @gcc -O2 -shared -fPIC@ exited non-zero on the named @.c@ file.
+  deriving (Show)
+
+instance Exception CompileException
+
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §2. Compile
@@ -94,12 +108,11 @@ compileKernel sys@(System decls _eqs) descs sched alloc fmap' = do
   allBounds <- case allBoundsE of
     Right m -> pure m
     Left (n, d, err) ->
-      error $ "compileKernel: bound extraction failed for " ++ n
-              ++ " dim " ++ show d ++ ": " ++ show err
+      throwIO (CompileBoundExtractionFailed n d (show err))
 
   result <- codegen sys sched alloc fmap' descs
   case result of
-    Left err -> error $ "compileKernel: codegen failed: " ++ show err
+    Left err -> throwIO (CompileCodegenFailed err)
     Right cSrc -> do
       let funcName = cfName fmap'
           cFile  = "/tmp/alpha_ck_" ++ funcName ++ ".c"
@@ -109,7 +122,7 @@ compileKernel sys@(System decls _eqs) descs sched alloc fmap' = do
                       ++ " -o " ++ soFile ++ " -lm 2>&1"
       case ec of
         ExitSuccess -> pure ()
-        _           -> error $ "compileKernel: gcc failed for " ++ cFile
+        _           -> throwIO (CompileGccFailed cFile)
       dl <- dlopen soFile [RTLD_NOW]
       fp <- dlsym dl "alpha_call"
       pure CompiledKernel
