@@ -22,6 +22,8 @@ module Alpha.Lower
   ( lowerSystem
   ) where
 
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (natVal, symbolVal, type (+))
 
@@ -58,14 +60,35 @@ lowerSystem
      KnownSymbols ps
   => System ps inputs outputs locals
   -> ([NamedSet], [NamedMap], [NamedMap], [NamedMap])
-lowerSystem (System _decls eqs) =
+lowerSystem (System (Decls ins outs locs) eqs) =
   let params = symbolVals @ps
-      (quads, _) = lowerEqList params 0 eqs
+      -- Each declared variable's rank and domain constraints.  Extracted
+      -- up front from 'MkDecl' (which carries 'KnownNat' + 'KnownDom')
+      -- rather than re-derived from the body — a 'Const' body carries
+      -- neither dict in its constructor.
+      declInfos = declListDomInfos ins
+               <> declListDomInfos outs
+               <> declListDomInfos locs
+      (quads, _) = lowerEqList declInfos params 0 eqs
       domains     = map (\(d, _, _, _) -> d) quads
       writes      = map (\(_, w, _, _) -> w) quads
       reads_      = concatMap (\(_, _, rs, _) -> rs) quads
       projections = concatMap (\(_, _, _, ps') -> ps') quads
   in (domains, writes, reads_, projections)
+
+-- | Extract @(rank, domain-constraints)@ for every declared variable
+-- in a 'DeclList'.  Pattern-matching each 'MkDecl' brings the
+-- 'KnownNat' / 'KnownDom' dicts into scope so we can reflect them.
+declListDomInfos
+  :: forall ps ds. DeclList ps ds -> Map String (Int, [Constraint SetIx])
+declListDomInfos Nil = Map.empty
+declListDomInfos ((MkDecl :: Decl ps d) :> rest) =
+  Map.insert
+    (symbolVal (Proxy @(DeclName d)))
+    ( fromIntegral (natVal (Proxy @(DeclDims d)))
+    , reflectDomConstraints @ps @(DeclDims d) @(DeclDomTag d)
+    )
+    (declListDomInfos rest)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -88,22 +111,29 @@ data ReadCtx = ReadCtx
 
 lowerEqList
   :: forall ps decls defined.
-     [String] -> Int -> EqList ps decls defined
+     Map String (Int, [Constraint SetIx])
+  -> [String] -> Int -> EqList ps decls defined
   -> ([(NamedSet, NamedMap, [NamedMap], [NamedMap])], Int)
-lowerEqList _ counter EqNil = ([], counter)
-lowerEqList params counter (Defines (Proxy :: Proxy name) body :& rest) =
+lowerEqList _ _ counter EqNil = ([], counter)
+lowerEqList declInfos params counter (Defines (Proxy :: Proxy name) body :& rest) =
   let eqName = symbolVal (Proxy @name)
-      (quad, counter') = lowerOneEq params counter eqName body
-      (quads, counter'') = lowerEqList params counter' rest
+      (nDims, domCs) = case Map.lookup eqName declInfos of
+        Just info -> info
+        Nothing   -> error $
+          "Alpha.Lower: equation '" ++ eqName ++
+          "' has no matching declaration (DefinesAllExactlyOnce invariant violated)"
+      (quad, counter') = lowerOneEq params counter eqName nDims domCs body
+      (quads, counter'') = lowerEqList declInfos params counter' rest
   in (quad : quads, counter'')
 
 lowerOneEq
   :: forall ps decls n (d :: DomTag ps n) a.
-     [String] -> Int -> String -> Expr ps decls n d a
+     [String] -> Int -> String
+  -> Int -> [Constraint SetIx]  -- rank + domain constraints from decl
+  -> Expr ps decls n d a
   -> ((NamedSet, NamedMap, [NamedMap], [NamedMap]), Int)
-lowerOneEq params counter eqName body =
-  let (nDims, domCs) = exprDomInfo body
-      domain  = NamedSet
+lowerOneEq params counter eqName nDims domCs body =
+  let domain  = NamedSet
         { nsName   = Just eqName
         , nsParams = params
         , nsNDims  = nDims
@@ -217,22 +247,6 @@ extractBranchReads ctx c (BCons (_ :: Proxy d) body rest) =
 -- ═══════════════════════════════════════════════════════════════════════
 -- §5. Helpers
 -- ═══════════════════════════════════════════════════════════════════════
-
-exprDomInfo
-  :: forall ps decls n (d :: DomTag ps n) a.
-     Expr ps decls n d a -> (Int, [Constraint SetIx])
-exprDomInfo (Pw _ e _)    = exprDomInfo e
-exprDomInfo (PMap _ e)    = exprDomInfo e
-exprDomInfo (Const _)     = (0, [])
-exprDomInfo (Dep _ _)     = (fromIntegral (natVal (Proxy @n)),
-                             reflectDomConstraints @ps @n @d)
-exprDomInfo (Reduce _ _ _)  = (fromIntegral (natVal (Proxy @n)),
-                             reflectDomConstraints @ps @n @d)
-exprDomInfo (Case (BCons _ body _ :: Branches ps decls n d branchDoms a)) =
-  let (nDims, _) = exprDomInfo body
-  in (nDims, reflectDomConstraints @ps @n @d)
-exprDomInfo (Case BNil)   = error "Alpha.Lower: empty Case"
-exprDomInfo (Var _)       = error "Alpha.Lower: bare Var at equation level"
 
 innerVarName :: forall ps decls n (d :: DomTag ps n) a.
                 Expr ps decls n d a -> String

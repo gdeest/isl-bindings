@@ -1061,6 +1061,47 @@ main = defaultMain $ testGroup "alpha-test"
               assertVecApprox "A[i,j] = B[i+j] on square" 1e-10 expected aResult
       ]
 
+  , testGroup "regress #5 Lower.exprDomInfo on Const body"
+      [ testCase "regress_5_const_body_recovers_rank" $ do
+          -- @y[i] = 0@ on a 1-D line.  Pre-fix 'exprDomInfo' had no
+          -- dict on 'Const' and returned @(0, [])@, so 'lowerSystem'
+          -- claimed y's iteration domain was 0-dimensional with no
+          -- constraints — i.e. a single point.  Under the contraction
+          -- WAW path that collapses every iteration to one schedule
+          -- point, a 0-D domain is vacuously race-free, so a program
+          -- that SHOULD be rejected (multiple writes to the same
+          -- aliased cell at the same schedule time) silently passed.
+          --
+          -- Post-fix: the rank/constraints come from the 'MkDecl' dict
+          -- in the 'DeclList' via 'declListDomInfos', so y gets its
+          -- full 1-D domain @{i | 0 <= i < N}@, and the WAW check
+          -- correctly flags the aliasing.
+          let schedAllZero = scheduling $
+                schedule "y" 1 (ScheduleDef [Constant 0])
+              allocMod2 = allocating $ allocate "y" (Contracted (modularTime 1 2))
+          result <- compile Zero1D.zero1D schedAllZero allocMod2
+          case result of
+            Left (OutputDependenceViolated "y") -> pure ()
+            other -> assertFailure $
+              "expected Left (OutputDependenceViolated \"y\"), got: "
+              ++ show other
+
+      , testCase "regress_5_const_body_identity_schedule_clean" $ do
+          -- Same Const body, same aliasing allocation, but the identity
+          -- schedule [i] gives each iteration a distinct schedule time
+          -- — no race.  Pre-fix this silently passed (for the wrong
+          -- reason: 0-D domain).  Post-fix it passes for the right
+          -- reason: 1-D domain with distinct schedule coordinates.
+          let schedIdentity = scheduling $
+                schedule "y" 1 (ScheduleDef [Ix (InDim 0)])
+              allocMod2 = allocating $ allocate "y" (Contracted (modularTime 1 2))
+          result <- compile Zero1D.zero1D schedIdentity allocMod2
+          case result of
+            Right () -> pure ()
+            other -> assertFailure $
+              "expected Right (), got: " ++ show other
+      ]
+
   ]
 
 
