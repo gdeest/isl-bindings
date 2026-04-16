@@ -56,8 +56,9 @@ import Test.Tasty.HUnit
 
 import qualified Data.Vector.Unboxed as V
 
-import Alpha.Codegen (codegen)
+import Alpha.Codegen (codegen, CodegenError(..))
 import Alpha.Codegen.Compile (uniformDescs)
+import Alpha.Codegen.ExprRender (extractOneBound)
 import qualified Alpha.Codegen.Compile as Untyped
 import Alpha.Scalar (scalarDesc, AlphaScalar)
 import Alpha.Kernel
@@ -69,7 +70,7 @@ import Alpha.Compile (validateSchedule, CompileError(..))
 import Alpha.Interpret (interpret)
 import Alpha.Allocation (Allocation(..), allocating)
 import Alpha.Schedule
-import Isl.Typed.Constraints (Expr(..), MapIx(..))
+import Isl.Typed.Constraints (Expr(..), MapIx(..), Conjunction(..))
 
 import qualified Examples.Cholesky as Cholesky
 import qualified Examples.FloydWarshall as FW
@@ -534,6 +535,41 @@ main = defaultMain $ testGroup "alpha-test"
           case result of
             Right () -> pure ()
             Left err -> assertFailure $ "expected valid schedule, got: " ++ show err
+
+      , testCase "regress_5_schedule_incomplete" $ do
+          -- Matmul declares output "C", but the schedule defines nothing.
+          -- Pre-fix: validateSchedule returns Right () because the
+          -- empty-map branch at Compile.hs:72 short-circuits.
+          -- Post-fix: returns Left (ScheduleIncomplete ["C"]).
+          let s = scheduling (pure ())
+          result <- validateSchedule Matmul.matmul s
+          case result of
+            Left (ScheduleIncomplete ["C"]) -> pure ()
+            other -> assertFailure $
+              "expected Left (ScheduleIncomplete [\"C\"]), got: " ++ show other
+
+      , testCase "regress_5_schedule_overspecified" $ do
+          -- Matmul's equation list is just {"C"}, but the schedule
+          -- names a variable "Nonexistent" that isn't in the System.
+          -- Pre-fix: silently accepted (the name is simply ignored by
+          -- lowerScheduleMaps).  Post-fix: Left (ScheduleOverspecified ...).
+          let s = scheduling $ do
+                sched @"C" @Matmul.MatmulDecls $ \n -> identity n
+                schedule "Nonexistent" 2 (identity 2)
+          result <- validateSchedule Matmul.matmul s
+          case result of
+            Left (ScheduleOverspecified ["Nonexistent"]) -> pure ()
+            other -> assertFailure $
+              "expected Left (ScheduleOverspecified [\"Nonexistent\"]), got: " ++ show other
+      ]
+
+  , testGroup "regress #8 pure extractOneBound"
+      [ testCase "regress_8_pure_bound_unknown" $ do
+          -- With the signature change to Maybe String, an empty
+          -- conjunction list yields Nothing (previously the literal
+          -- sentinel "/* unknown */").
+          let result = extractOneBound [] [Conjunction []] 0
+          assertEqual "no bound extractable" Nothing result
       ]
 
   , testGroup "phase-K codegen"
@@ -586,6 +622,30 @@ main = defaultMain $ testGroup "alpha-test"
             Left (CarriedDependence 1 Parallel _) -> pure ()
             Left err -> assertFailure $ "wrong error: " ++ show err
             Right () -> assertFailure "expected carried-dep error for parallel on k dim"
+
+      , testCase "regress_12_conflicting_annotation" $ do
+          -- Two FW equations ("D" and "Result") annotate the same
+          -- schedule dim (0) with different DimAnnotations.
+          -- mergeAnnotations folds via Map.unionsWith with an `error`
+          -- on mismatch.  Pre-fix: codegen throws an exception escaping
+          -- the IO.  Post-fix: codegen returns
+          -- Left (ConflictingAnnotation 0 Parallel Vectorize).
+          let s = scheduling $ do
+                sched @"D"      @FW.FWDecls $ \n -> embedAt 0 (identity n)
+                sched @"Result" @FW.FWDecls $ \n -> embedAt 1 (identity n)
+                annotate @"D"      @FW.FWDecls 0 Parallel
+                annotate @"Result" @FW.FWDecls 0 Vectorize
+              a  = Allocation Map.empty
+              fm = defaultMapping "fw" FW.floyd
+          result <- try @SomeException $
+            codegen FW.floyd s a fm
+              (uniformDescs (scalarDesc @Double) FW.floyd)
+          case result of
+            Right (Left (ConflictingAnnotation 0 _ _)) -> pure ()
+            Right other -> assertFailure $
+              "expected Left (ConflictingAnnotation ...), got: " ++ show other
+            Left ex -> assertFailure $
+              "expected Left (ConflictingAnnotation ...), got exception: " ++ show ex
       ]
 
   , testGroup "phase-L codegen end-to-end"

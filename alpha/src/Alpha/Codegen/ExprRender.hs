@@ -9,6 +9,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
+{-# OPTIONS_GHC -Wincomplete-patterns -Werror=incomplete-patterns #-}
 
 -- | Render Alpha 'Expr' trees to C statement macro bodies.
 module Alpha.Codegen.ExprRender
@@ -25,7 +26,7 @@ module Alpha.Codegen.ExprRender
 import Data.List (intercalate, sortBy)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (isNothing, mapMaybe)
 import Data.Ord (comparing)
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownNat, natVal, symbolVal, type (+))
@@ -99,21 +100,24 @@ renderEquationMacro eqName nOutDims body ctx =
       writeVars = take nOutDims (rcIterVars ctx)
       writeLhs = renderArrayAccess eqName writeVars ctx
       (accOp, bodyExpr) = case body of
-        Reduce ReduceSum _ inner ->
-          (" += ", renderExprToC ctx inner)
-        Reduce ReduceProd _ inner ->
-          (" *= ", renderExprToC ctx inner)
-        Reduce ReduceMin _ inner ->
-          let bc = renderExprToC ctx inner
-              sfx = descMathSuffix (rcDesc ctx)
-          in (" = ", "fmin" ++ sfx ++ "(" ++ writeLhs ++ ", " ++ bc ++ ")")
-        Reduce ReduceMax _ inner ->
-          let bc = renderExprToC ctx inner
-              sfx = descMathSuffix (rcDesc ctx)
-          in (" = ", "fmax" ++ sfx ++ "(" ++ writeLhs ++ ", " ++ bc ++ ")")
+        Reduce rop _ inner ->
+          reduceOpToC rop (rcDesc ctx) writeLhs (renderExprToC ctx inner)
         _ -> (" = ", renderExprToC ctx body)
   in "#define " ++ eqName ++ "(" ++ args ++ ") do { "
      ++ writeLhs ++ accOp ++ bodyExpr ++ "; } while(0)"
+
+-- | Lower a 'ReduceOp' to the pair @(accOp, bodyExpr)@ used to build
+-- the equation's statement macro.  Exhaustive on 'ReduceOp' by design;
+-- see the module pragma.  Kept un-exported and local to this module.
+reduceOpToC :: ReduceOp -> ScalarDesc -> String -> String -> (String, String)
+reduceOpToC ReduceSum  _    _    bc = (" += ", bc)
+reduceOpToC ReduceProd _    _    bc = (" *= ", bc)
+reduceOpToC ReduceMin  desc lhs  bc =
+  let sfx = descMathSuffix desc
+  in  (" = ", "fmin" ++ sfx ++ "(" ++ lhs ++ ", " ++ bc ++ ")")
+reduceOpToC ReduceMax  desc lhs  bc =
+  let sfx = descMathSuffix desc
+  in  (" = ", "fmax" ++ sfx ++ "(" ++ lhs ++ ", " ++ bc ++ ")")
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -154,10 +158,10 @@ renderExprToC ctx
       innerConjs = [C.Conjunction innerDomCs]
       patternBounds = [ extractOneBound (rcParams ctx) innerConjs d | d <- [0 .. no_ - 1] ]
       innerBounds
-        | any ("/* unknown */" ==) patternBounds =
+        | any isNothing patternBounds =
             let domStr = reflectDomString @ps @no @dInner
             in extractBoundsISL domStr no_
-        | otherwise = patternBounds
+        | otherwise = [ b | Just b <- patternBounds ]
       innerVarName' = varNameFromExpr inner
       updBounds = case innerVarName' of
         Just vn -> Map.insert vn innerBounds (rcDomBounds ctx)
@@ -312,12 +316,16 @@ linearizeWithBounds subs bounds =
 -- §7. Domain bound extraction (pure, constraint-based)
 -- ═══════════════════════════════════════════════════════════════════════
 
-extractOneBound :: [String] -> [C.Conjunction SetIx] -> Int -> String
+-- | Attempt to extract an exclusive upper bound for dimension @dim@ from
+-- a list of conjunctions using a structural pattern match.  Returns
+-- 'Nothing' if no inequality matches the supported shapes; consumers
+-- then fall back to ISL's @dim_max@.
+extractOneBound :: [String] -> [C.Conjunction SetIx] -> Int -> Maybe String
 extractOneBound params conjs dim =
   let ineqs = [ e | C.Conjunction cs <- conjs, InequalityConstraint e <- cs ]
   in case mapMaybe (matchUB dim params) ineqs of
-    (ub:_) -> ub
-    []     -> "/* unknown */"
+    (ub:_) -> Just ub
+    []     -> Nothing
 
 matchUB :: Int -> [String] -> C.Expr SetIx -> Maybe String
 matchUB d ps expr = matchUBN d ps (simplifyConst expr)

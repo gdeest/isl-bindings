@@ -16,6 +16,7 @@ module Alpha.Codegen.FunctionMapping
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (isNothing)
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownNat, KnownSymbol, natVal, symbolVal)
 
@@ -76,8 +77,8 @@ declListBounds params ((MkDecl :: Decl ps d) :> rest) =
       conjs = [Conjunction cs]
       patternBounds = [ extractOneBound params conjs dim | dim <- [0..nDims-1] ]
       bounds
-        | any ("/* unknown */" ==) patternBounds =
+        | any isNothing patternBounds =
             let domStr = reflectDomString @ps @(DeclDims d) @(DeclDomTag d)
             in extractBoundsISL domStr nDims
-        | otherwise = patternBounds
+        | otherwise = [ b | Just b <- patternBounds ]
   in Map.insert name bounds (declListBounds params rest)

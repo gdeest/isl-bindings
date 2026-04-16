@@ -18,7 +18,7 @@ module Alpha.Codegen
 
 import Control.DeepSeq (NFData(..))
 import Data.List (intercalate)
-import Data.Maybe (mapMaybe)
+import Data.Maybe (isNothing, mapMaybe)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownSymbol, natVal, symbolVal)
@@ -52,11 +52,14 @@ import Alpha.Scalar (ScalarDesc(..), cTypeName)
 data CodegenError
   = CodegenScheduleError !String
   | CodegenInternalError !String
+  | ConflictingAnnotation !Int !DimAnnotation !DimAnnotation
+    -- ^ Two equations annotate the same schedule dim with different values.
   deriving (Show, Eq)
 
 instance NFData CodegenError where
-  rnf (CodegenScheduleError s) = rnf s
-  rnf (CodegenInternalError s) = rnf s
+  rnf (CodegenScheduleError s)          = rnf s
+  rnf (CodegenInternalError s)          = rnf s
+  rnf (ConflictingAnnotation k a b)     = rnf k `seq` rnf a `seq` rnf b
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -98,10 +101,12 @@ codegen sys@(System _decls eqs) sched alloc fmap' descs = runIslT $ Isl.do
       let stmtArgs = extractStmtArgs cTree
           domBounds = extractAllBounds domains params
           macros = generateMacros sys sched alloc params domBounds stmtArgs descs
-          annotations = mergeAnnotations sched
-          skeleton = renderCNodeToC annotations cTree
-          cSrc = assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap
-      Isl.pure (Ur (Right cSrc))
+      case mergeAnnotations sched of
+        Left err -> Isl.pure (Ur (Left err))
+        Right annotations -> Isl.do
+          let skeleton = renderCNodeToC annotations cTree
+              cSrc = assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap
+          Isl.pure (Ur (Right cSrc))
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -276,12 +281,12 @@ extractAllBounds domains params = Map.fromList
 extractDomBounds :: [String] -> [C.Conjunction C.SetIx] -> Int -> [String]
 extractDomBounds params conjs nDims =
   let patternBounds = [ extractOneBound params conjs d | d <- [0 .. nDims - 1] ]
-  in if any ("/* unknown */" ==) patternBounds
+  in if any isNothing patternBounds
      then
        -- Pattern matcher failed on at least one dim; use ISL for all.
        let domStr = conjsToDomStr params nDims conjs
        in extractBoundsISL domStr nDims
-     else patternBounds
+     else [ b | Just b <- patternBounds ]
 
 -- | Build an ISL set string from conjunctions.
 conjsToDomStr :: [String] -> Int -> [C.Conjunction C.SetIx] -> String
@@ -318,11 +323,20 @@ renderBoundExpr dims params = go
 -- §6. Annotation merging
 -- ═══════════════════════════════════════════════════════════════════════
 
-mergeAnnotations :: Schedule -> Map.Map Int DimAnnotation
+-- | Merge per-equation annotations into a single dim -> annotation map.
+-- Fails with 'ConflictingAnnotation' if two equations annotate the same
+-- dim with different values.
+mergeAnnotations :: Schedule -> Either CodegenError (Map.Map Int DimAnnotation)
 mergeAnnotations (Schedule entries) =
-  Map.unionsWith (\a b -> if a == b then a else error $
-    "conflicting annotations on same schedule dim: " ++ show a ++ " vs " ++ show b)
-    [esAnnotations es | es <- Map.elems entries]
+  foldr step (Right Map.empty) [esAnnotations es | es <- Map.elems entries]
+  where
+    step _   (Left err)  = Left err
+    step new (Right acc) = Map.foldrWithKey insert1 (Right acc) new
+    insert1 _ _ (Left err) = Left err
+    insert1 k v (Right acc) = case Map.lookup k acc of
+      Nothing           -> Right (Map.insert k v acc)
+      Just v' | v == v' -> Right acc
+              | otherwise -> Left (ConflictingAnnotation k v' v)
 
 
 -- ═══════════════════════════════════════════════════════════════════════

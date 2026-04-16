@@ -64,6 +64,7 @@ module Alpha.Core
     -- * Equations and systems
   , Equation(..)
   , EqList(..)
+  , eqListNames
   , System(MkSystem)
   , pattern System
     -- * Type-level supporting families
@@ -82,7 +83,7 @@ import Data.Kind (Type)
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits
   ( CmpSymbol, ErrorMessage(..), KnownNat, KnownSymbol, Nat, Symbol
-  , TypeError, type (+) )
+  , TypeError, symbolVal, type (+) )
 
 import Isl.Typed.Params (KnownSymbols)
 import Isl.TypeLevel.Constraint (TConstraint)
@@ -393,6 +394,16 @@ data EqList ps decls defined where
     -> EqList ps decls rest
     -> EqList ps decls (name ': rest)
 infixr 5 :&
+
+-- | Extract the names of all equations in an 'EqList', in declaration
+-- order.  The names are carried structurally in each 'Defines'
+-- constructor via @Proxy name@; this helper materialises them as a
+-- plain @[String]@ for use by downstream passes (codegen, compile,
+-- interpret) that walk the equation list.
+eqListNames :: forall ps decls defined. EqList ps decls defined -> [String]
+eqListNames EqNil = []
+eqListNames (Defines (Proxy :: Proxy name) _ :& rest) =
+  symbolVal (Proxy @name) : eqListNames rest
 
 -- | A complete Alpha system.
 --
