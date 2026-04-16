@@ -57,6 +57,7 @@ import qualified Data.Vector.Unboxed as V
 
 import Alpha.Codegen (codegen)
 import Alpha.Codegen.FunctionMapping (defaultMapping)
+import Alpha.Codegen.Parallel (validateAnnotations, AnnotationError(..))
 import Alpha.Compile (validateSchedule, CompileError(..))
 import Alpha.Interpret (interpret)
 import Alpha.Allocation (Allocation(..), allocating)
@@ -557,6 +558,31 @@ main = defaultMain $ testGroup "alpha-test"
               assertBool "contains statement macro"
                 (isInfixOf' "#define C(" cSrc)
             Left err -> assertFailure $ "codegen failed: " ++ show err
+
+      , testCase "parallel on outermost matmul dim — valid" $ do
+          -- Matmul C[i,j] = sum_k A[i,k]*B[k,j]: all deps are on k
+          -- (reduction), so dims i (0) and j (1) are parallelizable.
+          let s = scheduling $ do
+                sched @"C" @Matmul.MatmulDecls $ \n -> identity n
+                annotate @"C" @Matmul.MatmulDecls 0 Parallel
+          result <- validateAnnotations Matmul.matmul s
+          case result of
+            Right () -> pure ()
+            Left err -> assertFailure $ "expected valid parallel, got: " ++ show err
+
+      , testCase "parallel on floyd-warshall k dim — INVALID" $ do
+          -- Floyd-Warshall D[k,i,j] = min(D[k-1,...], ...): dep on k.
+          -- Phased schedule: D at phase 0 [0,k,i,j], Result at phase 1.
+          -- Dim 1 (k after phase) carries the dependence.
+          let s = scheduling $ do
+                sched @"D"      @FW.FWDecls $ \n -> embedAt 0 (identity n)
+                sched @"Result" @FW.FWDecls $ \n -> embedAt 1 (identity n)
+                annotate @"D" @FW.FWDecls 1 Parallel
+          result <- validateAnnotations FW.floyd s
+          case result of
+            Left (CarriedDependence 1 Parallel _) -> pure ()
+            Left err -> assertFailure $ "wrong error: " ++ show err
+            Right () -> assertFailure "expected carried-dep error for parallel on k dim"
       ]
 
   ]

@@ -9,7 +9,7 @@
 -- | Compilation pipeline for Alpha systems.
 --
 -- Validates the schedule against data dependences via ISL's
--- lexicographic positivity check.  C codegen is deferred.
+-- lexicographic positivity check.
 module Alpha.Compile
   ( CompileError(..)
   , compile
@@ -20,21 +20,21 @@ import Control.DeepSeq (NFData(..))
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Map.Strict as Map
 
-import Isl.Typed.Constraints
-  ( NamedSet(..), NamedMap(..), buildUnionMapFromNamed )
+import Isl.Typed.Constraints (NamedMap(..), buildUnionMapFromNamed)
 import Isl.Typed.Params (KnownSymbols)
-import qualified Alpha.Polyhedral.Schedule as S
 import qualified Isl.Types as Isl
 import qualified Isl.Map as RawM
 import qualified Isl.UnionMap as UM
 import qualified Isl.Space as Space
 import Isl.Monad (IslT, Ur(..), runIslT)
-import Isl.Linear (query_, freeM, dup, urWrap)
+import Isl.Linear (query_, freeM, dup)
 import qualified Isl.Linear as Isl
 import Alpha.Core (System)
 import Alpha.Lower (lowerSystem)
-import Alpha.Schedule (Schedule(..), EqSchedule(esDef))
+import Alpha.Schedule (Schedule(..))
 import Alpha.Allocation (Allocation(..))
+import Alpha.Polyhedral.Dependence
+  ( lowerScheduleMaps, projectBodyReads, computeAllDeps, freeAll )
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -88,80 +88,13 @@ validateSchedule
 validateSchedule sys sched =
   compile sys sched (Allocation Map.empty)
 
--- | Extract the output dimensionality from schedule maps.
 schedNOut :: [NamedMap] -> Int
 schedNOut (sm:_) = nmNOut sm
 schedNOut []     = 0
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §3. Body-space read projection
--- ═══════════════════════════════════════════════════════════════════════
-
-projectBodyReads
-  :: [NamedMap] -> [NamedMap] -> IslT IO (Ur [Isl.UnionMap])
-projectBodyReads reads_ [] = Isl.mapM buildUnionMapFromNamed reads_
-projectBodyReads reads_ projections = Isl.do
-  let bodyNames = [ n | NamedMap { nmDomainName = Just n } <- projections ]
-      (bodyReads, eqReads) = partitionBy
-        (\r -> maybe False (`elem` bodyNames) (nmDomainName r)) reads_
-  Ur eqReadUMs <- Isl.mapM buildUnionMapFromNamed eqReads
-  if null bodyReads
-    then Isl.pure (Ur eqReadUMs)
-    else Isl.do
-      Ur projUMs <- Isl.mapM buildUnionMapFromNamed projections
-      projUM <- case projUMs of { (h:t) -> Isl.foldM (\acc x -> UM.union acc x) h t; [] -> error "unreachable" }
-      Ur bodyReadUMs <- Isl.mapM buildUnionMapFromNamed bodyReads
-      bodyReadUM <- case bodyReadUMs of { (h:t) -> Isl.foldM (\acc x -> UM.union acc x) h t; [] -> error "unreachable" }
-      composedUM <- UM.applyDomain bodyReadUM projUM
-      Ur c <- urWrap composedUM
-      Isl.pure (Ur (c : eqReadUMs))
-
-partitionBy :: (a -> Bool) -> [a] -> ([a], [a])
-partitionBy _ [] = ([], [])
-partitionBy f (x:xs)
-  | f x       = let (ys, ns) = partitionBy f xs in (x:ys, ns)
-  | otherwise  = let (ys, ns) = partitionBy f xs in (ys, x:ns)
-
-
--- ═══════════════════════════════════════════════════════════════════════
--- §4. Schedule lowering
--- ═══════════════════════════════════════════════════════════════════════
-
-lowerScheduleMaps :: Schedule -> [NamedSet] -> [NamedMap]
-lowerScheduleMaps (Schedule entries) domains =
-  [ S.schedToNamedMap' name dom (esDef eq)
-  | NamedSet { nsName = Just name } <- domains
-  , Just eq <- [Map.lookup name entries]
-  , dom:_ <- [[ d | d@(NamedSet { nsName = Just n }) <- domains, n == name ]]
-  ]
-
-
--- ═══════════════════════════════════════════════════════════════════════
--- §5. Dependence computation
--- ═══════════════════════════════════════════════════════════════════════
-
-computeAllDeps :: [Isl.UnionMap] -> [NamedMap] -> IslT IO (Ur [Isl.UnionMap])
-computeAllDeps readUMs allWrites =
-  if null readUMs || null allWrites
-    then Isl.do
-      freeAll readUMs
-      Isl.pure (Ur [])
-    else Isl.do
-      Ur writeUMs <- Isl.mapM buildUnionMapFromNamed allWrites
-      readUM  <- case readUMs of { (h:t) -> Isl.foldM (\acc x -> UM.union acc x) h t; [] -> error "unreachable" }
-      writeUM <- case writeUMs of { (h:t) -> Isl.foldM (\acc x -> UM.union acc x) h t; [] -> error "unreachable" }
-      let !(writeUM1, writeUM2) = dup writeUM
-      writeInv <- UM.reverse writeUM1
-      deps <- UM.applyRange readUM writeInv
-      depsWR <- UM.reverse deps
-      freeM writeUM2
-      Ur d <- urWrap depsWR
-      Isl.pure (Ur [d])
-
-
--- ═══════════════════════════════════════════════════════════════════════
--- §6. Lex-positivity check
+-- §3. Lex-positivity check
 -- ═══════════════════════════════════════════════════════════════════════
 
 buildLexGe :: Int -> IslT IO Isl.UnionMap
@@ -192,15 +125,3 @@ validateDeps (d :| ds) mkSched nOut label = Isl.do
   case result of
     Nothing  -> Isl.pure (Ur (Right ()))
     Just vio -> Isl.pure (Ur (Left (ScheduleViolation (label <> " deps violated: " <> vio))))
-
-
--- ═══════════════════════════════════════════════════════════════════════
--- §7. Helpers
--- ═══════════════════════════════════════════════════════════════════════
-
-freeAll :: [Isl.UnionMap] -> IslT IO ()
-freeAll [] = Isl.pure ()
-freeAll (x:xs) = Isl.do
-  freeM x
-  freeAll xs
-
