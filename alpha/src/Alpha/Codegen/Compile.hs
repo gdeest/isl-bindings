@@ -250,37 +250,45 @@ executeKernelHet ck paramVals inputBufs = do
 -- | Evaluate a symbolic bound expression against concrete parameter values.
 -- Handles: integers, parameter names, +, -, *, parentheses, floord(n,d).
 evalBoundStr :: Map String Int -> String -> Int
-evalBoundStr params = fst . parseExpr . filter (/= ' ')
+evalBoundStr params = fst . parseAddSub . filter (/= ' ')
   where
-    parseExpr :: String -> (Int, String)
-    parseExpr s = let (a, rest) = parseAtom s in parseOps a rest
+    -- additive: expr (+|-) term
+    parseAddSub :: String -> (Int, String)
+    parseAddSub s = let (a, rest) = parseMulDiv s in goAdd a rest
+    goAdd lhs ('+':rest) = let (rhs, rest') = parseMulDiv rest in goAdd (lhs + rhs) rest'
+    goAdd lhs ('-':rest) = let (rhs, rest') = parseMulDiv rest in goAdd (lhs - rhs) rest'
+    goAdd lhs rest = (lhs, rest)
 
-    parseOps :: Int -> String -> (Int, String)
-    parseOps lhs ('+':rest) = let (rhs, rest') = parseAtom rest in parseOps (lhs + rhs) rest'
-    parseOps lhs ('-':rest) = let (rhs, rest') = parseAtom rest in parseOps (lhs - rhs) rest'
-    parseOps lhs ('*':rest) = let (rhs, rest') = parseAtom rest in parseOps (lhs * rhs) rest'
-    parseOps lhs rest = (lhs, rest)
+    -- multiplicative: atom (*|/) atom
+    parseMulDiv :: String -> (Int, String)
+    parseMulDiv s = let (a, rest) = parseAtom s in goMul a rest
+    goMul lhs ('*':rest) = let (rhs, rest') = parseAtom rest in goMul (lhs * rhs) rest'
+    goMul lhs ('/':rest) = let (rhs, rest') = parseAtom rest in goMul (lhs `div` rhs) rest'
+    goMul lhs rest = (lhs, rest)
 
     parseAtom :: String -> (Int, String)
+    parseAtom ('-':rest) = let (v, rest') = parseAtom rest in (negate v, rest')
     parseAtom ('(':rest) =
-      let (v, rest') = parseExpr rest
+      let (v, rest') = parseAddSub rest
       in case rest' of
         ')':rest'' -> (v, rest'')
-        _          -> error $ "evalBoundStr: unmatched paren in '" ++ rest ++ "'"
+        _          -> error $ "evalBoundStr: unmatched paren"
     parseAtom ('f':'l':'o':'o':'r':'d':'(':rest) =
-      let (n, ',':rest') = parseExpr rest
-          (d, ')':rest'') = parseExpr rest'
-      in (if n < 0 then -((-n + d - 1) `div` d) else n `div` d, rest'')
+      case parseAddSub rest of
+        (n, ',':rest') -> case parseAddSub rest' of
+          (d, ')':rest'') -> (if n < 0 then -((-n + d - 1) `div` d) else n `div` d, rest'')
+          _ -> error "evalBoundStr: malformed floord"
+        _ -> error "evalBoundStr: malformed floord"
     parseAtom s = case span isDigit s of
       (ds@(_:_), rest) -> (read ds, rest)
-      _ -> case span isAlpha s of
+      _ -> case break (not . isIdent) s of
         (name@(_:_), rest) -> case Map.lookup name params of
           Just v  -> (v, rest)
           Nothing -> error $ "evalBoundStr: unknown param '" ++ name ++ "'"
         _ -> error $ "evalBoundStr: can't parse '" ++ s ++ "'"
 
     isDigit c = c >= '0' && c <= '9'
-    isAlpha c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+    isIdent c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || isDigit c
 
 withInt64Array :: [Int64] -> (Ptr Int64 -> IO a) -> IO a
 withInt64Array xs action =

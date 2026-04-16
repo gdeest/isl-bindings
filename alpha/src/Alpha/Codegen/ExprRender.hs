@@ -371,9 +371,11 @@ extractPwAffExpr s
   | ';' `elem` s = "/* piecewise dim_max: non-rectangular domain */"
   | otherwise = go s
   where
-    go ('{':' ':'[':'(':rest) = takeWhile (/= ')') rest
+    go ('{':' ':'[':'(':rest) = takeUntilClose rest
     go (_:rest) = go rest
     go [] = "/* dim_max parse error */"
+    -- Match ")]" — handles nested parens (e.g., "floord(N, 2) + 1")
+    takeUntilClose = reverse . drop 1 . dropWhile (/= ')') . reverse
 
 varNameFromExpr :: forall ps decls n d a. Alpha.Core.Expr ps decls n d a -> Maybe String
 varNameFromExpr (Var (Proxy :: Proxy name)) = Just (symbolVal (Proxy @name))
