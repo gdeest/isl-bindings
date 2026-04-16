@@ -84,6 +84,7 @@ test-suite alpha-test
                    , Examples.MatmulNormalize
                    , Examples.MatmulTransposed
                    , Examples.IntRowMax
+                   , Examples.SumIndex2D
                    , Reference.Matmul
                    , Reference.Cholesky
                    , Reference.FloydWarshall

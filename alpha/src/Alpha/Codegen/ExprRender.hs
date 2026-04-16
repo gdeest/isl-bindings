@@ -20,6 +20,7 @@ module Alpha.Codegen.ExprRender
   , extractOneBound
   , extractBoundsISLM
   , BoundErr(..)
+  , RenderErr(..)
   , descCType
   , descMathSuffix
   ) where
@@ -93,18 +94,21 @@ renderEquationMacro
   -> Int                   -- number of output dimensions
   -> Alpha.Core.Expr ps decls n d a  -- equation body
   -> RenderCtx
-  -> String                -- complete #define line
-renderEquationMacro eqName nOutDims body ctx =
+  -> Either RenderErr String        -- complete #define line
+renderEquationMacro eqName nOutDims body ctx = do
   let args    = intercalate "," (rcIterVars ctx)
       -- Write LHS uses only the output dims (first n iter vars)
       writeVars = take nOutDims (rcIterVars ctx)
       writeLhs = renderArrayAccess eqName writeVars ctx
-      (accOp, bodyExpr) = case body of
-        Reduce rop _ inner ->
-          reduceOpToC rop (rcDesc ctx) writeLhs (renderExprToC ctx inner)
-        _ -> (" = ", renderExprToC ctx body)
-  in "#define " ++ eqName ++ "(" ++ args ++ ") do { "
-     ++ writeLhs ++ accOp ++ bodyExpr ++ "; } while(0)"
+  (accOp, bodyExpr) <- case body of
+    Reduce rop _ inner -> do
+      innerStr <- renderExprToC ctx inner
+      pure (reduceOpToC rop (rcDesc ctx) writeLhs innerStr)
+    _ -> do
+      bodyStr <- renderExprToC ctx body
+      pure (" = ", bodyStr)
+  pure $ "#define " ++ eqName ++ "(" ++ args ++ ") do { "
+       ++ writeLhs ++ accOp ++ bodyExpr ++ "; } while(0)"
 
 -- | Lower a 'ReduceOp' to the pair @(accOp, bodyExpr)@ used to build
 -- the equation's statement macro.  Exhaustive on 'ReduceOp' by design;
@@ -124,39 +128,48 @@ reduceOpToC ReduceMax  desc lhs  bc =
 -- §3. Expression rendering
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | Render an 'Expr' to a C expression string.
+-- | Render an 'Expr' to a C expression string.  Returns 'Left' when
+-- rendering surfaces a structured error (currently only
+-- 'RENonStandardMapConstraint' from 'extractSubscripts').
 renderExprToC
   :: forall ps decls n (d :: DomTag ps n) a.
-     RenderCtx -> Alpha.Core.Expr ps decls n d a -> String
+     RenderCtx -> Alpha.Core.Expr ps decls n d a -> Either RenderErr String
 
 renderExprToC ctx (Var (Proxy :: Proxy name)) =
   let varName = symbolVal (Proxy @name)
-  in renderArrayAccess varName (rcIterVars ctx) ctx
+  in Right (renderArrayAccess varName (rcIterVars ctx) ctx)
 
 renderExprToC _ctx (Const v) =
   -- The 'AlphaScalar' dict carried by 'Const' gives us the bridge
   -- directly — no 'rcDesc'-keyed lookup, no type-unsafe cast (#1).
-  showLiteral scalarConstBridge v
+  Right (showLiteral scalarConstBridge v)
 
-renderExprToC ctx (Pw op e1 e2) =
+renderExprToC ctx (Pw op e1 e2) = do
   let sfx = descMathSuffix (rcDesc ctx)
-  in renderBinOp sfx op (renderExprToC ctx e1) (renderExprToC ctx e2)
+  a <- renderExprToC ctx e1
+  b <- renderExprToC ctx e2
+  pure (renderBinOp sfx op a b)
 
-renderExprToC ctx (PMap op e) =
+renderExprToC ctx (PMap op e) = do
   let sfx = descMathSuffix (rcDesc ctx)
-  in renderUnaryOp sfx op (renderExprToC ctx e)
+  s <- renderExprToC ctx e
+  pure (renderUnaryOp sfx op s)
 
 renderExprToC ctx
-  (Dep (Proxy :: Proxy mapCs) (inner :: Alpha.Core.Expr ps decls no dInner a)) =
+  (Dep (Proxy :: Proxy mapCs) (inner :: Alpha.Core.Expr ps decls no dInner a)) = do
   let ni  = length (rcIterVars ctx)
       cs  = reifySTConstraintsMapSplit ni
               (knownConstraints @ps @(n + no) @mapCs)
-      subs = extractSubscripts ni (rcIterVars ctx) (rcParams ctx) cs
-      -- Inner variable bounds are precomputed at the top of codegen
-      -- from the declared-variable domains (inputs/outputs/locals).
-      -- No ISL calls happen here — the renderer is a pure function.
-      innerCtx = ctx { rcIterVars = subs }
-  in renderExprToC innerCtx inner
+      -- Surface 'at' and 'Introduce.copyBody' both produce Dep _ (Var _).
+      targetName = case inner of
+        Var (Proxy :: Proxy nm) -> symbolVal (Proxy @nm)
+        _ -> error "Alpha.Codegen.ExprRender: Dep wraps non-Var (invariant broken by a transform)"
+  subs <- extractSubscripts ni (rcIterVars ctx) (rcParams ctx) targetName cs
+  -- Inner variable bounds are precomputed at the top of codegen
+  -- from the declared-variable domains (inputs/outputs/locals).
+  -- No ISL calls happen here — the renderer is a pure function.
+  let innerCtx = ctx { rcIterVars = subs }
+  renderExprToC innerCtx inner
 
 renderExprToC ctx (Reduce _rop _projCs inner) =
   renderExprToC ctx inner
@@ -166,52 +179,117 @@ renderExprToC ctx (Case branches) =
 
 renderBranches
   :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
-     RenderCtx -> Branches ps decls n amb branchDoms a -> String
-renderBranches _ctx BNil = "0 /* unreachable */"
+     RenderCtx -> Branches ps decls n amb branchDoms a
+  -> Either RenderErr String
+renderBranches _ctx BNil = Right "0 /* unreachable */"
 renderBranches ctx (BCons _ body BNil) =
   renderExprToC ctx body
-renderBranches ctx (BCons (_ :: Proxy d) body rest) =
+renderBranches ctx (BCons (_ :: Proxy d) body rest) = do
   let condCs = reflectDomConstraints @ps @n @d
       condStr = renderDomCondition (rcIterVars ctx) (rcParams ctx) condCs
-  in "(" ++ condStr ++ ") ? (" ++ renderExprToC ctx body ++ ") : ("
-     ++ renderBranches ctx rest ++ ")"
+  b <- renderExprToC ctx body
+  r <- renderBranches ctx rest
+  pure $ "(" ++ condStr ++ ") ? (" ++ b ++ ") : (" ++ r ++ ")"
 
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §4. Subscript extraction from affine map constraints
 -- ═══════════════════════════════════════════════════════════════════════
 
-extractSubscripts
-  :: Int                     -- number of input dims
-  -> [String]                -- input dim variable names
-  -> [String]                -- parameter names
-  -> [Constraint MapIx]      -- map constraints
-  -> [String]                -- one C expression per output dim
-extractSubscripts _ni iterVars paramNames cs =
-  let pairs = mapMaybe extractEquality cs
-      sorted = map snd $ sortBy (comparing fst) pairs
-  in sorted
+-- | Module-local error; lifted to 'CodegenError' by the caller.
+data RenderErr
+  = RENonStandardMapConstraint !String !Int
+  deriving (Show, Eq)
+
+instance NFData RenderErr where
+  rnf (RENonStandardMapConstraint v k) = rnf v `seq` rnf k
+
+-- 'C.Expr' has no @Ord@ upstream and an orphan here would leak, so
+-- 'FloorDiv' atoms are keyed by their 'Show' fingerprint — stable
+-- because the reifier emits identical trees for identical existentials.
+data AffKey
+  = KMapIx !MapIx
+  | KFloorDiv !String
+  deriving (Eq, Ord, Show)
+
+-- Atom expr is stored alongside the coefficient so 'coeffsToExpr' can
+-- rebuild terms without an inverse lookup.
+type AffCoeffs = Map AffKey (Integer, C.Expr MapIx)
+
+-- 'FloorDiv' is opaque: keyed as an atom rather than reasoned through.
+extractAffineCoeffs :: C.Expr MapIx -> (AffCoeffs, Integer)
+extractAffineCoeffs = go 1
   where
-    extractEquality :: Constraint MapIx -> Maybe (Int, String)
+    merge :: AffCoeffs -> AffCoeffs -> AffCoeffs
+    merge = Map.unionWith (\(c1, e) (c2, _) -> (c1 + c2, e))
+
+    go :: Integer -> C.Expr MapIx -> (AffCoeffs, Integer)
+    go s (C.Constant n) = (Map.empty, s * n)
+    go s (C.Ix ix)      = (Map.singleton (KMapIx ix) (s, C.Ix ix), 0)
+    go s (C.Add a b)    =
+      let (ca, ka) = go s a
+          (cb, kb) = go s b
+      in (merge ca cb, ka + kb)
+    go s (C.Mul k e)    = go (s * k) e
+    go s fd@(C.FloorDiv _ _) =
+      (Map.singleton (KFloorDiv (show fd)) (s, fd), 0)
+
+-- Keys are emitted in 'Ord' order for determinism.
+coeffsToExpr :: AffCoeffs -> Integer -> C.Expr MapIx
+coeffsToExpr coeffs k0 =
+  let terms = [ mkTerm c expr
+              | (_, (c, expr)) <- Map.toAscList coeffs, c /= 0 ]
+      allTerms = if k0 == 0 then terms else terms ++ [C.Constant k0]
+  in case allTerms of
+    []     -> C.Constant 0
+    (x:xs) -> foldl C.Add x xs
+  where
+    mkTerm 1    e = e
+    mkTerm (-1) e = C.Mul (-1) e
+    mkTerm c    e = C.Mul c e
+
+-- One subscript per output dim, derived from equality constraints.
+-- Non-±1 coefficients on @OutDim k@ are reported, not silently dropped.
+extractSubscripts
+  :: Int                        -- number of input dims
+  -> [String]                   -- input dim variable names
+  -> [String]                   -- parameter names
+  -> String                     -- target variable name (for error reports)
+  -> [Constraint MapIx]         -- map constraints
+  -> Either RenderErr [String]  -- one C expression per output dim
+extractSubscripts _ni iterVars paramNames targetName cs = do
+  pairs <- sequence (mapMaybe extractEquality cs)
+  Right (map snd (sortBy (comparing fst) pairs))
+  where
+    extractEquality
+      :: Constraint MapIx -> Maybe (Either RenderErr (Int, String))
     extractEquality (EqualityConstraint expr) =
-      case findOutDim expr of
-        Just (outIdx, bodyExpr) ->
-          Just (outIdx, renderMapExpr iterVars paramNames bodyExpr)
-        Nothing -> Nothing
+      let (coeffs, kConst) = extractAffineCoeffs expr
+          outs = [ (k, c)
+                 | (KMapIx (OutDim k), (c, _)) <- Map.toAscList coeffs
+                 , c /= 0 ]
+      in
+      case outs of
+        [] -> Nothing
+        ((firstK, _):_:_) ->
+          Just (Left (RENonStandardMapConstraint targetName firstK))
+        [(outIdx, c)]
+          | c == 1 ->
+              -- OutDim k + rest = 0  ⇒  OutDim k = -rest
+              let bodyCoeffs = Map.delete (KMapIx (OutDim outIdx)) coeffs
+                  negCoeffs  = Map.map (\(x, e) -> (negate x, e)) bodyCoeffs
+                  bodyExpr   = coeffsToExpr negCoeffs (negate kConst)
+                  rendered   = renderMapExpr iterVars paramNames bodyExpr
+              in Just (Right (outIdx, rendered))
+          | c == -1 ->
+              -- -OutDim k + rest = 0  ⇒  OutDim k = rest
+              let bodyCoeffs = Map.delete (KMapIx (OutDim outIdx)) coeffs
+                  bodyExpr   = coeffsToExpr bodyCoeffs kConst
+                  rendered   = renderMapExpr iterVars paramNames bodyExpr
+              in Just (Right (outIdx, rendered))
+          | otherwise ->
+              Just (Left (RENonStandardMapConstraint targetName outIdx))
     extractEquality _ = Nothing
-
-    -- | Find the OutDim in an equality @OutDim k + (-1)*f(...) = 0@
-    -- and extract @f@.  Standard form from IslMultiAffToMap.
-    findOutDim :: C.Expr MapIx -> Maybe (Int, C.Expr MapIx)
-    findOutDim (C.Add (C.Ix (OutDim k)) (C.Mul (-1) f)) = Just (k, f)
-    findOutDim (C.Add (C.Mul (-1) f) (C.Ix (OutDim k))) = Just (k, f)
-    findOutDim (C.Add (C.Ix (OutDim k)) f) = Just (k, negateExpr f)
-    findOutDim _ = Nothing
-
-    negateExpr :: C.Expr MapIx -> C.Expr MapIx
-    negateExpr (C.Mul k e)    = C.Mul (negate k) e
-    negateExpr (C.Constant n) = C.Constant (negate n)
-    negateExpr e              = C.Mul (-1) e
 
 
 -- ═══════════════════════════════════════════════════════════════════════

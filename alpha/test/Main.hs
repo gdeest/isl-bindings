@@ -62,7 +62,8 @@ import Alpha.Codegen.Compile (uniformDescs, CompileException(..))
 import Isl.AstBuild (CNode(..))
 import Alpha.Codegen.ExprRender
   ( extractOneBound, extractBoundsISLM, BoundErr(..)
-  , RenderCtx(..), renderExprToC )
+  , RenderCtx(..), renderExprToC
+  , extractSubscripts, RenderErr(..) )
 import qualified Alpha.Core as Core
 import Isl.Monad (runIslT, Ur(..))
 import qualified Alpha.Codegen.Compile as Untyped
@@ -74,11 +75,11 @@ import Alpha.Kernel
   , withCompiledKernel, runKernel )
 import Alpha.Codegen.FunctionMapping (defaultMapping)
 import Alpha.Codegen.Parallel (validateAnnotations, AnnotationError(..))
-import Alpha.Compile (validateSchedule, CompileError(..))
+import Alpha.Compile (validateSchedule, compile, CompileError(..))
 import Alpha.Interpret (interpret)
 import Alpha.Allocation (Allocation(..), allocating)
 import Alpha.Schedule
-import Isl.Typed.Constraints (Expr(..), MapIx(..), Conjunction(..))
+import Isl.Typed.Constraints (Expr(..), MapIx(..), Conjunction(..), Constraint(..))
 import Isl.TypeLevel.Constraint (TConstraint)
 import Isl.TypeLevel.Reflection (DomTag(..))
 
@@ -93,6 +94,7 @@ import qualified Examples.ReflectedMatmulFails as ReflFail
 import qualified Examples.DepReindex as DepReindex
 import qualified Examples.MatmulTransposed as MatT
 import qualified Examples.IntRowMax as IRM
+import qualified Examples.SumIndex2D as SI2
 import qualified Examples.TiledZero1D as TiledZero1D
 import qualified Examples.TiledConst3D as TiledConst3D
 import qualified Examples.Heat3DElsewhere as H3E
@@ -821,7 +823,7 @@ main = defaultMain $ testGroup "alpha-test"
               constExpr = Core.Const 3.14
               rendered = renderExprToC ctx constExpr
           assertEqual "Const renders via captured dict, not rcDesc"
-                      "3.14" rendered
+                      (Right "3.14") rendered
 
       , testCase "regress_2_int_reducemax" $ do
           -- Pre-fix: @reduceInit@ at Codegen.hs:415 emitted a hard-coded
@@ -892,6 +894,74 @@ main = defaultMain $ testGroup "alpha-test"
               ++ show other
             Right _ -> assertFailure
               "expected CompileException, but compileKernel succeeded"
+      ]
+
+  , testGroup "Batch C regress (#11 coefficient-based subscript extraction)"
+      [ testCase "regress_11_nonunit_output_coefficient" $ do
+          -- @2 * OutDim 0 - InDim 0 = 0@ has no integer-linear direct
+          -- assignment for OutDim 0; must surface as RenderErr, not a
+          -- silent drop (pre-fix: three-pattern 'findOutDim' dropped it).
+          let nonUnit :: [Constraint MapIx]
+              nonUnit =
+                [ EqualityConstraint
+                    (Add (Mul 2 (Ix (OutDim 0)))
+                         (Mul (-1) (Ix (InDim 0))))
+                ]
+              result = extractSubscripts 1 ["i"] [] "A" nonUnit
+          case result of
+            Left (RENonStandardMapConstraint "A" 0) -> pure ()
+            other -> assertFailure $
+              "expected Left (RENonStandardMapConstraint \"A\" 0), got: "
+              ++ show other
+
+      , testCase "regress_11_multiterm_output_expr_isolation" $ do
+          -- Isolation test: @OutDim 0 - InDim 0 - InDim 1 = 0@ used
+          -- to fall through the three-pattern matcher.  End-to-end
+          -- coverage lives in regress_11_multiterm_end_to_end.
+          let multiTerm :: [Constraint MapIx]
+              multiTerm =
+                -- OutDim 0 - InDim 0 - InDim 1 = 0
+                [ EqualityConstraint
+                    (Add (Ix (OutDim 0))
+                         (Add (Mul (-1) (Ix (InDim 0)))
+                              (Mul (-1) (Ix (InDim 1)))))
+                ]
+              result = extractSubscripts 2 ["i", "j"] [] "A" multiTerm
+          case result of
+            Right [sub] ->
+              -- The concrete rendering uses renderMapExpr's Add/Mul
+              -- formatter: "(i + j)" for coeffs i=+1, j=+1.
+              assertEqual "subscript is sum of input dims"
+                          "(i + j)" sub
+            other -> assertFailure $
+              "expected Right [\"(i + j)\"], got: " ++ show other
+
+      , testCase "regress_11_multiterm_end_to_end" $ do
+          -- End-to-end: @A[i,j] = B[i+j]@ on a triangle where
+          -- @i+j < N@, so B is dimensioned @[0, N-1]@.  The Dep map
+          -- carries the multi-term equality
+          -- @OutDim 0 - InDim 0 - InDim 1 = 0@; post-fix, the
+          -- coefficient-based extractor reconstructs @(c0 + c1)@ as
+          -- the B subscript (pre-fix: the three-pattern matcher
+          -- dropped this form and the kernel read garbage).
+          let n = 4
+              bVec :: V.Vector Double
+              bVec = V.generate n $ \k -> fromIntegral (k * k + 1)
+          eval <- interpret SI2.sumIndex2D
+                    (Map.fromList [("N", n)])
+                    (Map.fromList [("B", \[k] -> bVec V.! k)])
+          -- A is zero-initialized outside the triangle; the kernel
+          -- only writes @i+j < N@ points.
+          expected <- V.generateM (n * n) $ \idx ->
+            let (i, j) = idx `divMod` n
+            in if i + j < n then eval "A" [i, j] else pure 0
+          withCompiledKernel SI2.sumIndex2D
+            (scheduling $
+               schedOf @"A" SI2.sumIndex2D $ \_ -> identity 2)
+            (Allocation Map.empty)
+            (defaultMapping "sum_index_2d" SI2.sumIndex2D) $ \kernel -> do
+              aResult <- runKernel kernel (n :> PNil) bVec
+              assertVecApprox "A[i,j] = B[i+j]" 1e-10 expected aResult
       ]
 
   ]

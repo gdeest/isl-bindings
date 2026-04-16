@@ -45,7 +45,7 @@ import Alpha.Schedule (Schedule(..), EqSchedule(..), DimAnnotation(..))
 import Alpha.Allocation (Allocation(..), EqStorage(..))
 import qualified Alpha.Polyhedral.Schedule as S
 import Alpha.Codegen.CRender (renderCNodeToC)
-import Alpha.Codegen.ExprRender (RenderCtx(..), renderEquationMacro, BoundErr(..))
+import Alpha.Codegen.ExprRender (RenderCtx(..), renderEquationMacro, BoundErr(..), RenderErr(..))
 import Alpha.Codegen.FunctionMapping
   ( CFunctionMapping(..), ArgPassing(..), declListBoundsM )
 import Alpha.Scalar (ScalarDesc(..), cTypeName)
@@ -72,6 +72,10 @@ data CodegenError
     -- not define an identity for the given 'ReduceOp'
     -- (@sdReduceIdentity@ is 'Nothing' or returns 'Nothing') — #2.
     -- The second argument is the C type name (for debugging).
+  | NonStandardMapConstraint !String !Int
+    -- ^ A @Dep@ map equality has a non-±1 coefficient on @OutDim k@
+    -- (or couples multiple OutDims); no direct subscript synthesizable.
+    -- Arguments: dependency target name, offending output-dim index.
   deriving (Show, Eq)
 
 -- | Reason 'extractBoundsISLM' could not recover a single exclusive
@@ -92,6 +96,7 @@ instance NFData CodegenError where
   rnf (BoundExtractionFailed v d err)   = rnf v `seq` rnf d `seq` rnf err
   rnf (MissingScalarDesc n)             = rnf n
   rnf (MissingReduceIdentity op ty)     = op `seq` rnf ty
+  rnf (NonStandardMapConstraint v k)    = rnf v `seq` rnf k
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -161,6 +166,9 @@ codegen sys@(System decls eqs) sched alloc fmap' descs = runIslT $ Isl.do
 mapBoundErr :: BoundErr -> BoundError
 mapBoundErr (BEPieceCount n)   = PieceCount n
 mapBoundErr (BEParseFailed s)  = BoundParseFailed s
+
+mapRenderErr :: RenderErr -> CodegenError
+mapRenderErr (RENonStandardMapConstraint v k) = NonStandardMapConstraint v k
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -265,9 +273,11 @@ generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap pa
               , rcDomBounds = domBounds
               , rcDesc      = desc
               }
-            macro = renderEquationMacro eqName nOutDims body ctx
-        in (macro :) <$>
-             generateFromEqList rest sched storMap params domBounds stmtArgs descs
+        in case renderEquationMacro eqName nOutDims body ctx of
+          Left rerr -> Left (mapRenderErr rerr)
+          Right macro ->
+            (macro :) <$>
+              generateFromEqList rest sched storMap params domBounds stmtArgs descs
 
 -- | Extract reduction info from an equation body: number of reduction
 -- dims and the body domain constraints (for ISL loop generation).
