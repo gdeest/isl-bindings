@@ -19,6 +19,7 @@ module Alpha.Polyhedral.Dependence
   , buildUnionFromNamed
   ) where
 
+import Data.List (partition)
 import qualified Data.Map.Strict as Map
 
 import Isl.Typed.Constraints
@@ -54,7 +55,7 @@ projectBodyReads
 projectBodyReads reads_ [] = Isl.mapM buildUnionMapFromNamed reads_
 projectBodyReads reads_ projections = Isl.do
   let bodyNames = [ n | NamedMap { nmDomainName = Just n } <- projections ]
-      (bodyReads, eqReads) = partitionBy
+      (bodyReads, eqReads) = partition
         (\r -> maybe False (`elem` bodyNames) (nmDomainName r)) reads_
   Ur eqReadUMs <- Isl.mapM buildUnionMapFromNamed eqReads
   if null bodyReads
@@ -67,13 +68,6 @@ projectBodyReads reads_ projections = Isl.do
       composedUM <- UM.applyDomain bodyReadUM projUM
       Ur c <- urWrap composedUM
       Isl.pure (Ur (c : eqReadUMs))
-
-partitionBy :: (a -> Bool) -> [a] -> ([a], [a])
-partitionBy _ [] = ([], [])
-partitionBy f (x:xs)
-  | f x       = let (ys, ns) = partitionBy f xs in (x:ys, ns)
-  | otherwise  = let (ys, ns) = partitionBy f xs in (ys, x:ns)
-
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §3. Dependence computation
@@ -108,7 +102,6 @@ freeAll (x:xs) = Isl.do
   freeM x
   freeAll xs
 
--- | Build a union map from a list of NamedMaps, folding with union.
 buildUnionFromNamed :: [NamedMap] -> IslT IO Isl.UnionMap
 buildUnionFromNamed nms = Isl.do
   Ur ums <- Isl.mapM buildUnionMapFromNamed nms

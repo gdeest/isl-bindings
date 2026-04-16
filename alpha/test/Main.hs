@@ -46,6 +46,7 @@ module Main where
 
 import Control.Exception (SomeException, try)
 import Control.Monad (forM_)
+import Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
 import System.Exit (ExitCode(..))
 import System.Process (system)
@@ -544,19 +545,19 @@ main = defaultMain $ testGroup "alpha-test"
           case result of
             Right cSrc -> do
               assertBool "contains function signature"
-                (isInfixOf' "void matmul(" cSrc)
+                (isInfixOf "void matmul(" cSrc)
               assertBool "contains 3 nested for loops"
-                (isInfixOf' "for (int c2" cSrc)
+                (isInfixOf "for (int c2" cSrc)
               assertBool "contains statement macro with strides"
-                (isInfixOf' "N * c0" cSrc)
+                (isInfixOf "N * c0" cSrc)
               -- Verify generated C compiles with gcc
               writeFile "/tmp/matmul_test.c" cSrc
               exitCode <- system "gcc -O2 -c /tmp/matmul_test.c -o /dev/null 2>/dev/null"
               assertBool "generated C compiles with gcc" (exitCode == ExitSuccess)
               assertBool "contains for loop"
-                (isInfixOf' "for (int" cSrc)
+                (isInfixOf "for (int" cSrc)
               assertBool "contains statement macro"
-                (isInfixOf' "#define C(" cSrc)
+                (isInfixOf "#define C(" cSrc)
             Left err -> assertFailure $ "codegen failed: " ++ show err
 
       , testCase "parallel on outermost matmul dim — valid" $ do
@@ -587,18 +588,3 @@ main = defaultMain $ testGroup "alpha-test"
 
   ]
 
--- Helpers
-lines' :: String -> [String]
-lines' = lines
-
-isInfixOf' :: String -> String -> Bool
-isInfixOf' needle haystack = any (isPrefixOf' needle) (tails' haystack)
-
-isPrefixOf' :: String -> String -> Bool
-isPrefixOf' [] _ = True
-isPrefixOf' _ [] = False
-isPrefixOf' (x:xs) (y:ys) = x == y && isPrefixOf' xs ys
-
-tails' :: [a] -> [[a]]
-tails' [] = [[]]
-tails' xs@(_:rest) = xs : tails' rest

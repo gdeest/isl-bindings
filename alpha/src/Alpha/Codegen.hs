@@ -11,14 +11,6 @@
 {-# LANGUAGE TypeOperators #-}
 
 -- | C code generation from Alpha systems via ISL AST builder.
---
--- Pipeline:
---   1. Lower system to ISL NamedSet\/NamedMap
---   2. Build union schedule map, intersect with domains
---   3. ISL AST builder → CNode loop skeleton
---   4. Generate statement macro bodies from Expr GADT
---   5. Render CNode to C with pragma insertion
---   6. Wrap with function signature, includes, buffer management
 module Alpha.Codegen
   ( codegen
   , CodegenError(..)
@@ -251,7 +243,7 @@ mergeAnnotations (Schedule entries) =
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §6. C source assembly
+-- §7. C source assembly
 -- ═══════════════════════════════════════════════════════════════════════
 
 assembleCSource
@@ -315,7 +307,7 @@ assembleCSource params fmap' alloc macros skeleton =
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §7. ISL helpers
+-- §8. ISL helpers
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | Walk an ISL AST node to a pure 'CNode' tree and free the node.

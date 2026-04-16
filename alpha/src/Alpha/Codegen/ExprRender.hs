@@ -8,15 +8,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
--- | Render Alpha 'Expr' trees to C expression strings.
---
--- This module produces the bodies of C statement macros: given an
--- equation body, it emits the C code that computes one point of
--- the recurrence.  ISL generates the surrounding loop structure;
--- this module fills in the innermost computation.
---
--- String building here is for statement macro bodies, not loop
--- generation — loops come from ISL via 'Isl.AstBuild'.
+-- | Render Alpha 'Expr' trees to C statement macro bodies.
 module Alpha.Codegen.ExprRender
   ( RenderCtx(..)
   , renderEquationMacro
@@ -168,10 +160,6 @@ renderBranches ctx (BCons (_ :: Proxy d) body rest) =
 -- §4. Subscript extraction from affine map constraints
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | Extract C subscript expressions from map equality constraints.
---
--- Given equality constraints of the form @OutDim k = f(InDims, Params)@,
--- extract @f@ for each output dim and render to C.
 extractSubscripts
   :: Int                     -- number of input dims
   -> [String]                -- input dim variable names
@@ -247,10 +235,6 @@ renderSetExpr iterVars paramNames = go
 -- §6. Array access rendering
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | Render an array access with linearized subscripts.
---
--- For a variable with bounds @[N0, N1, ..., N_{n-1}]@, row-major:
--- @buf[d0 * N1 * ... * N_{n-1} + d1 * N2 * ... * N_{n-1} + ... + d_{n-1}]@
 renderArrayAccess :: String -> [String] -> RenderCtx -> String
 renderArrayAccess varName subs ctx =
   let bufName = varName ++ "_buf"
@@ -261,7 +245,6 @@ renderArrayAccess varName subs ctx =
     _ ->
       bufName ++ "[" ++ linearize varName subs ctx ++ "]"
 
--- | Render a storage map expression with concrete subscript values.
 renderStorageExpr :: [String] -> [String] -> C.Expr SetIx -> String
 renderStorageExpr subs paramNames = go
   where
@@ -301,7 +284,6 @@ linearizeWithBounds subs bounds =
 -- §7. Domain bound extraction (pure, constraint-based)
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | Extract the exclusive upper bound for one dimension from constraints.
 extractOneBound :: [String] -> [C.Conjunction SetIx] -> Int -> String
 extractOneBound params conjs dim =
   let ineqs = [ e | C.Conjunction cs <- conjs, InequalityConstraint e <- cs ]
@@ -329,7 +311,6 @@ matchUBN d _ps (C.Add (C.Constant k) (C.Mul (-1) (C.Ix (SetDim d'))))
   | d == d' = Just (show (k + 1))
 matchUBN _ _ _ = Nothing
 
--- | Extract the variable name from the innermost Var in an Expr.
 varNameFromExpr :: forall ps decls n d a. Alpha.Core.Expr ps decls n d a -> Maybe String
 varNameFromExpr (Var (Proxy :: Proxy name)) = Just (symbolVal (Proxy @name))
 varNameFromExpr (PMap _ e) = varNameFromExpr e
@@ -358,10 +339,9 @@ renderUnaryOp OpSqrt  s = "sqrt(" ++ s ++ ")"
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §8. Domain condition rendering (for Case branches)
+-- §9. Domain condition rendering
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | Render domain constraints as a C boolean expression.
 renderDomCondition :: [String] -> [String] -> [Constraint SetIx] -> String
 renderDomCondition iterVars paramNames cs =
   case mapMaybe renderOneConstraint cs of
