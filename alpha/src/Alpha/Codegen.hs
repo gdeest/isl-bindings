@@ -100,7 +100,7 @@ codegen sys@(System _decls eqs) sched alloc fmap' descs = runIslT $ Isl.do
           macros = generateMacros sys sched alloc params domBounds stmtArgs descs
           annotations = mergeAnnotations sched
           skeleton = renderCNodeToC annotations cTree
-          cSrc = assembleCSource params fmap' alloc macros skeleton descs
+          cSrc = assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap
       Isl.pure (Ur (Right cSrc))
 
 
@@ -234,15 +234,16 @@ generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap pa
 -- | Extract reduction info from an equation body: number of reduction
 -- dims and the body domain constraints (for ISL loop generation).
 data ReduceInfo = ReduceInfo
-  { riRedDims  :: !Int
+  { riOp       :: !ReduceOp
+  , riRedDims  :: !Int
   , riBodyConjs :: ![C.Conjunction C.SetIx]
   }
 
 extractReduceInfo :: forall ps decls n d a. Alpha.Core.Expr ps decls n d a -> Maybe ReduceInfo
-extractReduceInfo (Reduce _ _ (inner :: Alpha.Core.Expr ps decls nBody dBody a)) =
+extractReduceInfo (Reduce op _ (inner :: Alpha.Core.Expr ps decls nBody dBody a)) =
   let nRed = fromIntegral (natVal (Proxy @nBody)) - fromIntegral (natVal (Proxy @n))
       bodyCs = reflectDomConstraints @ps @nBody @dBody
-  in Just (ReduceInfo nRed [C.Conjunction bodyCs])
+  in Just (ReduceInfo op nRed [C.Conjunction bodyCs])
 extractReduceInfo _ = Nothing
 
 -- | Build a map from equation name → reduction info.
@@ -335,14 +336,20 @@ assembleCSource
   -> String
   -> String
   -> Map.Map String ScalarDesc
+  -> Map.Map String [String]    -- domain bounds per variable
+  -> Map.Map String ReduceInfo  -- reduction info per equation
   -> String
-assembleCSource params fmap' alloc macros skeleton descs =
+assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap =
   let funcName = cfName fmap'
       passing = cfArgPassing fmap'
 
       lookupCType n = case Map.lookup n descs of
         Just (MkScalarDesc { sdCNumType = ct }) -> cTypeName ct
-        Nothing -> "double"  -- fallback for inputs without explicit desc
+        Nothing -> "double"
+
+      sizeExpr n = case Map.lookup n domBounds of
+        Just bs -> intercalate " * " ["(" ++ b ++ ")" | b <- bs]
+        Nothing -> "1"
 
       paramDecls = intercalate ", " ["int64_t " ++ p | p <- params]
 
@@ -352,12 +359,23 @@ assembleCSource params fmap' alloc macros skeleton descs =
 
       localAllocs = [ "  " ++ lookupCType n ++ " *" ++ n ++ "_buf = ("
                       ++ lookupCType n ++ "*)calloc("
-                      ++ "1" -- TODO: compute size from domain bounds
+                      ++ sizeExpr n
                       ++ ", sizeof(" ++ lookupCType n ++ "));"
                     | (n, LocallyManaged) <- Map.toAscList passing ]
 
       localFrees = [ "  free(" ++ n ++ "_buf);"
                    | (n, LocallyManaged) <- Map.toAscList passing ]
+
+      -- Reduction init: non-sum reductions need non-zero identity values
+      reductionInits = concatMap reduceInit (Map.toAscList reduceMap)
+      reduceInit (n, ri) = case riOp ri of
+        ReduceSum  -> []  -- calloc zero-init is correct
+        ReduceProd -> [initLoop n "1.0"]
+        ReduceMin  -> [initLoop n "(1.0/0.0)"]   -- +INFINITY
+        ReduceMax  -> [initLoop n "(-1.0/0.0)"]  -- -INFINITY
+      initLoop n val =
+        "  for (int64_t _ri = 0; _ri < " ++ sizeExpr n ++ "; _ri++) "
+        ++ n ++ "_buf[_ri] = " ++ val ++ ";"
 
   in unlines $
     [ "#include <stdlib.h>"
@@ -378,6 +396,7 @@ assembleCSource params fmap' alloc macros skeleton descs =
     , "void " ++ funcName ++ "(" ++ paramDecls ++ concat callerArgs ++ ") {"
     ]
     ++ localAllocs
+    ++ reductionInits
     ++ [ skeleton ]
     ++ localFrees
     ++ [ "}"

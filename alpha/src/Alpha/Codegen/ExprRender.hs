@@ -300,7 +300,7 @@ linearize varName subs ctx = case subs of
 linearizeWithBounds :: [String] -> [String] -> String
 linearizeWithBounds subs bounds =
   let n = length subs
-      strides = [ concatMap (\j -> bounds !! j ++ " * ") [i+1..n-1]
+      strides = [ concatMap (\j -> "(" ++ bounds !! j ++ ")" ++ " * ") [i+1..n-1]
                 | i <- [0..n-1] ]
       terms = zipWith (\sub stride ->
         if null stride then sub

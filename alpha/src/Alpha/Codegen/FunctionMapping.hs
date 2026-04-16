@@ -20,11 +20,11 @@ import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownNat, KnownSymbol, natVal, symbolVal)
 
 import Isl.Typed.Constraints (Conjunction(..), SetIx)
-import Isl.TypeLevel.Reflection (KnownDom, reflectDomConstraints)
+import Isl.TypeLevel.Reflection (KnownDom, reflectDomConstraints, reflectDomString)
 import Alpha.Core
   ( VarDecl(..), DeclName, DeclDims, DeclDomTag
   , DeclList(..), Decl(..), Decls(..), System, pattern System )
-import Alpha.Codegen.ExprRender (extractOneBound)
+import Alpha.Codegen.ExprRender (extractOneBound, extractBoundsISL)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -74,5 +74,10 @@ declListBounds params ((MkDecl :: Decl ps d) :> rest) =
       nDims = fromIntegral (natVal (Proxy @(DeclDims d))) :: Int
       cs    = reflectDomConstraints @ps @(DeclDims d) @(DeclDomTag d)
       conjs = [Conjunction cs]
-      bounds = [ extractOneBound params conjs dim | dim <- [0..nDims-1] ]
+      patternBounds = [ extractOneBound params conjs dim | dim <- [0..nDims-1] ]
+      bounds
+        | any ("/* unknown */" ==) patternBounds =
+            let domStr = reflectDomString @ps @(DeclDims d) @(DeclDomTag d)
+            in extractBoundsISL domStr nDims
+        | otherwise = patternBounds
   in Map.insert name bounds (declListBounds params rest)

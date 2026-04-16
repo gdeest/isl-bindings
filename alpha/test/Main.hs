@@ -551,7 +551,7 @@ main = defaultMain $ testGroup "alpha-test"
               assertBool "contains 3 nested for loops"
                 (isInfixOf "for (int c2" cSrc)
               assertBool "contains statement macro with strides"
-                (isInfixOf "N * c0" cSrc)
+                (isInfixOf "(N) * c0" cSrc)
               -- Verify generated C compiles with gcc
               writeFile "/tmp/matmul_test.c" cSrc
               exitCode <- system "gcc -O2 -c /tmp/matmul_test.c -o /dev/null 2>/dev/null"

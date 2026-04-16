@@ -149,38 +149,32 @@ runKernel ck paramVals inputVecs = do
 
       inputMap = Map.fromList (zip (ckInputNames ck) inputVecs)
 
-  -- Allocate all buffers using Marshal's element size
   bufs <- mapM (\sz -> mallocBytes (sz * maElemSize m)) bufSizes
-  let bufMap = Map.fromList (zip bufNames bufs)
+  flip finally (mapM_ free bufs) $ do
+    let bufMap = Map.fromList (zip bufNames bufs)
 
-  -- Fill input buffers, zero output buffers
-  sequence_
-    [ case Map.lookup name inputMap of
-        Just vec -> do
-          let ptr = bufMap Map.! name
-          V.iforM_ vec $ \i v -> maPoke m (castPtr ptr) i v
-        Nothing ->
-          fillBytes (bufMap Map.! name) 0 (sz * maElemSize m)
-    | (name, sz) <- zip bufNames bufSizes ]
+    sequence_
+      [ case Map.lookup name inputMap of
+          Just vec -> do
+            let ptr = bufMap Map.! name
+            V.iforM_ vec $ \i v -> maPoke m (castPtr ptr) i v
+          Nothing ->
+            fillBytes (bufMap Map.! name) 0 (sz * maElemSize m)
+      | (name, sz) <- zip bufNames bufSizes ]
 
-  -- Marshal params and buf pointers
-  let paramI64s = map fromIntegral paramVals :: [Int64]
-      bufPtrs   = map (\p -> castPtr (bufMap Map.! p)) bufNames
-  withInt64Array paramI64s $ \pPtr ->
-    withPtrArray bufPtrs $ \bPtr ->
-      call pPtr bPtr
+    let paramI64s = map fromIntegral paramVals :: [Int64]
+        bufPtrs   = map (\p -> castPtr (bufMap Map.! p)) bufNames
+    withInt64Array paramI64s $ \pPtr ->
+      withPtrArray bufPtrs $ \bPtr ->
+        call pPtr bPtr
 
-  -- Read output buffers
-  outputVecs <- mapM (\name -> do
-    let ptr = bufMap Map.! name
-        sz  = case Map.lookup name (ckBounds ck) of
-                Just bs -> product [ evalBoundStr paramMap b | b <- bs ]
-                Nothing -> 0
-    V.generateM sz $ \i -> maPeek m (castPtr ptr) i
-    ) (ckOutputNames ck)
-
-  mapM_ free bufs
-  pure outputVecs
+    mapM (\name -> do
+      let ptr = bufMap Map.! name
+          sz  = case Map.lookup name (ckBounds ck) of
+                  Just bs -> product [ evalBoundStr paramMap b | b <- bs ]
+                  Nothing -> 0
+      V.generateM sz $ \i -> maPeek m (castPtr ptr) i
+      ) (ckOutputNames ck)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -253,12 +247,40 @@ executeKernelHet ck paramVals inputBufs = do
 -- §5. Helpers
 -- ═══════════════════════════════════════════════════════════════════════
 
+-- | Evaluate a symbolic bound expression against concrete parameter values.
+-- Handles: integers, parameter names, +, -, *, parentheses, floord(n,d).
 evalBoundStr :: Map String Int -> String -> Int
-evalBoundStr params s = case Map.lookup s params of
-  Just v  -> v
-  Nothing -> case reads s of
-    [(n, "")] -> n
-    _         -> error $ "evalBoundStr: can't evaluate '" ++ s ++ "'"
+evalBoundStr params = fst . parseExpr . filter (/= ' ')
+  where
+    parseExpr :: String -> (Int, String)
+    parseExpr s = let (a, rest) = parseAtom s in parseOps a rest
+
+    parseOps :: Int -> String -> (Int, String)
+    parseOps lhs ('+':rest) = let (rhs, rest') = parseAtom rest in parseOps (lhs + rhs) rest'
+    parseOps lhs ('-':rest) = let (rhs, rest') = parseAtom rest in parseOps (lhs - rhs) rest'
+    parseOps lhs ('*':rest) = let (rhs, rest') = parseAtom rest in parseOps (lhs * rhs) rest'
+    parseOps lhs rest = (lhs, rest)
+
+    parseAtom :: String -> (Int, String)
+    parseAtom ('(':rest) =
+      let (v, rest') = parseExpr rest
+      in case rest' of
+        ')':rest'' -> (v, rest'')
+        _          -> error $ "evalBoundStr: unmatched paren in '" ++ rest ++ "'"
+    parseAtom ('f':'l':'o':'o':'r':'d':'(':rest) =
+      let (n, ',':rest') = parseExpr rest
+          (d, ')':rest'') = parseExpr rest'
+      in (if n < 0 then -((-n + d - 1) `div` d) else n `div` d, rest'')
+    parseAtom s = case span isDigit s of
+      (ds@(_:_), rest) -> (read ds, rest)
+      _ -> case span isAlpha s of
+        (name@(_:_), rest) -> case Map.lookup name params of
+          Just v  -> (v, rest)
+          Nothing -> error $ "evalBoundStr: unknown param '" ++ name ++ "'"
+        _ -> error $ "evalBoundStr: can't parse '" ++ s ++ "'"
+
+    isDigit c = c >= '0' && c <= '9'
+    isAlpha c = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
 
 withInt64Array :: [Int64] -> (Ptr Int64 -> IO a) -> IO a
 withInt64Array xs action =
