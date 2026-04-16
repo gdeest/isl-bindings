@@ -290,7 +290,7 @@ conjsToDomStr params nDims conjs =
       dimStr = "[" ++ intercalate ", " dimVars ++ "]"
       renderConj (C.Conjunction cs) = intercalate " and " (map (renderOneConstraint dimVars params) cs)
       conjStrs = map renderConj conjs
-  in paramStr ++ "{ " ++ dimStr ++ " : " ++ intercalate " or " conjStrs ++ " }"
+  in paramStr ++ "{ " ++ intercalate "; " [ dimStr ++ " : " ++ c | c <- conjStrs ] ++ " }"
 
 renderOneConstraint :: [String] -> [String] -> C.Constraint C.SetIx -> String
 renderOneConstraint dims params (C.EqualityConstraint e) =

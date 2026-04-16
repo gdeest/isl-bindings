@@ -364,9 +364,12 @@ extractOneDimBound domStr d = unsafePerformIO $ runIslT $ Isl.do
 {-# NOINLINE extractBoundsISL #-}
 
 -- | Extract the expression between @[(@...@)]@ in ISL pw_aff output.
--- ISL always emits @[params] -> { [(expr)] }@ for single-piece affs.
+-- Single-piece format: @[params] -> { [(expr)] }@.
+-- Piecewise format uses @;@ separators — rejected (non-rectangular).
 extractPwAffExpr :: String -> String
-extractPwAffExpr = go
+extractPwAffExpr s
+  | ';' `elem` s = "/* piecewise dim_max: non-rectangular domain */"
+  | otherwise = go s
   where
     go ('{':' ':'[':'(':rest) = takeWhile (/= ')') rest
     go (_:rest) = go rest
