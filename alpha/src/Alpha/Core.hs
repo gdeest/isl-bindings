@@ -316,7 +316,10 @@ data Branches ps decls n amb branchDoms a where
 -- 'Alpha.Surface.input' / 'output' / 'local'.
 type Decl :: forall (ps :: [Symbol]) -> VarDecl ps -> Type
 data Decl ps d where
-  MkDecl :: KnownSymbol (DeclName d) => Decl ps d
+  MkDecl :: ( KnownSymbol (DeclName d)
+            , KnownNat (DeclDims d)
+            , KnownDom ps (DeclDims d) (DeclDomTag d)
+            ) => Decl ps d
 
 -- | A typed snoc-list of declarations.  The @decls@ parameter is the
 -- list of 'VarDecl' kinds in declaration order.  Built with ':>' and

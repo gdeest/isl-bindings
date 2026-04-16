@@ -1,4 +1,3 @@
-{-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
@@ -45,17 +44,11 @@
 -- traps) govern how the negative tests fire at runtime.
 module Main where
 
-import Control.Exception (SomeException, bracket, try)
+import Control.Exception (SomeException, try)
 import Control.Monad (forM_)
-import Data.Int (Int64)
 import Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
-import Foreign.Marshal.Alloc (allocaBytes)
-import Foreign.Marshal.Utils (fillBytes)
-import Foreign.Ptr (Ptr, FunPtr, castFunPtr)
-import Foreign.Storable (peekElemOff, pokeElemOff)
 import System.Exit (ExitCode(..))
-import System.Posix.DynamicLinker (dlopen, dlsym, dlclose, RTLDFlags(..))
 import System.Process (system)
 import Data.Proxy (Proxy(..))
 import Test.Tasty
@@ -64,6 +57,7 @@ import Test.Tasty.HUnit
 import qualified Data.Vector.Unboxed as V
 
 import Alpha.Codegen (codegen)
+import Alpha.Codegen.Compile (withCompiledKernel, runKernel)
 import Alpha.Codegen.FunctionMapping (defaultMapping)
 import Alpha.Codegen.Parallel (validateAnnotations, AnnotationError(..))
 import Alpha.Compile (validateSchedule, CompileError(..))
@@ -596,72 +590,44 @@ main = defaultMain $ testGroup "alpha-test"
   , testGroup "phase-L codegen end-to-end"
       [ testCase "matmul identity N=4 vs reference" $ do
           let n = 4
-              s = scheduling $ sched @"C" @Matmul.MatmulDecls $ \_ -> identity 2
-              a = Allocation Map.empty
-              fm = defaultMapping "matmul" Matmul.matmul
-
-          Right cSrc <- codegen Matmul.matmul s a fm
-          runGeneratedMatmul "matmul" cSrc n
-            (V.fromList [ fromIntegral (i*n+j+1) :: Double | i <- [0..n-1], j <- [0..n-1] ])
-            (V.fromList [ fromIntegral (i+j+1)   :: Double | i <- [0..n-1], j <- [0..n-1] ])
-            (Ref.referenceMatmul n)
+              aVec = V.fromList [ fromIntegral (i*n+j+1) :: Double
+                                | i <- [0..n-1], j <- [0..n-1] ]
+              bVec = V.fromList [ fromIntegral (i+j+1) :: Double
+                                | i <- [0..n-1], j <- [0..n-1] ]
+              expected = Ref.referenceMatmul n aVec bVec
+          withCompiledKernel Matmul.matmul
+            (scheduling $ sched @"C" @Matmul.MatmulDecls $ \_ -> identity 2)
+            (Allocation Map.empty)
+            (defaultMapping "matmul" Matmul.matmul) $ \kernel -> do
+              [cResult] <- runKernel kernel [n] [aVec, bVec]
+              assertVecApprox "matmul C" 1e-10 expected cResult
 
       , testCase "matmul tiled (tile i by 2) N=4 vs reference" $ do
           let n = 4
-              s = scheduling $ sched @"C" @Matmul.MatmulDecls $ \_ ->
-                    tile 0 2 $ identity 2
-              a = Allocation Map.empty
-              fm = defaultMapping "matmul_tiled" Matmul.matmul
-
-          Right cSrc <- codegen Matmul.matmul s a fm
-          runGeneratedMatmul "matmul_tiled" cSrc n
-            (V.fromList [ fromIntegral (i*n+j+1) :: Double | i <- [0..n-1], j <- [0..n-1] ])
-            (V.fromList [ fromIntegral (i+j+1)   :: Double | i <- [0..n-1], j <- [0..n-1] ])
-            (Ref.referenceMatmul n)
+              aVec = V.fromList [ fromIntegral (i*n+j+1) :: Double
+                                | i <- [0..n-1], j <- [0..n-1] ]
+              bVec = V.fromList [ fromIntegral (i+j+1) :: Double
+                                | i <- [0..n-1], j <- [0..n-1] ]
+              expected = Ref.referenceMatmul n aVec bVec
+          withCompiledKernel Matmul.matmul
+            (scheduling $ sched @"C" @Matmul.MatmulDecls $ \_ -> tile 0 2 $ identity 2)
+            (Allocation Map.empty)
+            (defaultMapping "matmul_tiled" Matmul.matmul) $ \kernel -> do
+              [cResult] <- runKernel kernel [n] [aVec, bVec]
+              assertVecApprox "matmul tiled C" 1e-10 expected cResult
       ]
 
   ]
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- End-to-end test helpers
+-- Helpers
 -- ═══════════════════════════════════════════════════════════════════════
 
-runGeneratedMatmul
-  :: String -> String -> Int
-  -> V.Vector Double -> V.Vector Double
-  -> (V.Vector Double -> V.Vector Double -> V.Vector Double)
-  -> Assertion
-runGeneratedMatmul funcName cSrc n aVec bVec refFn = do
-  let cFile  = "/tmp/alpha_e2e_" ++ funcName ++ ".c"
-      soFile = "/tmp/alpha_e2e_" ++ funcName ++ ".so"
-      sz     = n * n
-      expected = refFn aVec bVec
-  writeFile cFile cSrc
-  ExitSuccess <- system $ "gcc -O2 -shared -fPIC " ++ cFile ++ " -o " ++ soFile ++ " -lm 2>&1"
-  bracket (dlopen soFile [RTLD_NOW]) dlclose $ \dl -> do
-    fp <- dlsym dl funcName
-    let call = mkMatmulFn (castFunPtr fp)
-    allocaBytes (sz * 8) $ \aPtr ->
-      allocaBytes (sz * 8) $ \bPtr ->
-        allocaBytes (sz * 8) $ \cPtr -> do
-          forM_ [0..sz-1] $ \i -> pokeElemOff aPtr i (aVec V.! i)
-          forM_ [0..sz-1] $ \i -> pokeElemOff bPtr i (bVec V.! i)
-          fillBytes cPtr 0 (sz * 8)
-          call (fromIntegral n) aPtr bPtr cPtr
-          forM_ [0..sz-1] $ \i -> do
-            got <- peekElemOff cPtr i
-            let exp' = expected V.! i
-            assertBool (funcName ++ " C[" ++ show (i `div` n) ++ "," ++ show (i `mod` n)
-                        ++ "] = " ++ show got ++ " /= " ++ show exp')
-                       (abs (got - exp') < 1e-10)
-
-
--- ═══════════════════════════════════════════════════════════════════════
--- FFI wrappers for dynamically loaded codegen functions
--- ═══════════════════════════════════════════════════════════════════════
-
--- matmul(N, A_buf, B_buf, C_buf)
-type MatmulFn = Int64 -> Ptr Double -> Ptr Double -> Ptr Double -> IO ()
-foreign import ccall "dynamic" mkMatmulFn :: FunPtr MatmulFn -> MatmulFn
+assertVecApprox :: String -> Double -> V.Vector Double -> V.Vector Double -> Assertion
+assertVecApprox label tol expected got =
+  V.iforM_ got $ \i g -> do
+    let e = expected V.! i
+    assertBool (label ++ "[" ++ show i ++ "] = " ++ show g ++ " /= " ++ show e)
+               (abs (g - e) < tol)
 

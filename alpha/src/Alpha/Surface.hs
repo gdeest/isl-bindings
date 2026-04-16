@@ -647,7 +647,11 @@ elsewhere (Body body) bs = SBE body bs
 
 -- | Declare an input variable.
 input :: forall (name :: Symbol) {scope :: [Symbol]} {ps} {a} {d :: DomE}.
-         KnownSymbol name
+         ( KnownSymbol name
+         , KnownNat (Length scope)
+         , KnownDom ps (Length scope)
+             ('Literal (CompileDom ps scope (Length scope) d))
+         )
       => DomExpr scope d -> Proxy a
       -> Decl ps ('VarDecl @ps @name @(Length scope)
                            @('Literal (CompileDom ps scope (Length scope) d)) @a)
@@ -655,7 +659,11 @@ input _ _ = MkDecl
 
 -- | Declare an output variable.
 output :: forall (name :: Symbol) {scope :: [Symbol]} {ps} {a} {d :: DomE}.
-          KnownSymbol name
+          ( KnownSymbol name
+          , KnownNat (Length scope)
+          , KnownDom ps (Length scope)
+              ('Literal (CompileDom ps scope (Length scope) d))
+          )
        => DomExpr scope d -> Proxy a
        -> Decl ps ('VarDecl @ps @name @(Length scope)
                             @('Literal (CompileDom ps scope (Length scope) d)) @a)
@@ -663,7 +671,11 @@ output _ _ = MkDecl
 
 -- | Declare a local variable.
 local :: forall (name :: Symbol) {scope :: [Symbol]} {ps} {a} {d :: DomE}.
-         KnownSymbol name
+         ( KnownSymbol name
+         , KnownNat (Length scope)
+         , KnownDom ps (Length scope)
+             ('Literal (CompileDom ps scope (Length scope) d))
+         )
       => DomExpr scope d -> Proxy a
       -> Decl ps ('VarDecl @ps @name @(Length scope)
                            @('Literal (CompileDom ps scope (Length scope) d)) @a)

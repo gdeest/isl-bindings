@@ -17,6 +17,7 @@ category:            Math
 library
   exposed-modules:   Alpha.Codegen
                    , Alpha.Codegen.COp
+                   , Alpha.Codegen.Compile
                    , Alpha.Codegen.CRender
                    , Alpha.Codegen.ExprRender
                    , Alpha.Codegen.FunctionMapping
@@ -41,6 +42,9 @@ library
                    , containers
                    , deepseq
                    , mtl
+                   , process
+                   , unix
+                   , vector
                    , isl-bindings
                    , isl-typelevel
                    , isl-plugin

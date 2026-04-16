@@ -10,14 +10,21 @@ module Alpha.Codegen.FunctionMapping
   ( ArgPassing(..)
   , CFunctionMapping(..)
   , defaultMapping
+  , declListNames
+  , declListBounds
   ) where
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
-import GHC.TypeLits (KnownSymbol, symbolVal)
+import GHC.TypeLits (KnownNat, KnownSymbol, natVal, symbolVal)
 
-import Alpha.Core (VarDecl(..), DeclName, DeclList(..), Decl(..), Decls(..), System, pattern System)
+import Isl.Typed.Constraints (Conjunction(..), SetIx)
+import Isl.TypeLevel.Reflection (KnownDom, reflectDomConstraints)
+import Alpha.Core
+  ( VarDecl(..), DeclName, DeclDims, DeclDomTag
+  , DeclList(..), Decl(..), Decls(..), System, pattern System )
+import Alpha.Codegen.ExprRender (extractOneBound)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -59,3 +66,13 @@ declListNames :: forall ps decls. DeclList ps decls -> [String]
 declListNames Nil = []
 declListNames ((MkDecl :: Decl ps d) :> rest) =
   symbolVal (Proxy @(DeclName d)) : declListNames rest
+
+declListBounds :: forall ps decls. [String] -> DeclList ps decls -> Map String [String]
+declListBounds _params Nil = Map.empty
+declListBounds params ((MkDecl :: Decl ps d) :> rest) =
+  let name  = symbolVal (Proxy @(DeclName d))
+      nDims = fromIntegral (natVal (Proxy @(DeclDims d))) :: Int
+      cs    = reflectDomConstraints @ps @(DeclDims d) @(DeclDomTag d)
+      conjs = [Conjunction cs]
+      bounds = [ extractOneBound params conjs dim | dim <- [0..nDims-1] ]
+  in Map.insert name bounds (declListBounds params rest)

@@ -335,7 +335,17 @@ assembleCSource params fmap' alloc macros skeleton =
     ++ localAllocs
     ++ [ skeleton ]
     ++ localFrees
-    ++ [ "}" ]
+    ++ [ "}"
+       , ""
+       , "// Uniform wrapper for generic FFI calling convention"
+       , "void alpha_call(int64_t* params, double** bufs) {"
+       , "  " ++ funcName ++ "("
+         ++ intercalate ", "
+              (  [ "params[" ++ show i ++ "]" | i <- [0 .. length params - 1] ]
+              ++ [ "bufs[" ++ show i ++ "]"   | i <- [0 .. length (Map.keys passing) - 1] ])
+         ++ ");"
+       , "}"
+       ]
 
 
 -- ═══════════════════════════════════════════════════════════════════════
