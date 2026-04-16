@@ -82,6 +82,7 @@ test-suite alpha-test
                    , Examples.ReflectedMatmul
                    , Examples.ReflectedMatmulFails
                    , Examples.MatmulNormalize
+                   , Examples.MatmulTransposed
                    , Reference.Matmul
                    , Reference.Cholesky
                    , Reference.FloydWarshall

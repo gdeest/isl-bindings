@@ -80,6 +80,7 @@ import qualified Examples.Matmul as Matmul
 import qualified Examples.ReflectedMatmul as Refl
 import qualified Examples.ReflectedMatmulFails as ReflFail
 import qualified Examples.DepReindex as DepReindex
+import qualified Examples.MatmulTransposed as MatT
 import qualified Examples.TiledZero1D as TiledZero1D
 import qualified Examples.TiledConst3D as TiledConst3D
 import qualified Examples.Heat3DElsewhere as H3E
@@ -615,6 +616,22 @@ main = defaultMain $ testGroup "alpha-test"
             (defaultMapping "matmul_tiled" Matmul.matmul) $ \kernel -> do
               cResult <- runKernel kernel (n :> PNil) aVec bVec
               assertVecApprox "matmul tiled C" 1e-10 expected cResult
+
+      , testCase "matmul transposed B N=4 vs reference" $ do
+          let n = 4
+              aVec = V.fromList [ fromIntegral (i*n+j+1) :: Double
+                                | i <- [0..n-1], j <- [0..n-1] ]
+              bVec = V.fromList [ fromIntegral (i+j+1) :: Double
+                                | i <- [0..n-1], j <- [0..n-1] ]
+              expected = Ref.referenceMatmul n aVec bVec
+          withCompiledKernel MatT.matmulT
+            (scheduling $ do
+               sched @"Bt" @MatT.MatmulTDecls $ \_ -> embedAt 0 (identity 2)
+               sched @"C"  @MatT.MatmulTDecls $ \_ -> embedAt 1 (identity 2))
+            (Allocation Map.empty)
+            (defaultMapping "matmul_t" MatT.matmulT) $ \kernel -> do
+              cResult <- runKernel kernel (n :> PNil) aVec bVec
+              assertVecApprox "matmul transposed" 1e-10 expected cResult
       ]
 
   ]

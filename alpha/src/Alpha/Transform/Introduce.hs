@@ -32,7 +32,7 @@ import Alpha.Transform.Types (TransformError(..))
 import Alpha.Transform.Walk (composeAccess)
 import Isl.Typed.Constraints (MapIx, Constraint)
 import Isl.Typed.Params (KnownSymbols, Length)
-import Isl.TypeLevel.Constraint (TConstraint, IslMultiAffToMap)
+import Isl.TypeLevel.Constraint (TConstraint, IslMultiAffToMap, IslPreimageMultiAff)
 import Isl.TypeLevel.Expr (TExpr)
 import Isl.TypeLevel.Reflection
   ( Dict(..)
@@ -67,6 +67,7 @@ introduce
      , KnownSymbols ps, KnownNat (Length ps)
      , Lookup source (inputs ++ (outputs ++ locals))
          ~ 'VarDecl @ps @source @sourceN @('Literal sourceDomCs) @a
+     , newDomCs ~ IslPreimageMultiAff ps newN sourceN mapExprs sourceDomCs
      , KnownDom ps sourceN ('Literal sourceDomCs)
      , KnownDom ps newN ('Literal newDomCs)
      , KnownExprs ps newN mapExprs
@@ -108,6 +109,7 @@ introduceImpl
      , KnownSymbols ps, KnownNat (Length ps)
      , Lookup source (OldDecls ps inputs outputs locals)
          ~ 'VarDecl @ps @source @sourceN @('Literal sourceDomCs) @a
+     , newDomCs ~ IslPreimageMultiAff ps newN sourceN mapExprs sourceDomCs
      , KnownDom ps sourceN ('Literal sourceDomCs)
      , KnownDom ps newN ('Literal newDomCs)
      , KnownExprs ps newN mapExprs
