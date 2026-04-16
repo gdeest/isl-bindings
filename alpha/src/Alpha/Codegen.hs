@@ -40,7 +40,7 @@ import Alpha.Schedule (Schedule(..), EqSchedule(..), DimAnnotation(..))
 import Alpha.Allocation (Allocation(..), EqStorage(..))
 import qualified Alpha.Polyhedral.Schedule as S
 import Alpha.Codegen.CRender (renderCNodeToC)
-import Alpha.Codegen.ExprRender (RenderCtx(..), renderEquationMacro, extractOneBound, descCType)
+import Alpha.Codegen.ExprRender (RenderCtx(..), renderEquationMacro, extractOneBound, extractBoundsISL, descCType)
 import Alpha.Codegen.FunctionMapping (CFunctionMapping(..), ArgPassing(..))
 import Alpha.Scalar (ScalarDesc(..), cTypeName)
 
@@ -259,14 +259,58 @@ buildReduceMap (Defines (Proxy :: Proxy name) body :& rest) =
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §5. Domain bounds extraction (pure, constraint-based)
+-- §5. Domain bounds extraction
 -- ═══════════════════════════════════════════════════════════════════════
 
 extractAllBounds :: [NamedSet] -> [String] -> Map.Map String [String]
 extractAllBounds domains params = Map.fromList
-  [ (name, [ extractOneBound params conjs d | d <- [0 .. nDims - 1] ])
+  [ (name, extractDomBounds params conjs nDims)
   | NamedSet { nsName = Just name, nsNDims = nDims, nsConjs = conjs } <- domains
   ]
+
+-- | Extract per-dimension exclusive upper bounds. Tries the fast
+-- structural pattern matcher first; falls back to ISL @dim_max@
+-- for domains with non-standard constraint forms (e.g., from
+-- @IslPreimageMultiAff@).
+extractDomBounds :: [String] -> [C.Conjunction C.SetIx] -> Int -> [String]
+extractDomBounds params conjs nDims =
+  let patternBounds = [ extractOneBound params conjs d | d <- [0 .. nDims - 1] ]
+  in if any ("/* unknown */" ==) patternBounds
+     then
+       -- Pattern matcher failed on at least one dim; use ISL for all.
+       let domStr = conjsToDomStr params nDims conjs
+       in extractBoundsISL domStr nDims
+     else patternBounds
+
+-- | Build an ISL set string from conjunctions.
+conjsToDomStr :: [String] -> Int -> [C.Conjunction C.SetIx] -> String
+conjsToDomStr params nDims conjs =
+  let paramStr = if null params then "" else "[" ++ intercalate ", " params ++ "] -> "
+      dimVars = ["i" ++ show d | d <- [0 .. nDims - 1]]
+      dimStr = "[" ++ intercalate ", " dimVars ++ "]"
+      renderConj (C.Conjunction cs) = intercalate " and " (map (renderOneConstraint dimVars params) cs)
+      conjStrs = map renderConj conjs
+  in paramStr ++ "{ " ++ dimStr ++ " : " ++ intercalate " or " conjStrs ++ " }"
+
+renderOneConstraint :: [String] -> [String] -> C.Constraint C.SetIx -> String
+renderOneConstraint dims params (C.EqualityConstraint e) =
+  renderBoundExpr dims params e ++ " = 0"
+renderOneConstraint dims params (C.InequalityConstraint e) =
+  renderBoundExpr dims params e ++ " >= 0"
+
+renderBoundExpr :: [String] -> [String] -> C.Expr C.SetIx -> String
+renderBoundExpr dims params = go
+  where
+    go (C.Ix (C.SetDim d))   | d < length dims = dims !! d
+                              | otherwise = "d" ++ show d
+    go (C.Ix (C.SetParam p)) | p < length params = params !! p
+                              | otherwise = "p" ++ show p
+    go (C.Constant n)  = show n
+    go (C.Mul 1 e)     = go e
+    go (C.Mul (-1) e)  = "(-" ++ go e ++ ")"
+    go (C.Mul k e)     = show k ++ "*" ++ go e
+    go (C.Add a b)     = "(" ++ go a ++ " + " ++ go b ++ ")"
+    go (C.FloorDiv e d) = "floord(" ++ go e ++ ", " ++ show d ++ ")"
 
 
 -- ═══════════════════════════════════════════════════════════════════════

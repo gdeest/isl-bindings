@@ -1,6 +1,8 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LinearTypes #-}
+{-# LANGUAGE QualifiedDo #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PolyKinds #-}
@@ -15,6 +17,7 @@ module Alpha.Codegen.ExprRender
   , renderExprToC
   , extractSubscripts
   , extractOneBound
+  , extractBoundsISL
   , descCType
   , descMathSuffix
   ) where
@@ -27,12 +30,20 @@ import Data.Ord (comparing)
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownNat, natVal, symbolVal, type (+))
 
+import System.IO.Unsafe (unsafePerformIO)
+
 import Isl.Typed.Constraints
   ( Constraint(..), MapIx(..), SetIx(..) )
 import qualified Isl.Typed.Constraints as C
 import Isl.Typed.Params (KnownSymbols, symbolVals)
-import Isl.TypeLevel.Reflection (DomTag, reflectDomConstraints)
+import Isl.TypeLevel.Reflection (DomTag, reflectDomConstraints, reflectDomString)
 import Isl.TypeLevel.Sing (knownConstraints, reifySTConstraintsMapSplit)
+import Isl.Monad (IslT, Ur(..), runIslT)
+import Isl.Linear (query_)
+import qualified Isl.Linear as Isl
+import qualified Isl.Set as RS
+import qualified Isl.PwAff as PA
+import qualified Isl.Val as Val
 
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -139,10 +150,14 @@ renderExprToC ctx
       cs  = reifySTConstraintsMapSplit ni
               (knownConstraints @ps @(n + no) @mapCs)
       subs = extractSubscripts ni (rcIterVars ctx) (rcParams ctx) cs
-      -- Extract inner domain bounds for the target variable
       innerDomCs = reflectDomConstraints @ps @no @dInner
       innerConjs = [C.Conjunction innerDomCs]
-      innerBounds = [ extractOneBound (rcParams ctx) innerConjs d | d <- [0 .. no_ - 1] ]
+      patternBounds = [ extractOneBound (rcParams ctx) innerConjs d | d <- [0 .. no_ - 1] ]
+      innerBounds
+        | any ("/* unknown */" ==) patternBounds =
+            let domStr = reflectDomString @ps @no @dInner
+            in extractBoundsISL domStr no_
+        | otherwise = patternBounds
       innerVarName' = varNameFromExpr inner
       updBounds = case innerVarName' of
         Just vn -> Map.insert vn innerBounds (rcDomBounds ctx)
@@ -323,6 +338,39 @@ matchUBN d ps (C.Add (C.Ix (SetParam p)) (C.Mul (-1) (C.Ix (SetDim d'))))
 matchUBN d _ps (C.Add (C.Constant k) (C.Mul (-1) (C.Ix (SetDim d'))))
   | d == d' = Just (show (k + 1))
 matchUBN _ _ _ = Nothing
+
+-- | ISL-powered bound extraction via @isl_set_dim_max@.
+--
+-- For each dimension, computes the inclusive maximum via ISL, adds 1
+-- for an exclusive upper bound (all arithmetic done by ISL), then
+-- extracts the parameter expression from ISL's standard output format.
+--
+-- Row-major linearization assumes rectangular domains with
+-- parameter-affine bounds per dimension. Non-rectangular domains
+-- (triangular, etc.) require different linearization strategies.
+extractBoundsISL :: String -> Int -> [String]
+extractBoundsISL domStr nDims =
+  [ extractOneDimBound domStr d | d <- [0 .. nDims - 1] ]
+
+extractOneDimBound :: String -> Int -> String
+extractOneDimBound domStr d = unsafePerformIO $ runIslT $ Isl.do
+  s <- RS.readFromStr domStr
+  pa <- RS.dimMax s d
+  one <- Val.intFromSi 1
+  excl <- PA.addConstantVal pa one
+  Ur str <- query_ excl PA.toStr
+  Isl.pure (Ur (extractPwAffExpr str))
+{-# NOINLINE extractOneDimBound #-}
+{-# NOINLINE extractBoundsISL #-}
+
+-- | Extract the expression between @[(@...@)]@ in ISL pw_aff output.
+-- ISL always emits @[params] -> { [(expr)] }@ for single-piece affs.
+extractPwAffExpr :: String -> String
+extractPwAffExpr = go
+  where
+    go ('{':' ':'[':'(':rest) = takeWhile (/= ')') rest
+    go (_:rest) = go rest
+    go [] = "/* dim_max parse error */"
 
 varNameFromExpr :: forall ps decls n d a. Alpha.Core.Expr ps decls n d a -> Maybe String
 varNameFromExpr (Var (Proxy :: Proxy name)) = Just (symbolVal (Proxy @name))
