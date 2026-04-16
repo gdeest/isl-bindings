@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE QualifiedDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
@@ -32,10 +33,12 @@ import System.Posix.DynamicLinker (DL, dlopen, dlsym, dlclose, RTLDFlags(..))
 import System.Process (system)
 
 import Isl.Typed.Params (KnownSymbols, symbolVals)
-import Alpha.Core (System, pattern System, Decls(..), DeclList)
-import Alpha.Codegen (codegen, CodegenError(..))
+import Isl.Monad (Ur(..), runIslT)
+import qualified Isl.Linear as Isl
+import Alpha.Core (System, pattern System, Decls(..))
+import Alpha.Codegen (codegen)
 import Alpha.Codegen.FunctionMapping
-  ( CFunctionMapping(..), ArgPassing(..), declListNames, declListBounds )
+  ( CFunctionMapping(..), ArgPassing(..), declListNames, declListBoundsM )
 import Alpha.Schedule (Schedule)
 import Alpha.Allocation (Allocation)
 import Foreign.ForeignPtr (mallocForeignPtrBytes, withForeignPtr)
@@ -79,12 +82,20 @@ compileKernel sys@(System decls _eqs) descs sched alloc fmap' = do
   let params = symbolVals @ps
       inputNames  = declListNames (dInputs decls)
       outputNames = declListNames (dOutputs decls)
-      allBounds   = Map.unions
-        [ declListBounds params (dInputs decls)
-        , declListBounds params (dOutputs decls)
-        , declListBounds params (dLocals decls)
-        ]
       bufNames = [ n | (n, CallerAllocated) <- Map.toAscList (cfArgPassing fmap') ]
+
+  allBoundsE <- runIslT $ Isl.do
+    Ur i <- declListBoundsM params (dInputs decls)
+    Ur o <- declListBoundsM params (dOutputs decls)
+    Ur l <- declListBoundsM params (dLocals decls)
+    Isl.pure (Ur (do
+      mi <- i; mo <- o; ml <- l
+      Right (Map.unions [mi, mo, ml])))
+  allBounds <- case allBoundsE of
+    Right m -> pure m
+    Left (n, d, err) ->
+      error $ "compileKernel: bound extraction failed for " ++ n
+              ++ " dim " ++ show d ++ ": " ++ show err
 
   result <- codegen sys sched alloc fmap' descs
   case result of

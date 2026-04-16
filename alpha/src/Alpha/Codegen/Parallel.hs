@@ -2,6 +2,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LinearTypes #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE QualifiedDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -29,13 +30,14 @@ import qualified Isl.UnionMap as UM
 import Isl.Monad (IslT, Ur(..), runIslT)
 import Isl.Linear (query_, freeM, dup)
 import qualified Isl.Linear as Isl
-import Alpha.Core (System)
+import Alpha.Core (System, pattern System)
 import Alpha.Lower (lowerSystem)
 import Alpha.Schedule
   ( Schedule(..), EqSchedule(..), DimAnnotation(..) )
 import Alpha.Polyhedral.Dependence
   ( lowerScheduleMaps, projectBodyReads, computeAllDeps
   , buildUnionFromNamed )
+import Alpha.Codegen (ReduceInfo(..), buildReduceMap)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -44,10 +46,20 @@ import Alpha.Polyhedral.Dependence
 
 data AnnotationError
   = CarriedDependence !Int !DimAnnotation !String
+    -- ^ Dim carries a dependence; 'Parallel' or 'Vectorize' is unsound.
+  | ParallelOnReductionDim !Int !DimAnnotation !String
+    -- ^ 'Parallel' / 'Vectorize' attached to a reduction dim of the
+    -- named equation.  The dim carries the reduction's WAW on the
+    -- accumulator; 'ReductionParallel' is required here.
+  | ReductionOnNonReductionDim !Int !String
+    -- ^ 'ReductionParallel' attached to a non-reduction dim: there is
+    -- no reduction clause to emit.
   deriving (Show, Eq)
 
 instance NFData AnnotationError where
-  rnf (CarriedDependence d a s) = rnf d `seq` rnf a `seq` rnf s
+  rnf (CarriedDependence d a s)        = rnf d `seq` rnf a `seq` rnf s
+  rnf (ParallelOnReductionDim d a s)   = rnf d `seq` rnf a `seq` rnf s
+  rnf (ReductionOnNonReductionDim d s) = rnf d `seq` rnf s
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -60,30 +72,64 @@ validateAnnotations
   => System ps inputs outputs locals
   -> Schedule
   -> IO (Either AnnotationError ())
-validateAnnotations sys sched = do
-  let annotations = mergedAnnotations sched
-  if Map.null annotations
-    then pure (Right ())
-    else runIslT $ Isl.do
-      let (domains, writes, reads_, projections) = lowerSystem sys
-          schedMaps = lowerScheduleMaps sched domains
-          nOut = case schedMaps of { (sm:_) -> nmNOut sm; [] -> 0 }
+validateAnnotations sys@(System _ eqs) sched =
+  let redMap = buildReduceMap eqs
+  in case validateReductionDims sched redMap of
+    Left err -> pure (Left err)
+    Right () ->
+      -- ReductionParallel is sound by construction (OMP reduction clause);
+      -- only Parallel/Vectorize need the carried-dep check below.
+      let annotations = mergedAnnotationsFiltered sched
+      in if Map.null annotations
+        then pure (Right ())
+        else runIslT $ Isl.do
+          let (domains, writes, reads_, projections) = lowerSystem sys
+              schedMaps = lowerScheduleMaps sched domains
+              nOut = case schedMaps of { (sm:_) -> nmNOut sm; [] -> 0 }
 
-      Ur eqReads <- projectBodyReads reads_ projections
-      Ur flowDeps <- computeAllDeps eqReads writes
-      case flowDeps of
-        [] -> Isl.pure (Ur (Right ()))
-        (d:ds) -> Isl.do
-          allDeps <- Isl.foldM (\acc x -> UM.union acc x) d ds
-          schedUM <- buildUnionFromNamed schedMaps
+          Ur eqReads <- projectBodyReads reads_ projections
+          Ur flowDeps <- computeAllDeps eqReads writes
+          case flowDeps of
+            [] -> Isl.pure (Ur (Right ()))
+            (d:ds) -> Isl.do
+              allDeps <- Isl.foldM (\acc x -> UM.union acc x) d ds
+              schedUM <- buildUnionFromNamed schedMaps
 
-          -- Scheduled deps: S ∘ D ∘ S⁻¹
-          let !(s1, s2) = dup schedUM
-          step1 <- UM.applyRange allDeps s1
-          schedDeps <- UM.applyDomain step1 s2
+              -- Scheduled deps: S ∘ D ∘ S⁻¹
+              let !(s1, s2) = dup schedUM
+              step1 <- UM.applyRange allDeps s1
+              schedDeps <- UM.applyDomain step1 s2
 
-          Ur result <- checkDims schedDeps nOut (Map.toAscList annotations)
-          Isl.pure (Ur result)
+              Ur result <- checkDims schedDeps nOut (Map.toAscList annotations)
+              Isl.pure (Ur result)
+
+-- | Per-equation local check: @Parallel@/@Vectorize@ forbidden on
+-- reduction dims, @ReductionParallel@ forbidden on non-reduction dims.
+--
+-- Reduction dims occupy positions @[esNTime .. esNTime + riRedDims - 1]@
+-- in the extended schedule (see 'Alpha.Codegen.lowerScheduleMaps').
+validateReductionDims
+  :: Schedule
+  -> Map.Map String ReduceInfo
+  -> Either AnnotationError ()
+validateReductionDims (Schedule entries) redMap =
+  Map.foldrWithKey checkEq (Right ()) entries
+  where
+    checkEq _ _ err@(Left _) = err
+    checkEq name es (Right ()) =
+      let nTime    = esNTime es
+          nRedDims = maybe 0 riRedDims (Map.lookup name redMap)
+          isRedDim d = d >= nTime && d < nTime + nRedDims
+      in Map.foldrWithKey (checkDim name isRedDim) (Right ()) (esAnnotations es)
+    checkDim _ _ _ _ err@(Left _) = err
+    checkDim name isRedDim d ann (Right ()) = case ann of
+      Parallel          | isRedDim d ->
+        Left (ParallelOnReductionDim d Parallel name)
+      Vectorize         | isRedDim d ->
+        Left (ParallelOnReductionDim d Vectorize name)
+      ReductionParallel | not (isRedDim d) ->
+        Left (ReductionOnNonReductionDim d name)
+      _ -> Right ()
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -138,3 +184,13 @@ mergedAnnotations (Schedule entries) =
   Map.unionsWith (\a b -> if a == b then a else error $
     "conflicting annotations on same dim: " ++ show a ++ " vs " ++ show b)
     [esAnnotations es | es <- Map.elems entries]
+
+-- | Like 'mergedAnnotations', but drops 'ReductionParallel' entries
+-- before merging, so a reduction annotation on one equation doesn't
+-- spuriously conflict with a Parallel/Vectorize on a different one.
+mergedAnnotationsFiltered :: Schedule -> Map.Map Int DimAnnotation
+mergedAnnotationsFiltered (Schedule entries) =
+  Map.unionsWith (\a b -> if a == b then a else error $
+    "conflicting annotations on same dim: " ++ show a ++ " vs " ++ show b)
+    [ Map.filter (/= ReductionParallel) (esAnnotations es)
+    | es <- Map.elems entries ]

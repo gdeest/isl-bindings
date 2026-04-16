@@ -2,6 +2,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE QualifiedDo #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -11,21 +12,23 @@ module Alpha.Codegen.FunctionMapping
   , CFunctionMapping(..)
   , defaultMapping
   , declListNames
-  , declListBounds
+  , declListBoundsM
   ) where
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (isNothing)
 import Data.Proxy (Proxy(..))
-import GHC.TypeLits (KnownNat, KnownSymbol, natVal, symbolVal)
+import GHC.TypeLits (natVal, symbolVal)
 
-import Isl.Typed.Constraints (Conjunction(..), SetIx)
-import Isl.TypeLevel.Reflection (KnownDom, reflectDomConstraints, reflectDomString)
+import Isl.Typed.Constraints (Conjunction(..))
+import Isl.TypeLevel.Reflection (reflectDomConstraints, reflectDomString)
+import Isl.Monad (IslT, Ur(..))
+import qualified Isl.Linear as Isl
 import Alpha.Core
-  ( VarDecl(..), DeclName, DeclDims, DeclDomTag
+  ( DeclName, DeclDims, DeclDomTag
   , DeclList(..), Decl(..), Decls(..), System, pattern System )
-import Alpha.Codegen.ExprRender (extractOneBound, extractBoundsISL)
+import Alpha.Codegen.ExprRender (extractOneBound, extractBoundsISLM, BoundErr)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -68,17 +71,34 @@ declListNames Nil = []
 declListNames ((MkDecl :: Decl ps d) :> rest) =
   symbolVal (Proxy @(DeclName d)) : declListNames rest
 
-declListBounds :: forall ps decls. [String] -> DeclList ps decls -> Map String [String]
-declListBounds _params Nil = Map.empty
-declListBounds params ((MkDecl :: Decl ps d) :> rest) =
+-- | Compute per-variable exclusive upper bounds for each declaration
+-- in a 'DeclList'.  Uses the fast structural pattern matcher first and
+-- falls back to ISL @dim_max@ (via 'extractBoundsISLM') when needed.
+--
+-- Runs in 'IslT' so ISL failures surface as @Left (name, dim, err)@
+-- rather than sentinel strings or 'unsafePerformIO' escapes.
+declListBoundsM
+  :: forall ps decls. [String] -> DeclList ps decls
+  -> IslT IO (Ur (Either (String, Int, BoundErr) (Map String [String])))
+declListBoundsM _params Nil = Isl.pure (Ur (Right Map.empty))
+declListBoundsM params ((MkDecl :: Decl ps d) :> rest) = Isl.do
   let name  = symbolVal (Proxy @(DeclName d))
       nDims = fromIntegral (natVal (Proxy @(DeclDims d))) :: Int
       cs    = reflectDomConstraints @ps @(DeclDims d) @(DeclDomTag d)
       conjs = [Conjunction cs]
       patternBounds = [ extractOneBound params conjs dim | dim <- [0..nDims-1] ]
-      bounds
-        | any isNothing patternBounds =
-            let domStr = reflectDomString @ps @(DeclDims d) @(DeclDomTag d)
-            in extractBoundsISL domStr nDims
-        | otherwise = [ b | Just b <- patternBounds ]
-  in Map.insert name bounds (declListBounds params rest)
+  Ur hereRes <-
+    if any isNothing patternBounds
+      then
+        let domStr = reflectDomString @ps @(DeclDims d) @(DeclDomTag d)
+        in Isl.do
+          Ur r <- extractBoundsISLM domStr nDims
+          Isl.pure (Ur (case r of
+            Left (d', err) -> Left (name, d', err)
+            Right bs       -> Right bs))
+      else Isl.pure (Ur (Right [ b | Just b <- patternBounds ]))
+  Ur restRes <- declListBoundsM params rest
+  Isl.pure (Ur (do
+    here <- hereRes
+    rm   <- restRes
+    Right (Map.insert name here rm)))

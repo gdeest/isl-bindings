@@ -64,13 +64,16 @@ import Alpha.Core (VarDecl(..), Lookup, DeclDims, System, type (++))
 -- §1. Types
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | Annotation for a schedule dimension.
-data DimAnnotation = Parallel | Vectorize
+-- | Annotation for a schedule dimension.  'ReductionParallel' opts the
+-- dim into an OpenMP @reduction@ clause; it is only valid on a reduction
+-- dim (checked by 'Alpha.Codegen.Parallel.validateAnnotations').
+data DimAnnotation = Parallel | Vectorize | ReductionParallel
   deriving (Show, Eq, Ord)
 
 instance NFData DimAnnotation where
-  rnf Parallel  = ()
-  rnf Vectorize = ()
+  rnf Parallel          = ()
+  rnf Vectorize         = ()
+  rnf ReductionParallel = ()
 
 data EqSchedule = EqSchedule
   { esName        :: !String

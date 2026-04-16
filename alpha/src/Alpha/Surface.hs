@@ -91,6 +91,7 @@ import Isl.TypeLevel.Reflection
   , KnownDom, withPartitionsD )
 
 import Alpha.Core
+import Alpha.Scalar (AlphaScalar)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -372,7 +373,7 @@ a ./. b = Body (Pw OpDiv (unBody a) (unBody b))
 infixl 7 ./.
 
 -- | Body-level literal (wraps 'Const').
-litB :: a -> Body ps decls scope n d a
+litB :: AlphaScalar a => a -> Body ps decls scope n d a
 litB = Body . Const
 
 -- | Lift a unary operation over a body (wraps 'PMap').

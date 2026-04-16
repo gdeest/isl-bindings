@@ -46,6 +46,7 @@ module Main where
 
 import Control.Exception (SomeException, try)
 import Control.Monad (forM_)
+import Data.Int (Int32)
 import Data.List (isInfixOf)
 import qualified Data.Map.Strict as Map
 import System.Exit (ExitCode(..))
@@ -56,11 +57,17 @@ import Test.Tasty.HUnit
 
 import qualified Data.Vector.Unboxed as V
 
-import Alpha.Codegen (codegen, CodegenError(..))
+import Alpha.Codegen (codegen, CodegenError(..), BoundError(..))
 import Alpha.Codegen.Compile (uniformDescs)
-import Alpha.Codegen.ExprRender (extractOneBound)
+import Alpha.Codegen.ExprRender
+  ( extractOneBound, extractBoundsISLM, BoundErr(..)
+  , RenderCtx(..), renderExprToC )
+import qualified Alpha.Core as Core
+import Isl.Monad (runIslT, Ur(..))
 import qualified Alpha.Codegen.Compile as Untyped
-import Alpha.Scalar (scalarDesc, AlphaScalar)
+import Alpha.Scalar
+  ( scalarDesc, AlphaScalar
+  , ScalarDesc(..), CNumType(..) )
 import Alpha.Kernel
   ( TypedKernel, Params(PNil, (:>))
   , withCompiledKernel, runKernel )
@@ -71,6 +78,8 @@ import Alpha.Interpret (interpret)
 import Alpha.Allocation (Allocation(..), allocating)
 import Alpha.Schedule
 import Isl.Typed.Constraints (Expr(..), MapIx(..), Conjunction(..))
+import Isl.TypeLevel.Constraint (TConstraint)
+import Isl.TypeLevel.Reflection (DomTag(..))
 
 import qualified Examples.Cholesky as Cholesky
 import qualified Examples.FloydWarshall as FW
@@ -82,6 +91,7 @@ import qualified Examples.ReflectedMatmul as Refl
 import qualified Examples.ReflectedMatmulFails as ReflFail
 import qualified Examples.DepReindex as DepReindex
 import qualified Examples.MatmulTransposed as MatT
+import qualified Examples.IntRowMax as IRM
 import qualified Examples.TiledZero1D as TiledZero1D
 import qualified Examples.TiledConst3D as TiledConst3D
 import qualified Examples.Heat3DElsewhere as H3E
@@ -572,6 +582,38 @@ main = defaultMain $ testGroup "alpha-test"
           assertEqual "no bound extractable" Nothing result
       ]
 
+  , testGroup "regress #6 / #10 IslT bound extraction"
+      [ testCase "regress_6_islt_bound_extraction" $ do
+          -- Pre-fix: 'extractBoundsISL' escaped IslT via
+          -- unsafePerformIO-per-dimension.  Post-fix:
+          -- 'extractBoundsISLM' runs entirely inside the top-level
+          -- runIslT, threading errors via 'Either' rather than
+          -- sentinel strings.  A standard affine bound should succeed.
+          result <- runIslT $
+            extractBoundsISLM "[N] -> { [i] : 0 <= i and i < N }" 1
+          case result of
+            Right [b] -> assertBool ("bound extracted: " ++ b) (not (null b))
+            other     -> assertFailure $
+              "expected Right [<bound>], got: " ++ show other
+
+      , testCase "regress_10_piecewise_bound_rejected" $ do
+          -- Pre-fix: piecewise detection used @elem ';' str@ — a string
+          -- heuristic that misclassifies comment-bearing single-piece
+          -- outputs and can miss genuinely piecewise affs when ISL's
+          -- print style changes.  Post-fix: we ask ISL directly via
+          -- @isl_pw_aff_n_piece@; n /= 1 surfaces as a structured
+          -- 'BEPieceCount' error rather than a sentinel string.
+          -- Domain: i < N AND i < M — dim_max is @min(N-1, M-1)@,
+          -- which is piecewise (two pieces).
+          result <- runIslT $
+            extractBoundsISLM
+              "[M, N] -> { [i] : 0 <= i and i < N and i < M }" 1
+          case result of
+            Left (0, BEPieceCount n) | n >= 2 -> pure ()
+            other -> assertFailure $
+              "expected Left (0, BEPieceCount n>=2), got: " ++ show other
+      ]
+
   , testGroup "phase-K codegen"
       [ testCase "matmul codegen produces C" $ do
           let s = scheduling $ do
@@ -646,6 +688,46 @@ main = defaultMain $ testGroup "alpha-test"
               "expected Left (ConflictingAnnotation ...), got: " ++ show other
             Left ex -> assertFailure $
               "expected Left (ConflictingAnnotation ...), got exception: " ++ show ex
+
+      , testCase "regress_4_parallel_on_reduction_dim_rejected" $ do
+          -- Matmul dim 2 is the k reduction dim; Parallel on it is racy.
+          let s = scheduling $ do
+                sched    @"C" @Matmul.MatmulDecls $ \n -> identity n
+                annotate @"C" @Matmul.MatmulDecls 2 Parallel
+          result <- validateAnnotations Matmul.matmul s
+          case result of
+            Left (ParallelOnReductionDim 2 Parallel "C") -> pure ()
+            other -> assertFailure $
+              "expected Left (ParallelOnReductionDim 2 Parallel \"C\"), got: "
+              ++ show other
+
+      , testCase "regress_4_reduction_parallel_on_non_reduction_rejected" $ do
+          -- ReductionParallel on a non-reduction dim has no clause to emit.
+          let s = scheduling $ do
+                sched    @"C" @Matmul.MatmulDecls $ \n -> identity n
+                annotate @"C" @Matmul.MatmulDecls 0 ReductionParallel
+          result <- validateAnnotations Matmul.matmul s
+          case result of
+            Left (ReductionOnNonReductionDim 0 "C") -> pure ()
+            other -> assertFailure $
+              "expected Left (ReductionOnNonReductionDim 0 \"C\"), got: "
+              ++ show other
+
+      , testCase "regress_4_reduction_parallel_emits_clause" $ do
+          let s = scheduling $ do
+                sched    @"C" @Matmul.MatmulDecls $ \n -> identity n
+                annotate @"C" @Matmul.MatmulDecls 2 ReductionParallel
+              a  = Allocation Map.empty
+              fm = defaultMapping "matmul" Matmul.matmul
+          result <- codegen Matmul.matmul s a fm
+                      (uniformDescs (scalarDesc @Double) Matmul.matmul)
+          case result of
+            Right cSrc -> do
+              assertBool ("generated C must contain omp reduction clause: " ++ cSrc)
+                (isInfixOf "reduction(+:C_buf" cSrc)
+              assertBool "generated C must contain parallel for"
+                (isInfixOf "#pragma omp parallel for" cSrc)
+            Left err -> assertFailure $ "codegen failed: " ++ show err
       ]
 
   , testGroup "phase-L codegen end-to-end"
@@ -692,6 +774,84 @@ main = defaultMain $ testGroup "alpha-test"
             (defaultMapping "matmul_t" MatT.matmulT) $ \kernel -> do
               cResult <- runKernel kernel (n :> PNil) aVec bVec
               assertVecApprox "matmul transposed" 1e-10 expected cResult
+      ]
+
+  , testGroup "Batch A regress (#1 + #2 + #16)"
+      [ testCase "regress_16_missing_scalar_desc" $ do
+          -- Pre-fix: @generateFromEqList@ called
+          -- @error "no ScalarDesc for " ++ eqName@ when @descs@ lacked a
+          -- matching entry.  Post-fix: returns
+          -- @Left (MissingScalarDesc "C")@ through the @Either@ flow
+          -- threaded by #16.
+          let s = scheduling $ do
+                sched @"C" @Matmul.MatmulDecls $ \n -> identity n
+              a  = Allocation Map.empty
+              fm = defaultMapping "matmul_r16" Matmul.matmul
+          result <- codegen Matmul.matmul s a fm Map.empty
+          case result of
+            Left (MissingScalarDesc "C") -> pure ()
+            other -> assertFailure $
+              "expected Left (MissingScalarDesc \"C\"), got: " ++ show other
+
+      , testCase "regress_1_const_rendering_decoupled_from_rcDesc" $ do
+          -- Pre-fix: rendering a 'Const' consulted @rcDesc@ via an
+          -- 'unsafeCoerce' to reach the 'ConstBridge' — unsafe and
+          -- coupling 'Const' rendering to whatever 'ScalarDesc' the
+          -- caller happened to associate with the equation name.
+          -- Post-fix: the 'AlphaScalar' dict captured by the 'Const'
+          -- constructor supplies the bridge directly, so a 'ScalarDesc'
+          -- with @sdConstBridge = Nothing@ must still yield valid
+          -- source — the renderer no longer consults that field at all.
+          let bridgelessDesc = MkScalarDesc
+                { sdCNumType       = CFloat64
+                , sdHsInterp       = Nothing
+                , sdConstBridge    = Nothing
+                , sdMarshal        = Nothing
+                , sdReduceIdentity = Nothing
+                } :: ScalarDesc
+              ctx = RenderCtx
+                { rcParams    = []
+                , rcIterVars  = []
+                , rcStorage   = Map.empty
+                , rcDomBounds = Map.empty
+                , rcDesc      = bridgelessDesc
+                }
+              constExpr :: Core.Expr '[] '[] 0 ('Literal ('[] :: [TConstraint '[] 0])) Double
+              constExpr = Core.Const 3.14
+              rendered = renderExprToC ctx constExpr
+          assertEqual "Const renders via captured dict, not rcDesc"
+                      "3.14" rendered
+
+      , testCase "regress_2_int_reducemax" $ do
+          -- Pre-fix: @reduceInit@ at Codegen.hs:415 emitted a hard-coded
+          -- float literal (@"(-1.0/0.0)"@ for 'ReduceMax') regardless of
+          -- the scalar type.  For an @Int32@ reduction that literal is
+          -- either rejected by gcc or produces garbage.  Post-fix: the
+          -- init loop consumes @sdReduceIdentity op@ — @INT32_MIN@ for
+          -- 'ReduceMax' over 'Int32'.
+          --
+          -- End-to-end check (per CLAUDE.md §4): compile the kernel,
+          -- run it on a known input, compare against a Haskell
+          -- reference.  A wrong identity would either fail to link
+          -- or yield a wrong max.
+          let n = 4
+              aVec :: V.Vector Int32
+              aVec = V.fromList
+                [ -5, -1, -9, -3
+                ,  2,  7,  4,  0
+                , 11, -2, 11,  6
+                , -8, -7, -6, -4
+                ]
+              expected :: V.Vector Int32
+              expected = V.generate n $ \i ->
+                maximum [ aVec V.! (i*n + k) | k <- [0..n-1] ]
+          withCompiledKernel IRM.intRowMax
+            (scheduling $
+               sched @"y" @IRM.IntRowMaxDecls $ \_ -> identity 1)
+            (Allocation Map.empty)
+            (defaultMapping "int_rowmax" IRM.intRowMax) $ \kernel -> do
+              yResult <- runKernel kernel (n :> PNil) aVec
+              assertEqual "int row-max" expected yResult
       ]
 
   ]

@@ -18,27 +18,24 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
 import Isl.AstBuild (CNode(..))
-import Alpha.Schedule (DimAnnotation(..))
 
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §1. Public API
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | Render a 'CNode' tree to C text with OpenMP pragma insertion.
---
--- The annotation map keys are schedule dimension indices (0-based,
--- matching 'CFor' nesting depth).
-renderCNodeToC :: Map Int DimAnnotation -> CNode -> String
-renderCNodeToC anns tree = fst (rn 2 0 tree)
+-- | Render a 'CNode' tree to C text.  For each @CFor@ whose nesting
+-- depth matches a map key, the caller-supplied pragma line is emitted
+-- immediately above.  Keys are 0-based schedule dim indices.
+renderCNodeToC :: Map Int String -> CNode -> String
+renderCNodeToC pragmas tree = fst (rn 2 0 tree)
   where
     -- Returns (rendered text, next dimIdx after this subtree)
     rn :: Int -> Int -> CNode -> (String, Int)
     rn d dimIdx (CFor iter ini cond inc body) =
-      let pragma = case Map.lookup dimIdx anns of
-            Just Parallel  -> ind d ++ "#pragma omp parallel for schedule(static)\n"
-            Just Vectorize -> ind d ++ "#pragma omp simd\n"
-            Nothing        -> ""
+      let pragma = case Map.lookup dimIdx pragmas of
+            Just p  -> ind d ++ p ++ "\n"
+            Nothing -> ""
           (bodyStr, dimIdx') = rn (d + 2) (dimIdx + 1) body
       in ( pragma
            ++ ind d ++ "for (int " ++ iter ++ " = " ++ ini ++ "; "

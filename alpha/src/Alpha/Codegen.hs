@@ -14,14 +14,17 @@
 module Alpha.Codegen
   ( codegen
   , CodegenError(..)
+  , BoundError(..)
+    -- * Reduction metadata (exposed for validation / external callers)
+  , ReduceInfo(..)
+  , buildReduceMap
   ) where
 
 import Control.DeepSeq (NFData(..))
 import Data.List (intercalate)
-import Data.Maybe (isNothing, mapMaybe)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
-import GHC.TypeLits (KnownSymbol, natVal, symbolVal)
+import GHC.TypeLits (natVal, symbolVal)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.Typed.Constraints (NamedSet(..), NamedMap(..), buildUnionMapFromNamed)
@@ -40,8 +43,9 @@ import Alpha.Schedule (Schedule(..), EqSchedule(..), DimAnnotation(..))
 import Alpha.Allocation (Allocation(..), EqStorage(..))
 import qualified Alpha.Polyhedral.Schedule as S
 import Alpha.Codegen.CRender (renderCNodeToC)
-import Alpha.Codegen.ExprRender (RenderCtx(..), renderEquationMacro, extractOneBound, extractBoundsISL, descCType)
-import Alpha.Codegen.FunctionMapping (CFunctionMapping(..), ArgPassing(..))
+import Alpha.Codegen.ExprRender (RenderCtx(..), renderEquationMacro, BoundErr(..))
+import Alpha.Codegen.FunctionMapping
+  ( CFunctionMapping(..), ArgPassing(..), declListBoundsM )
 import Alpha.Scalar (ScalarDesc(..), cTypeName)
 
 
@@ -54,12 +58,38 @@ data CodegenError
   | CodegenInternalError !String
   | ConflictingAnnotation !Int !DimAnnotation !DimAnnotation
     -- ^ Two equations annotate the same schedule dim with different values.
+  | BoundExtractionFailed !String !Int !BoundError
+    -- ^ ISL @dim_max@ failed (piecewise / parse / unbounded) for a
+    -- named variable's given dimension.
+  | MissingScalarDesc !String
+    -- ^ @codegen@ was called without a 'ScalarDesc' entry in @descs@
+    -- for the named equation.  Surfaced from 'generateFromEqList'
+    -- instead of an @error@ call (#16).
+  | MissingReduceIdentity !ReduceOp !String
+    -- ^ The 'ScalarDesc' for the named reduction accumulator does
+    -- not define an identity for the given 'ReduceOp'
+    -- (@sdReduceIdentity@ is 'Nothing' or returns 'Nothing') — #2.
+    -- The second argument is the C type name (for debugging).
   deriving (Show, Eq)
+
+-- | Reason 'extractBoundsISLM' could not recover a single exclusive
+-- upper bound for one dimension.
+data BoundError
+  = PieceCount !Int       -- ^ @isl_pw_aff_n_piece@ returned @n /= 1@.
+  | BoundParseFailed !String  -- ^ ISL @pw_aff@ string didn't match expected shape.
+  deriving (Show, Eq)
+
+instance NFData BoundError where
+  rnf (PieceCount k)      = rnf k
+  rnf (BoundParseFailed s) = rnf s
 
 instance NFData CodegenError where
   rnf (CodegenScheduleError s)          = rnf s
   rnf (CodegenInternalError s)          = rnf s
   rnf (ConflictingAnnotation k a b)     = rnf k `seq` rnf a `seq` rnf b
+  rnf (BoundExtractionFailed v d err)   = rnf v `seq` rnf d `seq` rnf err
+  rnf (MissingScalarDesc n)             = rnf n
+  rnf (MissingReduceIdentity op ty)     = op `seq` rnf ty
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -75,38 +105,60 @@ codegen
   -> CFunctionMapping
   -> Map.Map String ScalarDesc
   -> IO (Either CodegenError String)
-codegen sys@(System _decls eqs) sched alloc fmap' descs = runIslT $ Isl.do
+codegen sys@(System decls eqs) sched alloc fmap' descs = runIslT $ Isl.do
   let (domains, _writes, _reads, _projections) = lowerSystem sys
       reduceMap = buildReduceMap eqs
       schedMaps = lowerScheduleMaps sched domains reduceMap
       params = symbolVals @ps
 
-  -- Build union schedule map
-  -- The schedule NamedMaps include domain constraints in their
-  -- conjunctions, so the map's domain IS the iteration domain.
-  Ur schedUMs <- Isl.mapM buildUnionMapFromNamed schedMaps
-  case schedUMs of
-    [] -> Isl.pure (Ur (Left (CodegenInternalError "no schedule maps")))
-    (first':rest') -> Isl.do
-      schedUM <- Isl.foldM (\acc x -> UM.union acc x) first' rest'
+  -- Per-variable exclusive upper bounds from declared domains.
+  -- Structural pattern match first; ISL @dim_max@ fallback runs inside
+  -- this IslT action (no unsafePerformIO). Piecewise results surface as
+  -- 'BoundExtractionFailed' via @isl_pw_aff_n_piece@, not a string heuristic.
+  Ur iRes <- declListBoundsM params (dInputs decls)
+  Ur oRes <- declListBoundsM params (dOutputs decls)
+  Ur lRes <- declListBoundsM params (dLocals decls)
+  let mergedBounds = do
+        mi <- iRes; mo <- oRes; ml <- lRes
+        Right (Map.unions [mi, mo, ml])
+  case mergedBounds of
+    Left (name, dim, berr) ->
+      Isl.pure (Ur (Left (BoundExtractionFailed name dim (mapBoundErr berr))))
+    Right domBounds -> Isl.do
+      -- Build union schedule map
+      -- The schedule NamedMaps include domain constraints in their
+      -- conjunctions, so the map's domain IS the iteration domain.
+      Ur schedUMs <- Isl.mapM buildUnionMapFromNamed schedMaps
+      case schedUMs of
+        [] -> Isl.pure (Ur (Left (CodegenInternalError "no schedule maps")))
+        (first':rest') -> Isl.do
+          schedUM <- Isl.foldM (\acc x -> UM.union acc x) first' rest'
 
-      -- ISL AST builder (consumes both build and schedUM)
-      build <- astBuildAlloc
-      node <- astBuildNodeFromScheduleMap build schedUM
-      -- walkAstNode borrows; astNodeFree consumes. Wrap in one
-      -- unsafeIslFromIO to avoid linear multiplicity conflict.
-      Ur cTree <- walkAndFree node
+          -- ISL AST builder (consumes both build and schedUM)
+          build <- astBuildAlloc
+          node <- astBuildNodeFromScheduleMap build schedUM
+          -- walkAstNode borrows; astNodeFree consumes. Wrap in one
+          -- unsafeIslFromIO to avoid linear multiplicity conflict.
+          Ur cTree <- walkAndFree node
 
-      -- Extract ISL-determined iterator names from CUser calls
-      let stmtArgs = extractStmtArgs cTree
-          domBounds = extractAllBounds domains params
-          macros = generateMacros sys sched alloc params domBounds stmtArgs descs
-      case mergeAnnotations sched of
-        Left err -> Isl.pure (Ur (Left err))
-        Right annotations -> Isl.do
-          let skeleton = renderCNodeToC annotations cTree
-              cSrc = assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap
-          Isl.pure (Ur (Right cSrc))
+          -- Extract ISL-determined iterator names from CUser calls
+          let stmtArgs = extractStmtArgs cTree
+          case generateMacros sys sched alloc params domBounds stmtArgs descs of
+            Left err -> Isl.pure (Ur (Left err))
+            Right macros -> case buildPragmaMap sched reduceMap domBounds of
+              Left err -> Isl.pure (Ur (Left err))
+              Right pragmas ->
+                let skeleton = renderCNodeToC pragmas cTree
+                in case assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap of
+                     Left err   -> Isl.pure (Ur (Left err))
+                     Right cSrc -> Isl.pure (Ur (Right cSrc))
+
+-- | Lift the local 'BoundErr' (ExprRender) into 'BoundError' (this
+-- module's public enum).  Kept as a thin adapter so ExprRender needn't
+-- depend on the top-level 'CodegenError'.
+mapBoundErr :: BoundErr -> BoundError
+mapBoundErr (BEPieceCount n)   = PieceCount n
+mapBoundErr (BEParseFailed s)  = BoundParseFailed s
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -192,11 +244,10 @@ generateMacros
   -> Map.Map String [String]
   -> Map.Map String [String]
   -> Map.Map String ScalarDesc
-  -> String
+  -> Either CodegenError String
 generateMacros (System _decls eqs) sched alloc params domBounds stmtArgs descs =
   let storMap = allocEntries alloc
-      macroLines = generateFromEqList eqs sched storMap params domBounds stmtArgs descs
-  in unlines macroLines
+  in unlines <$> generateFromEqList eqs sched storMap params domBounds stmtArgs descs
 
 generateFromEqList
   :: forall ps decls defined.
@@ -208,8 +259,8 @@ generateFromEqList
   -> Map.Map String [String]
   -> Map.Map String [String]
   -> Map.Map String ScalarDesc
-  -> [String]
-generateFromEqList EqNil _ _ _ _ _ _ = []
+  -> Either CodegenError [String]
+generateFromEqList EqNil _ _ _ _ _ _ = Right []
 generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap params domBounds stmtArgs descs =
   let eqName = symbolVal (Proxy @name)
       iterVars = case Map.lookup eqName stmtArgs of
@@ -220,21 +271,22 @@ generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap pa
               nRedDims = case extractReduceInfo body of
                 Just ri -> riRedDims ri; Nothing -> 0
           in ["c" ++ show i | i <- [0 .. nSchedDims + nRedDims - 1]]
-      desc = case Map.lookup eqName descs of
-        Just d  -> d
-        Nothing -> error $ "Alpha.Codegen: no ScalarDesc for " ++ eqName
-      ctx = RenderCtx
-        { rcParams    = params
-        , rcIterVars  = iterVars
-        , rcStorage   = storMap
-        , rcDomBounds = domBounds
-        , rcDesc      = desc
-        }
       nOutDims = case Map.lookup eqName (schedEntries sched) of
         Just es -> esNIter es
         Nothing -> 0
-      macro = renderEquationMacro eqName nOutDims body ctx
-  in macro : generateFromEqList rest sched storMap params domBounds stmtArgs descs
+  in case Map.lookup eqName descs of
+    Nothing -> Left (MissingScalarDesc eqName)
+    Just desc ->
+      let ctx = RenderCtx
+            { rcParams    = params
+            , rcIterVars  = iterVars
+            , rcStorage   = storMap
+            , rcDomBounds = domBounds
+            , rcDesc      = desc
+            }
+          macro = renderEquationMacro eqName nOutDims body ctx
+      in (macro :) <$>
+           generateFromEqList rest sched storMap params domBounds stmtArgs descs
 
 -- | Extract reduction info from an equation body: number of reduction
 -- dims and the body domain constraints (for ISL loop generation).
@@ -265,82 +317,73 @@ buildReduceMap (Defines (Proxy :: Proxy name) body :& rest) =
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §5. Domain bounds extraction
+-- §5. Pragma assembly
 -- ═══════════════════════════════════════════════════════════════════════
 
-extractAllBounds :: [NamedSet] -> [String] -> Map.Map String [String]
-extractAllBounds domains params = Map.fromList
-  [ (name, extractDomBounds params conjs nDims)
-  | NamedSet { nsName = Just name, nsNDims = nDims, nsConjs = conjs } <- domains
-  ]
-
--- | Extract per-dimension exclusive upper bounds. Tries the fast
--- structural pattern matcher first; falls back to ISL @dim_max@
--- for domains with non-standard constraint forms (e.g., from
--- @IslPreimageMultiAff@).
-extractDomBounds :: [String] -> [C.Conjunction C.SetIx] -> Int -> [String]
-extractDomBounds params conjs nDims =
-  let patternBounds = [ extractOneBound params conjs d | d <- [0 .. nDims - 1] ]
-  in if any isNothing patternBounds
-     then
-       -- Pattern matcher failed on at least one dim; use ISL for all.
-       let domStr = conjsToDomStr params nDims conjs
-       in extractBoundsISL domStr nDims
-     else [ b | Just b <- patternBounds ]
-
--- | Build an ISL set string from conjunctions.
-conjsToDomStr :: [String] -> Int -> [C.Conjunction C.SetIx] -> String
-conjsToDomStr params nDims conjs =
-  let paramStr = if null params then "" else "[" ++ intercalate ", " params ++ "] -> "
-      dimVars = ["i" ++ show d | d <- [0 .. nDims - 1]]
-      dimStr = "[" ++ intercalate ", " dimVars ++ "]"
-      renderConj (C.Conjunction cs) = intercalate " and " (map (renderOneConstraint dimVars params) cs)
-      conjStrs = map renderConj conjs
-  in paramStr ++ "{ " ++ intercalate "; " [ dimStr ++ " : " ++ c | c <- conjStrs ] ++ " }"
-
-renderOneConstraint :: [String] -> [String] -> C.Constraint C.SetIx -> String
-renderOneConstraint dims params (C.EqualityConstraint e) =
-  renderBoundExpr dims params e ++ " = 0"
-renderOneConstraint dims params (C.InequalityConstraint e) =
-  renderBoundExpr dims params e ++ " >= 0"
-
-renderBoundExpr :: [String] -> [String] -> C.Expr C.SetIx -> String
-renderBoundExpr dims params = go
+-- | Build the per-CFor-depth pragma string map consumed by
+-- 'renderCNodeToC'.  Walks per-equation annotations and, for each
+-- 'ReductionParallel', synthesizes an @omp parallel for
+-- reduction(op:buf[:size]) schedule(static)@ clause using the
+-- equation's reduction op and its output buffer / size.
+--
+-- Returns 'Left' on genuinely conflicting pragmas at the same dim
+-- (e.g. @Parallel@ on eq A vs @Vectorize@ on eq B at the shared
+-- outer dim).
+buildPragmaMap
+  :: Schedule
+  -> Map.Map String ReduceInfo
+  -> Map.Map String [String]
+  -> Either CodegenError (Map.Map Int String)
+buildPragmaMap (Schedule entries) redMap domBounds =
+  -- Intermediate map tracks the source annotation so a conflict at dim k
+  -- can be reported with both the prior and new 'DimAnnotation'.
+  fmap (fmap fst) (foldr stepEq (Right Map.empty) (Map.toList entries))
   where
-    go (C.Ix (C.SetDim d))   | d < length dims = dims !! d
-                              | otherwise = "d" ++ show d
-    go (C.Ix (C.SetParam p)) | p < length params = params !! p
-                              | otherwise = "p" ++ show p
-    go (C.Constant n)  = show n
-    go (C.Mul 1 e)     = go e
-    go (C.Mul (-1) e)  = "(-" ++ go e ++ ")"
-    go (C.Mul k e)     = show k ++ "*" ++ go e
-    go (C.Add a b)     = "(" ++ go a ++ " + " ++ go b ++ ")"
-    go (C.FloorDiv e d) = "floord(" ++ go e ++ ", " ++ show d ++ ")"
+    stepEq _          (Left e)    = Left e
+    stepEq (name, es) (Right acc) =
+      Map.foldrWithKey (insertOne name) (Right acc) (esAnnotations es)
+
+    insertOne _    _ _   (Left e)    = Left e
+    insertOne name k ann (Right acc) = case mkPragma name ann of
+      Left e       -> Left e
+      Right pragma -> case Map.lookup k acc of
+        Nothing        -> Right (Map.insert k (pragma, ann) acc)
+        Just (p', ann')
+          | p' == pragma -> Right acc
+          | otherwise    -> Left (ConflictingAnnotation k ann' ann)
+
+    mkPragma _    Parallel  =
+      Right "#pragma omp parallel for schedule(static)"
+    mkPragma _    Vectorize =
+      Right "#pragma omp simd"
+    mkPragma name ReductionParallel =
+      case Map.lookup name redMap of
+        Nothing -> Left (CodegenInternalError $
+          "ReductionParallel annotation on non-reduction equation " ++ name)
+        Just ri ->
+          let op = reduceOpOmp (riOp ri)
+              sz = domainSizeExpr domBounds name
+          in Right ("#pragma omp parallel for reduction("
+                   ++ op ++ ":" ++ name ++ "_buf[:" ++ sz
+                   ++ "]) schedule(static)")
+
+-- | OpenMP reduction-clause identifier for an Alpha 'ReduceOp'.
+reduceOpOmp :: ReduceOp -> String
+reduceOpOmp ReduceSum  = "+"
+reduceOpOmp ReduceProd = "*"
+reduceOpOmp ReduceMin  = "min"
+reduceOpOmp ReduceMax  = "max"
+
+-- | Flat size expression @(b0) * (b1) * ...@ for a variable's declared
+-- domain, used in @reduction(op:buf[:size])@ and calloc sizing.
+domainSizeExpr :: Map.Map String [String] -> String -> String
+domainSizeExpr domBounds n = case Map.lookup n domBounds of
+  Just bs -> intercalate " * " ["(" ++ b ++ ")" | b <- bs]
+  Nothing -> "1"
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §6. Annotation merging
--- ═══════════════════════════════════════════════════════════════════════
-
--- | Merge per-equation annotations into a single dim -> annotation map.
--- Fails with 'ConflictingAnnotation' if two equations annotate the same
--- dim with different values.
-mergeAnnotations :: Schedule -> Either CodegenError (Map.Map Int DimAnnotation)
-mergeAnnotations (Schedule entries) =
-  foldr step (Right Map.empty) [esAnnotations es | es <- Map.elems entries]
-  where
-    step _   (Left err)  = Left err
-    step new (Right acc) = Map.foldrWithKey insert1 (Right acc) new
-    insert1 _ _ (Left err) = Left err
-    insert1 k v (Right acc) = case Map.lookup k acc of
-      Nothing           -> Right (Map.insert k v acc)
-      Just v' | v == v' -> Right acc
-              | otherwise -> Left (ConflictingAnnotation k v' v)
-
-
--- ═══════════════════════════════════════════════════════════════════════
--- §7. C source assembly
+-- §6. C source assembly
 -- ═══════════════════════════════════════════════════════════════════════
 
 assembleCSource
@@ -352,8 +395,8 @@ assembleCSource
   -> Map.Map String ScalarDesc
   -> Map.Map String [String]    -- domain bounds per variable
   -> Map.Map String ReduceInfo  -- reduction info per equation
-  -> String
-assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap =
+  -> Either CodegenError String
+assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap = do
   let funcName = cfName fmap'
       passing = cfArgPassing fmap'
 
@@ -361,9 +404,7 @@ assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap =
         Just (MkScalarDesc { sdCNumType = ct }) -> cTypeName ct
         Nothing -> "double"
 
-      sizeExpr n = case Map.lookup n domBounds of
-        Just bs -> intercalate " * " ["(" ++ b ++ ")" | b <- bs]
-        Nothing -> "1"
+      sizeExpr = domainSizeExpr domBounds
 
       paramDecls = intercalate ", " ["int64_t " ++ p | p <- params]
 
@@ -380,18 +421,19 @@ assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap =
       localFrees = [ "  free(" ++ n ++ "_buf);"
                    | (n, LocallyManaged) <- Map.toAscList passing ]
 
-      -- Reduction init: non-sum reductions need non-zero identity values
-      reductionInits = concatMap reduceInit (Map.toAscList reduceMap)
-      reduceInit (n, ri) = case riOp ri of
-        ReduceSum  -> []  -- calloc zero-init is correct
-        ReduceProd -> [initLoop n "1.0"]
-        ReduceMin  -> [initLoop n "(1.0/0.0)"]   -- +INFINITY
-        ReduceMax  -> [initLoop n "(-1.0/0.0)"]  -- -INFINITY
       initLoop n val =
         "  for (int64_t _ri = 0; _ri < " ++ sizeExpr n ++ "; _ri++) "
         ++ n ++ "_buf[_ri] = " ++ val ++ ";"
 
-  in unlines $
+  -- Reduction init: always emit a per-op identity init loop (#2).  The
+  -- buffer is always calloc'd for local storage, but relying on bitwise
+  -- zero being the additive identity is a type-silent coupling; the
+  -- explicit init loop makes the type→identity mapping the single source
+  -- of truth.  On a missing 'sdReduceIdentity' or an unsupported op,
+  -- surface 'MissingReduceIdentity' instead of silently falling through.
+  reductionInits <- traverse (reduceInitLine initLoop) (Map.toAscList reduceMap)
+
+  pure $ unlines $
     [ "#include <stdlib.h>"
     , "#include <stdint.h>"
     , "#include <string.h>"
@@ -425,10 +467,21 @@ assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap =
          ++ ");"
        , "}"
        ]
+  where
+    reduceInitLine initLoop (n, ri) = do
+      let op = riOp ri
+      case Map.lookup n descs of
+        Nothing -> Left (MissingScalarDesc n)
+        Just (MkScalarDesc { sdCNumType = ct, sdReduceIdentity = mIdFn }) ->
+          case mIdFn of
+            Nothing   -> Left (MissingReduceIdentity op (cTypeName ct))
+            Just idFn -> case idFn op of
+              Nothing  -> Left (MissingReduceIdentity op (cTypeName ct))
+              Just val -> Right (initLoop n val)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §8. ISL helpers
+-- §7. ISL helpers
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | Walk an ISL AST node to a pure 'CNode' tree and free the node.

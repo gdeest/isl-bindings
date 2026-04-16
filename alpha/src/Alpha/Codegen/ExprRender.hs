@@ -18,40 +18,40 @@ module Alpha.Codegen.ExprRender
   , renderExprToC
   , extractSubscripts
   , extractOneBound
-  , extractBoundsISL
+  , extractBoundsISLM
+  , BoundErr(..)
   , descCType
   , descMathSuffix
   ) where
 
+import Control.DeepSeq (NFData(..))
 import Data.List (intercalate, sortBy)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (isNothing, mapMaybe)
+import Data.Maybe (mapMaybe)
 import Data.Ord (comparing)
 import Data.Proxy (Proxy(..))
-import GHC.TypeLits (KnownNat, natVal, symbolVal, type (+))
-
-import System.IO.Unsafe (unsafePerformIO)
+import GHC.TypeLits (symbolVal, type (+))
 
 import Isl.Typed.Constraints
   ( Constraint(..), MapIx(..), SetIx(..) )
 import qualified Isl.Typed.Constraints as C
-import Isl.Typed.Params (KnownSymbols, symbolVals)
-import Isl.TypeLevel.Reflection (DomTag, reflectDomConstraints, reflectDomString)
+import Isl.Typed.Params (KnownSymbols)
+import Isl.TypeLevel.Reflection (DomTag, reflectDomConstraints)
 import Isl.TypeLevel.Sing (knownConstraints, reifySTConstraintsMapSplit)
-import Isl.Monad (IslT, Ur(..), runIslT)
-import Isl.Linear (query_)
+import Isl.Monad (IslT, Ur(..))
+import Isl.Linear (query, query_, freeM, Both(..))
 import qualified Isl.Linear as Isl
 import qualified Isl.Set as RS
 import qualified Isl.PwAff as PA
 import qualified Isl.Val as Val
 
-import Unsafe.Coerce (unsafeCoerce)
-
 import Alpha.Core
 import Alpha.Codegen.COp
 import Alpha.Allocation (EqStorage(..))
-import Alpha.Scalar (ScalarDesc(..), CNumType, cTypeName, cMathSuffix, ConstBridge(..))
+import Alpha.Scalar
+  ( ScalarDesc(..), cTypeName, cMathSuffix
+  , ConstBridge(..), AlphaScalar(..) )
 import qualified Alpha.Polyhedral.Contraction as C
 
 
@@ -133,11 +133,10 @@ renderExprToC ctx (Var (Proxy :: Proxy name)) =
   let varName = symbolVal (Proxy @name)
   in renderArrayAccess varName (rcIterVars ctx) ctx
 
-renderExprToC ctx (Const v) =
-  case rcDesc ctx of
-    MkScalarDesc { sdConstBridge = Just (ConstBridge showLit) } ->
-      showLit (unsafeCoerce v)
-    _ -> error "Alpha.Codegen.ExprRender: no ConstBridge for scalar type"
+renderExprToC _ctx (Const v) =
+  -- The 'AlphaScalar' dict carried by 'Const' gives us the bridge
+  -- directly — no 'rcDesc'-keyed lookup, no type-unsafe cast (#1).
+  showLiteral scalarConstBridge v
 
 renderExprToC ctx (Pw op e1 e2) =
   let sfx = descMathSuffix (rcDesc ctx)
@@ -150,23 +149,13 @@ renderExprToC ctx (PMap op e) =
 renderExprToC ctx
   (Dep (Proxy :: Proxy mapCs) (inner :: Alpha.Core.Expr ps decls no dInner a)) =
   let ni  = length (rcIterVars ctx)
-      no_ = fromIntegral (natVal (Proxy @no)) :: Int
       cs  = reifySTConstraintsMapSplit ni
               (knownConstraints @ps @(n + no) @mapCs)
       subs = extractSubscripts ni (rcIterVars ctx) (rcParams ctx) cs
-      innerDomCs = reflectDomConstraints @ps @no @dInner
-      innerConjs = [C.Conjunction innerDomCs]
-      patternBounds = [ extractOneBound (rcParams ctx) innerConjs d | d <- [0 .. no_ - 1] ]
-      innerBounds
-        | any isNothing patternBounds =
-            let domStr = reflectDomString @ps @no @dInner
-            in extractBoundsISL domStr no_
-        | otherwise = [ b | Just b <- patternBounds ]
-      innerVarName' = varNameFromExpr inner
-      updBounds = case innerVarName' of
-        Just vn -> Map.insert vn innerBounds (rcDomBounds ctx)
-        Nothing -> rcDomBounds ctx
-      innerCtx = ctx { rcIterVars = subs, rcDomBounds = updBounds }
+      -- Inner variable bounds are precomputed at the top of codegen
+      -- from the declared-variable domains (inputs/outputs/locals).
+      -- No ISL calls happen here — the renderer is a pure function.
+      innerCtx = ctx { rcIterVars = subs }
   in renderExprToC innerCtx inner
 
 renderExprToC ctx (Reduce _rop _projCs inner) =
@@ -293,13 +282,21 @@ renderStorageExpr subs paramNames = go
     go (C.FloorDiv e d) = "floord(" ++ go e ++ ", " ++ show d ++ ")"
 
 -- | Linearize subscripts with row-major strides.
+--
+-- Precondition: @rcDomBounds@ contains an entry for every declared
+-- variable (enforced at the codegen entry point by 'declListBoundsM').
+-- A missing entry for a multi-dim access indicates a codegen bug —
+-- fail loudly rather than emit a silently-wrong @sub0 + sub1 + ...@.
 linearize :: String -> [String] -> RenderCtx -> String
 linearize varName subs ctx = case subs of
   []  -> "0"
   [s] -> s
   _   -> case Map.lookup varName (rcDomBounds ctx) of
     Just bounds -> linearizeWithBounds subs bounds
-    Nothing     -> intercalate " + " subs  -- fallback: no stride info
+    Nothing -> error $
+      "Alpha.Codegen.ExprRender.linearize: no bounds for \""
+      ++ varName ++ "\" (multi-dim access requires strides — \
+         \declListBoundsM should have populated this)"
 
 linearizeWithBounds :: [String] -> [String] -> String
 linearizeWithBounds subs bounds =
@@ -347,49 +344,74 @@ matchUBN d _ps (C.Add (C.Constant k) (C.Mul (-1) (C.Ix (SetDim d'))))
   | d == d' = Just (show (k + 1))
 matchUBN _ _ _ = Nothing
 
--- | ISL-powered bound extraction via @isl_set_dim_max@.
---
--- For each dimension, computes the inclusive maximum via ISL, adds 1
--- for an exclusive upper bound (all arithmetic done by ISL), then
--- extracts the parameter expression from ISL's standard output format.
---
--- Row-major linearization assumes rectangular domains with
--- parameter-affine bounds per dimension. Non-rectangular domains
--- (triangular, etc.) require different linearization strategies.
-extractBoundsISL :: String -> Int -> [String]
-extractBoundsISL domStr nDims =
-  [ extractOneDimBound domStr d | d <- [0 .. nDims - 1] ]
+-- | Local bound-extraction error.  Wrapped by callers into
+-- 'Alpha.Codegen.CodegenError.BoundExtractionFailed' with the
+-- variable name (which this module doesn't carry).
+data BoundErr
+  = BEPieceCount !Int     -- ^ @isl_pw_aff_n_piece@ returned @n /= 1@.
+  | BEParseFailed !String -- ^ ISL @pw_aff@ string didn't match expected shape.
+  deriving (Show, Eq)
 
-extractOneDimBound :: String -> Int -> String
-extractOneDimBound domStr d = unsafePerformIO $ runIslT $ Isl.do
+instance NFData BoundErr where
+  rnf (BEPieceCount n)  = rnf n
+  rnf (BEParseFailed s) = rnf s
+
+-- | ISL-powered bound extraction via @isl_set_dim_max@, running in
+-- 'IslT' (no 'unsafePerformIO').  Piecewise bounds are rejected
+-- structurally via @isl_pw_aff_n_piece@ — no substring heuristic.
+--
+-- Returns one upper bound per dimension.  'Left (dim, err)' on the
+-- first failing dimension.
+extractBoundsISLM
+  :: String -> Int
+  -> IslT IO (Ur (Either (Int, BoundErr) [String]))
+extractBoundsISLM domStr nDims = Isl.do
+  Ur results <- Isl.mapM (extractOneDimBoundM domStr) [0 .. nDims - 1]
+  -- 'Isl.mapM' returns 'Ur [Ur (Either ...)]'; flatten the inner Ur
+  -- wrappers before sequencing dims into a single 'Either'.
+  let flat = [ e | Ur e <- results ]
+  Isl.pure (Ur (sequenceDims flat))
+  where
+    sequenceDims :: [Either BoundErr String] -> Either (Int, BoundErr) [String]
+    sequenceDims = go 0
+      where
+        go _ []                = Right []
+        go d (Left err : _)    = Left (d, err)
+        go d (Right b  : rest) = fmap (b :) (go (d + 1) rest)
+
+-- | Extract an exclusive upper bound for one dimension, using
+-- @dim_max + 1@.  Fails if the result is piecewise (@n_piece /= 1@)
+-- or the printed form doesn't match the single-piece template.
+extractOneDimBoundM
+  :: String -> Int
+  -> IslT IO (Ur (Either BoundErr String))
+extractOneDimBoundM domStr d = Isl.do
   s <- RS.readFromStr domStr
   pa <- RS.dimMax s d
   one <- Val.intFromSi 1
   excl <- PA.addConstantVal pa one
-  Ur str <- query_ excl PA.toStr
-  Isl.pure (Ur (extractPwAffExpr str))
-{-# NOINLINE extractOneDimBound #-}
-{-# NOINLINE extractBoundsISL #-}
+  Both (Ur np) excl' <- query excl PA.nPiece
+  if np /= 1
+    then Isl.do
+      freeM excl'
+      Isl.pure (Ur (Left (BEPieceCount np)))
+    else Isl.do
+      Ur str <- query_ excl' PA.toStr
+      Isl.pure (Ur (case extractPwAffExpr str of
+                      Just expr -> Right expr
+                      Nothing   -> Left (BEParseFailed str)))
 
--- | Extract the expression between @[(@...@)]@ in ISL pw_aff output.
--- Single-piece format: @[params] -> { [(expr)] }@.
--- Piecewise format uses @;@ separators — rejected (non-rectangular).
-extractPwAffExpr :: String -> String
-extractPwAffExpr s
-  | ';' `elem` s = "/* piecewise dim_max: non-rectangular domain */"
-  | otherwise = go s
+-- | Extract the expression between @[(@…@)]@ in ISL pw_aff output.
+-- Single-piece format: @[params] -> { [(expr)] }@.  Returns 'Nothing'
+-- if the string doesn't match that template.
+extractPwAffExpr :: String -> Maybe String
+extractPwAffExpr = go
   where
-    go ('{':' ':'[':'(':rest) = takeUntilClose rest
+    go ('{':' ':'[':'(':rest) = Just (takeUntilClose rest)
     go (_:rest) = go rest
-    go [] = "/* dim_max parse error */"
+    go [] = Nothing
     -- Match ")]" — handles nested parens (e.g., "floord(N, 2) + 1")
     takeUntilClose = reverse . drop 1 . dropWhile (/= ')') . reverse
-
-varNameFromExpr :: forall ps decls n d a. Alpha.Core.Expr ps decls n d a -> Maybe String
-varNameFromExpr (Var (Proxy :: Proxy name)) = Just (symbolVal (Proxy @name))
-varNameFromExpr (PMap _ e) = varNameFromExpr e
-varNameFromExpr (Dep _ inner) = varNameFromExpr inner
-varNameFromExpr _ = Nothing
 
 
 -- ═══════════════════════════════════════════════════════════════════════

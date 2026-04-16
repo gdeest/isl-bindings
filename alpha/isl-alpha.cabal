@@ -83,6 +83,7 @@ test-suite alpha-test
                    , Examples.ReflectedMatmulFails
                    , Examples.MatmulNormalize
                    , Examples.MatmulTransposed
+                   , Examples.IntRowMax
                    , Reference.Matmul
                    , Reference.Cholesky
                    , Reference.FloydWarshall

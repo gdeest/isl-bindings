@@ -30,6 +30,7 @@ module Alpha.Scalar
   , fromSomeBuffer
   ) where
 
+import Data.Int (Int32)
 import Data.Word (Word8)
 import Foreign.ForeignPtr (ForeignPtr, mallocForeignPtrBytes, withForeignPtr)
 import Foreign.Ptr (Ptr, castPtr)
@@ -136,10 +137,16 @@ storableMarshal =
 
 data ScalarDesc where
   MkScalarDesc :: forall a.
-    { sdCNumType    :: !CNumType
-    , sdHsInterp    :: !(Maybe (HsInterp a))
-    , sdConstBridge :: !(Maybe (ConstBridge a))
-    , sdMarshal     :: !(Maybe (Marshal a))
+    { sdCNumType        :: !CNumType
+    , sdHsInterp        :: !(Maybe (HsInterp a))
+    , sdConstBridge     :: !(Maybe (ConstBridge a))
+    , sdMarshal         :: !(Maybe (Marshal a))
+    , sdReduceIdentity  :: !(Maybe (ReduceOp -> Maybe String))
+      -- ^ C literal for each reduction op's identity element.  Used by
+      -- 'Alpha.Codegen.assembleCSource' to init reduction accumulator
+      -- buffers regardless of type — e.g. @"0"@ for integer 'ReduceSum',
+      -- @"INT32_MIN"@ for integer 'ReduceMax'.  'Nothing' (either at the
+      -- field or inner lookup) surfaces as 'MissingReduceIdentity'.
     } -> ScalarDesc
 
 
@@ -148,10 +155,11 @@ data ScalarDesc where
 -- ═══════════════════════════════════════════════════════════════════════
 
 class AlphaScalar a where
-  scalarInterp      :: HsInterp a
-  scalarCNumType    :: CNumType
-  scalarConstBridge :: ConstBridge a
-  scalarMarshal     :: Marshal a
+  scalarInterp          :: HsInterp a
+  scalarCNumType        :: CNumType
+  scalarConstBridge     :: ConstBridge a
+  scalarMarshal         :: Marshal a
+  scalarReduceIdentity  :: ReduceOp -> Maybe String
 
 scalarDesc :: forall a. AlphaScalar a => ScalarDesc
 scalarDesc = MkScalarDesc
@@ -159,6 +167,7 @@ scalarDesc = MkScalarDesc
   (Just (scalarInterp @a))
   (Just (scalarConstBridge @a))
   (Just (scalarMarshal @a))
+  (Just (scalarReduceIdentity @a))
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -170,12 +179,47 @@ instance AlphaScalar Double where
   scalarCNumType = CFloat64
   scalarConstBridge = ConstBridge showDoubleLiteral
   scalarMarshal = storableMarshal
+  scalarReduceIdentity op = Just $ case op of
+    ReduceSum  -> "0.0"
+    ReduceProd -> "1.0"
+    ReduceMin  -> "(1.0/0.0)"   -- +INFINITY
+    ReduceMax  -> "(-1.0/0.0)"  -- -INFINITY
 
 instance AlphaScalar Float where
   scalarInterp = numInterp
   scalarCNumType = CFloat32
   scalarConstBridge = ConstBridge showFloatLiteral
   scalarMarshal = storableMarshal
+  scalarReduceIdentity op = Just $ case op of
+    ReduceSum  -> "0.0f"
+    ReduceProd -> "1.0f"
+    ReduceMin  -> "(1.0f/0.0f)"
+    ReduceMax  -> "(-1.0f/0.0f)"
+
+-- | Integer 32-bit scalar.  Added to support integer reductions with
+-- correct identity literals (e.g. @INT32_MIN@ for 'ReduceMax') — see #2.
+-- Fractional ops (sqrt/div-as-truncation) error out; they are not
+-- reachable from any integer-typed Alpha expression that survives
+-- type-checking.
+instance AlphaScalar Int32 where
+  scalarInterp = HsInterp
+    { hiAdd = (+), hiSub = (-), hiMul = (*)
+    , hiDiv = quot
+    , hiNeg = negate, hiAbs = abs
+    , hiFloor = id, hiCeil = id
+    , hiSqrt = \_ -> error "Alpha.Scalar: sqrt not defined for Int32"
+    , hiMin = min, hiMax = max
+    , hiFromInteger = fromInteger
+    , hiCompare = compare
+    }
+  scalarCNumType = CInt32
+  scalarConstBridge = ConstBridge show
+  scalarMarshal = storableMarshal
+  scalarReduceIdentity op = Just $ case op of
+    ReduceSum  -> "0"
+    ReduceProd -> "1"
+    ReduceMin  -> "INT32_MAX"
+    ReduceMax  -> "INT32_MIN"
 
 showDoubleLiteral :: Double -> String
 showDoubleLiteral d

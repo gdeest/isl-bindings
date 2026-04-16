@@ -96,6 +96,7 @@ import Isl.TypeLevel.Reflection
   )
 import Isl.TypeLevel.Sing (KnownConstraints)
 import Alpha.Codegen.COp (BinOp(..), UnaryOp(..), ReduceOp(..))
+import Alpha.Scalar (AlphaScalar)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -197,7 +198,13 @@ data Expr ps decls n d a where
 
   -- | Domain-polymorphic literal.  GHC unifies @d@ with the checking
   -- context — the HM-for-domains story from §1.3 of the design doc.
-  Const :: a -> Expr ps decls n d a
+  --
+  -- The 'AlphaScalar' constraint captures the type's 'ConstBridge' (and
+  -- rest of its scalar metadata) at construction time; pattern-matching
+  -- 'Const' in a renderer brings the dictionary back into scope, so the
+  -- C rendering does not need to consult a separate 'ScalarDesc' map
+  -- via a typed hatch — see issue #1 in @doc/codegen-fixes.md@.
+  Const :: AlphaScalar a => a -> Expr ps decls n d a
 
   -- | Pointwise binary operation.  Both operands and the result share
   -- the same domain @d@ and the same value type @a@.  Domain matching
