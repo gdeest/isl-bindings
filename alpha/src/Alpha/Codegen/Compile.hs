@@ -17,7 +17,7 @@ module Alpha.Codegen.Compile
   , uniformDescs
   ) where
 
-import Control.Exception (bracket)
+import Control.Exception (bracket, finally)
 import Data.Int (Int64)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -210,44 +210,43 @@ executeKernelHet ck paramVals inputBufs = do
         MkScalarDesc { sdMarshal = Just m } -> maElemSize m
         _ -> error $ "executeKernelHet: no Marshal for " ++ name
 
-  -- Allocate raw buffers for all variables
+  -- Bracket raw buffer allocation to prevent leaks on exception
   rawBufs <- mapM (\name -> mallocBytes (bufSize name * elemSz name)) bufNames
-  let rawBufMap = Map.fromList (zip bufNames rawBufs)
+  flip finally (mapM_ free rawBufs) $ do
+    let rawBufMap = Map.fromList (zip bufNames rawBufs)
 
-  -- Copy input data into allocated buffers; zero non-input buffers
-  sequence_
-    [ case Map.lookup name inputMap of
-        Just sb -> withForeignPtr (sbData sb) $ \srcPtr -> do
-          let dst = rawBufMap Map.! name
-              bytes = sbElemCount sb * elemSz name
-          copyBytes dst (castPtr srcPtr) bytes
-        Nothing ->
-          fillBytes (rawBufMap Map.! name) 0 (bufSize name * elemSz name)
-    | name <- bufNames ]
+    -- Copy input data; zero non-input buffers
+    sequence_
+      [ case Map.lookup name inputMap of
+          Just sb -> withForeignPtr (sbData sb) $ \srcPtr -> do
+            let dst = rawBufMap Map.! name
+                allocBytes = bufSize name * elemSz name
+                copyLen = min allocBytes (sbElemCount sb * elemSz name)
+            copyBytes dst (castPtr srcPtr) copyLen
+          Nothing ->
+            fillBytes (rawBufMap Map.! name) 0 (bufSize name * elemSz name)
+      | name <- bufNames ]
 
-  -- Call the kernel
-  let paramI64s = map fromIntegral paramVals :: [Int64]
-      bufPtrs = map (\n -> castPtr (rawBufMap Map.! n)) bufNames
-  withInt64Array paramI64s $ \pPtr ->
-    withPtrArray bufPtrs $ \bPtr ->
-      call pPtr bPtr
+    -- Call the kernel
+    let paramI64s = map fromIntegral paramVals :: [Int64]
+        bufPtrs = map (\n -> castPtr (rawBufMap Map.! n)) bufNames
+    withInt64Array paramI64s $ \pPtr ->
+      withPtrArray bufPtrs $ \bPtr ->
+        call pPtr bPtr
 
-  -- Read output buffers into SomeBuffers
-  outBufs <- mapM (\name -> do
-    let sz = bufSize name
-        esz = elemSz name
-    fptr <- mallocForeignPtrBytes (sz * esz)
-    withForeignPtr fptr $ \dst ->
-      copyBytes (castPtr dst) (rawBufMap Map.! name) (sz * esz)
-    pure SomeBuffer
-      { sbDesc = lookupDesc name
-      , sbData = fptr
-      , sbElemCount = sz
-      }
-    ) (ckOutputNames ck)
-
-  mapM_ free rawBufs
-  pure outBufs
+    -- Read output buffers into SomeBuffers
+    mapM (\name -> do
+      let sz = bufSize name
+          esz = elemSz name
+      fptr <- mallocForeignPtrBytes (sz * esz)
+      withForeignPtr fptr $ \dst ->
+        copyBytes (castPtr dst) (rawBufMap Map.! name) (sz * esz)
+      pure SomeBuffer
+        { sbDesc = lookupDesc name
+        , sbData = fptr
+        , sbElemCount = sz
+        }
+      ) (ckOutputNames ck)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
