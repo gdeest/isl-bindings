@@ -58,7 +58,7 @@ import Test.Tasty.HUnit
 import qualified Data.Vector.Unboxed as V
 
 import Alpha.Codegen (codegen, CodegenError(..), BoundError(..), extractStmtArgs)
-import Alpha.Codegen.Compile (uniformDescs, CompileException(..))
+import Alpha.Codegen.Compile (uniformDescs, CompileException(..), evalBoundStr)
 import Isl.AstBuild (CNode(..))
 import Alpha.Codegen.ExprRender
   ( extractOneBound, extractBoundsISLM, BoundErr(..)
@@ -96,6 +96,7 @@ import qualified Examples.DepReindex as DepReindex
 import qualified Examples.MatmulTransposed as MatT
 import qualified Examples.IntRowMax as IRM
 import qualified Examples.SumIndex2D as SI2
+import qualified Examples.SumIndex2DSquare as SI2S
 import qualified Examples.TiledZero1D as TiledZero1D
 import qualified Examples.Zero1D as Zero1D
 import qualified Examples.Copy1D as Copy1D
@@ -1015,6 +1016,49 @@ main = defaultMain $ testGroup "alpha-test"
             Right () -> pure ()
             other -> assertFailure $
               "expected Right () for FullStorage, got: " ++ show other
+      ]
+
+  , testGroup "regress #4 evalBoundStr juxtaposition"
+      [ testCase "regress_4_evalBoundStr_juxtaposition" $ do
+          -- ISL's dim_max emits coefficient·param products with no
+          -- operator ("2N - 2", "-1 + 2N").  Pre-fix, parseAtom read
+          -- "2" as an atom and left "N" hanging (under-allocation on
+          -- the caller side).  Post-fix, a digit-atom followed by an
+          -- identifier is treated as implicit multiplication.
+          let p = Map.singleton "N" 4
+          assertEqual "\"2N - 1\" at N=4"     7 (evalBoundStr p "2N - 1")
+          assertEqual "\"2*N - 1\" at N=4"    7 (evalBoundStr p "2*N - 1")
+          assertEqual "\"-1 + 2N\" at N=4"    7 (evalBoundStr p "-1 + 2N")
+          assertEqual "\"2N - 2\" at N=4"     6 (evalBoundStr p "2N - 2")
+          assertEqual "juxtaposition binds tighter than *" 24
+                      (evalBoundStr p "2N * 3")  -- (2N) * 3 = 24, not 2*(N*3)=24
+                      -- (same result either way here — the real
+                      -- precedence check is the negative form below)
+          assertEqual "\"-2 + 2N\" at N=4"    6 (evalBoundStr p "-2 + 2N")
+
+      , testCase "regress_4_sumindex2d_square_end_to_end" $ do
+          -- Square domain @[0,N-1] × [0,N-1]@ with @A[i,j] = B[i+j]@;
+          -- B is dimensioned @[0, 2N-2]@.  Pre-fix, the B bound string
+          -- "2N - 2" slipped past evalBoundStr (juxtaposition missed),
+          -- under-allocating B's buffer and causing an out-of-bounds
+          -- read for the maximal @i+j = 2N-2@ access.
+          let n = 4
+              bLen = 2 * n - 1  -- 0..2N-2 inclusive
+              bVec :: V.Vector Double
+              bVec = V.generate bLen $ \k -> fromIntegral (k * k + 1)
+          eval <- interpret SI2S.sumIndex2DSquare
+                    (Map.fromList [("N", n)])
+                    (Map.fromList [("B", \[k] -> bVec V.! k)])
+          expected <- V.generateM (n * n) $ \idx ->
+            let (i, j) = idx `divMod` n
+            in eval "A" [i, j]
+          withCompiledKernel SI2S.sumIndex2DSquare
+            (scheduling $
+               schedOf @"A" SI2S.sumIndex2DSquare $ \_ -> identity 2)
+            (Allocation Map.empty)
+            (defaultMapping "sum_index_2d_square" SI2S.sumIndex2DSquare) $ \kernel -> do
+              aResult <- runKernel kernel (n :> PNil) bVec
+              assertVecApprox "A[i,j] = B[i+j] on square" 1e-10 expected aResult
       ]
 
   ]

@@ -304,7 +304,16 @@ evalBoundStr params = fst . parseAddSub . filter (/= ' ')
           _ -> error "evalBoundStr: malformed floord"
         _ -> error "evalBoundStr: malformed floord"
     parseAtom s = case span isDigit s of
-      (ds@(_:_), rest) -> (read ds, rest)
+      (ds@(_:_), rest) ->
+        let n = read ds
+        in case rest of
+          -- Juxtaposition: "2N" ≡ "2 * N" (ISL emits coefficient·param
+          -- products this way).  Binds tighter than '*' / '/' — keyed
+          -- off isIdent, and rest can't start with a digit since span
+          -- isDigit already consumed them.
+          (c:_) | isIdent c ->
+            let (v, rest') = parseAtom rest in (n * v, rest')
+          _ -> (n, rest)
       _ -> case break (not . isIdent) s of
         (name@(_:_), rest) -> case Map.lookup name params of
           Just v  -> (v, rest)
