@@ -239,7 +239,9 @@ extractAllBounds domains params = Map.fromList
 
 mergeAnnotations :: Schedule -> Map.Map Int DimAnnotation
 mergeAnnotations (Schedule entries) =
-  Map.unions [esAnnotations es | es <- Map.elems entries]
+  Map.unionsWith (\a b -> if a == b then a else error $
+    "conflicting annotations on same schedule dim: " ++ show a ++ " vs " ++ show b)
+    [esAnnotations es | es <- Map.elems entries]
 
 
 -- ═══════════════════════════════════════════════════════════════════════

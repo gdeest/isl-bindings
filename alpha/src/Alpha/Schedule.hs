@@ -47,6 +47,7 @@ module Alpha.Schedule
   , embedAt
   ) where
 
+import Control.DeepSeq (NFData(..))
 import Control.Monad.State.Strict (State, modify', execState)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -65,6 +66,10 @@ import Alpha.Core (VarDecl(..), Lookup, DeclDims)
 -- | Annotation for a schedule dimension.
 data DimAnnotation = Parallel | Vectorize
   deriving (Show, Eq, Ord)
+
+instance NFData DimAnnotation where
+  rnf Parallel  = ()
+  rnf Vectorize = ()
 
 data EqSchedule = EqSchedule
   { esName        :: !String

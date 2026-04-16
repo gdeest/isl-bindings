@@ -49,10 +49,6 @@ data AnnotationError
 instance NFData AnnotationError where
   rnf (CarriedDependence d a s) = rnf d `seq` rnf a `seq` rnf s
 
-instance NFData DimAnnotation where
-  rnf Parallel  = ()
-  rnf Vectorize = ()
-
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §2. Public API
@@ -139,4 +135,6 @@ buildCarriedAt nOut dim = Isl.do
 
 mergedAnnotations :: Schedule -> Map.Map Int DimAnnotation
 mergedAnnotations (Schedule entries) =
-  Map.unions [esAnnotations es | es <- Map.elems entries]
+  Map.unionsWith (\a b -> if a == b then a else error $
+    "conflicting annotations on same dim: " ++ show a ++ " vs " ++ show b)
+    [esAnnotations es | es <- Map.elems entries]
