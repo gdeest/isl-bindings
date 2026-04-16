@@ -31,10 +31,8 @@ import qualified Data.Vector.Unboxed.Mutable as MV
 -- initial condition in row-major @(i, j, k)@ order; output is a
 -- T×N×N×N space-time array in row-major @(t, i, j, k)@ order.
 referenceHeat3D
-  :: Int            -- ^ N (spatial grid size)
-  -> Int            -- ^ T (number of time steps)
-  -> Vector Double  -- ^ u0 in row-major, length N*N*N
-  -> Vector Double  -- ^ u in row-major, length T*N*N*N
+  :: (Fractional a, V.Unbox a)
+  => Int -> Int -> Vector a -> Vector a
 referenceHeat3D n nt u0 = runST $ do
   u <- MV.replicate (nt * n * n * n) 0
   -- t = 0 slice: copy u0 into every (0, i, j, k).

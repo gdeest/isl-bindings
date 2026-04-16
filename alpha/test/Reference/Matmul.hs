@@ -13,10 +13,8 @@ import Data.Vector.Unboxed (Vector)
 -- Inputs and the output are stored row-major as flat vectors of length @n*n@.
 -- The function allocates a fresh result vector.
 referenceMatmul
-  :: Int          -- ^ N
-  -> Vector Double  -- ^ A in row-major
-  -> Vector Double  -- ^ B in row-major
-  -> Vector Double
+  :: (Num a, V.Unbox a)
+  => Int -> Vector a -> Vector a -> Vector a
 referenceMatmul n a b = V.generate (n * n) $ \ij ->
   let i = ij `div` n
       j = ij `mod` n

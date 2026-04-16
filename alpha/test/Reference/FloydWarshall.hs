@@ -32,9 +32,8 @@ import qualified Data.Vector.Unboxed.Mutable as MV
 -- is row-major, with missing edges encoded as a large finite weight
 -- (we use @1 / 0 = +Infinity@).  The output is row-major as well.
 referenceFloydWarshall
-  :: Int            -- ^ N
-  -> Vector Double  -- ^ A in row-major
-  -> Vector Double  -- ^ Result in row-major
+  :: (Fractional a, Ord a, V.Unbox a)
+  => Int -> Vector a -> Vector a
 referenceFloydWarshall n a = V.create $ do
   -- Working copy of A that we update in place through the
   -- Floyd-Warshall iteration.

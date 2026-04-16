@@ -57,7 +57,8 @@ import Test.Tasty.HUnit
 import qualified Data.Vector.Unboxed as V
 
 import Alpha.Codegen (codegen)
-import Alpha.Codegen.Compile (withCompiledKernel, runKernel)
+import Alpha.Codegen.Compile (withCompiledKernel, runKernel, uniformDescs)
+import Alpha.Scalar (scalarDesc, AlphaScalar)
 import Alpha.Codegen.FunctionMapping (defaultMapping)
 import Alpha.Codegen.Parallel (validateAnnotations, AnnotationError(..))
 import Alpha.Compile (validateSchedule, CompileError(..))
@@ -136,7 +137,7 @@ main = defaultMain $ testGroup "alpha-test"
       , testCase "reference matmul: 4x4 identity" $ do
           let n = 4
               identity = V.generate (n * n) $ \ij ->
-                if ij `div` n == ij `mod` n then 1.0 else 0.0
+                if ij `div` n == ij `mod` n then 1.0 else 0.0 :: Double
               result = Ref.referenceMatmul n identity identity
           -- I * I = I
           assertEqual "I*I=I" identity result
@@ -284,24 +285,18 @@ main = defaultMain $ testGroup "alpha-test"
           -- neighbours = 6/6 = 1.
           let n = 3
               nt = 2
-              u0 = V.replicate (n * n * n) 1.0
+              u0 = V.replicate (n * n * n) (1.0 :: Double)
               result = RefH3.referenceHeat3D n nt u0
-              -- Expected layout: 27 ones at indices 0..26, then 26
-              -- zeros at indices 27..53 except index 40 which is
-              -- the interior (1, 1, 1) at t=1 = 1*27 + 1*9 + 1*3 + 1.
               expected = V.generate (nt * n * n * n) $ \idx ->
                 if idx < 27 then 1.0
                 else if idx == 40 then 1.0
-                else 0.0
+                else 0.0 :: Double
           assertEqual "Heat3D(N=3,T=2,uniform 1)" expected result
 
       , testCase "reference Heat3D: N=4, T=2, u0 uniform 1" $ do
-          -- At N=4 the interior is 2x2x2 = 8 points; each has all
-          -- 6 neighbours at t=0 = 1, so every interior point at
-          -- t=1 averages to 1.  Boundary at t=1 is 0.
           let n = 4
               nt = 2
-              u0 = V.replicate (n * n * n) 1.0
+              u0 = V.replicate (n * n * n) (1.0 :: Double)
               result = RefH3.referenceHeat3D n nt u0
               -- t=0 slice (indices 0..63): all 1s.
               -- t=1 slice: 1 at the 8 interior points, 0 elsewhere.
@@ -471,7 +466,7 @@ main = defaultMain $ testGroup "alpha-test"
       , testCase "interpret heat3D N=3, T=2" $ do
           let n = 3
               nt = 2
-              u0 = V.replicate (n*n*n) 1.0
+              u0 = V.replicate (n*n*n) (1.0 :: Double)
               expected = RefH3.referenceHeat3D n nt u0
           eval <- interpret H3.heat3D
                     (Map.fromList [("N", n), ("T", nt)])
@@ -543,6 +538,7 @@ main = defaultMain $ testGroup "alpha-test"
               a = Allocation Map.empty
               fm = defaultMapping "matmul" Matmul.matmul
           result <- codegen Matmul.matmul s a fm
+                      (uniformDescs (scalarDesc @Double) Matmul.matmul)
           case result of
             Right cSrc -> do
               assertBool "contains function signature"
@@ -595,7 +591,7 @@ main = defaultMain $ testGroup "alpha-test"
               bVec = V.fromList [ fromIntegral (i+j+1) :: Double
                                 | i <- [0..n-1], j <- [0..n-1] ]
               expected = Ref.referenceMatmul n aVec bVec
-          withCompiledKernel Matmul.matmul
+          withCompiledKernel @Double Matmul.matmul
             (scheduling $ sched @"C" @Matmul.MatmulDecls $ \_ -> identity 2)
             (Allocation Map.empty)
             (defaultMapping "matmul" Matmul.matmul) $ \kernel -> do
@@ -609,7 +605,7 @@ main = defaultMain $ testGroup "alpha-test"
               bVec = V.fromList [ fromIntegral (i+j+1) :: Double
                                 | i <- [0..n-1], j <- [0..n-1] ]
               expected = Ref.referenceMatmul n aVec bVec
-          withCompiledKernel Matmul.matmul
+          withCompiledKernel @Double Matmul.matmul
             (scheduling $ sched @"C" @Matmul.MatmulDecls $ \_ -> tile 0 2 $ identity 2)
             (Allocation Map.empty)
             (defaultMapping "matmul_tiled" Matmul.matmul) $ \kernel -> do

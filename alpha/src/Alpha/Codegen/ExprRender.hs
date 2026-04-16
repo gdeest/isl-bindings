@@ -15,6 +15,8 @@ module Alpha.Codegen.ExprRender
   , renderExprToC
   , extractSubscripts
   , extractOneBound
+  , descCType
+  , descMathSuffix
   ) where
 
 import Data.List (intercalate, sortBy)
@@ -24,7 +26,6 @@ import Data.Maybe (mapMaybe)
 import Data.Ord (comparing)
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownNat, natVal, symbolVal, type (+))
-import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.Typed.Constraints
   ( Constraint(..), MapIx(..), SetIx(..) )
@@ -33,9 +34,12 @@ import Isl.Typed.Params (KnownSymbols, symbolVals)
 import Isl.TypeLevel.Reflection (DomTag, reflectDomConstraints)
 import Isl.TypeLevel.Sing (knownConstraints, reifySTConstraintsMapSplit)
 
+import Unsafe.Coerce (unsafeCoerce)
+
 import Alpha.Core
 import Alpha.Codegen.COp
-import Alpha.Allocation (EqStorage(..), Allocation(..))
+import Alpha.Allocation (EqStorage(..))
+import Alpha.Scalar (ScalarDesc(..), CNumType, cTypeName, cMathSuffix, ConstBridge(..))
 import qualified Alpha.Polyhedral.Contraction as C
 
 
@@ -48,8 +52,14 @@ data RenderCtx = RenderCtx
   , rcIterVars  :: ![String]              -- current iterator variable names
   , rcStorage   :: !(Map String EqStorage) -- variable → storage strategy
   , rcDomBounds :: !(Map String [String])  -- variable → per-dim exclusive upper bounds
-  , rcCType     :: !String                 -- C type name for values (e.g. "double")
+  , rcDesc      :: !ScalarDesc             -- scalar type descriptor for this equation
   }
+
+descCType :: ScalarDesc -> String
+descCType (MkScalarDesc { sdCNumType = ct }) = cTypeName ct
+
+descMathSuffix :: ScalarDesc -> String
+descMathSuffix (MkScalarDesc { sdCNumType = ct }) = cMathSuffix ct
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -84,10 +94,12 @@ renderEquationMacro eqName nOutDims body ctx =
           (" *= ", renderExprToC ctx inner)
         Reduce ReduceMin _ inner ->
           let bc = renderExprToC ctx inner
-          in (" = ", "fmin(" ++ writeLhs ++ ", " ++ bc ++ ")")
+              sfx = descMathSuffix (rcDesc ctx)
+          in (" = ", "fmin" ++ sfx ++ "(" ++ writeLhs ++ ", " ++ bc ++ ")")
         Reduce ReduceMax _ inner ->
           let bc = renderExprToC ctx inner
-          in (" = ", "fmax(" ++ writeLhs ++ ", " ++ bc ++ ")")
+              sfx = descMathSuffix (rcDesc ctx)
+          in (" = ", "fmax" ++ sfx ++ "(" ++ writeLhs ++ ", " ++ bc ++ ")")
         _ -> (" = ", renderExprToC ctx body)
   in "#define " ++ eqName ++ "(" ++ args ++ ") do { "
      ++ writeLhs ++ accOp ++ bodyExpr ++ "; } while(0)"
@@ -106,18 +118,19 @@ renderExprToC ctx (Var (Proxy :: Proxy name)) =
   let varName = symbolVal (Proxy @name)
   in renderArrayAccess varName (rcIterVars ctx) ctx
 
-renderExprToC _ctx (Const v) =
-  -- All current Alpha examples use Double. Use unsafeCoerce to extract.
-  let d = unsafeCoerce v :: Double
-  in if d == fromIntegral (round d :: Integer)
-    then show (round d :: Integer) ++ ".0"
-    else show d
+renderExprToC ctx (Const v) =
+  case rcDesc ctx of
+    MkScalarDesc { sdConstBridge = Just (ConstBridge showLit) } ->
+      showLit (unsafeCoerce v)
+    _ -> error "Alpha.Codegen.ExprRender: no ConstBridge for scalar type"
 
 renderExprToC ctx (Pw op e1 e2) =
-  renderBinOp op (renderExprToC ctx e1) (renderExprToC ctx e2)
+  let sfx = descMathSuffix (rcDesc ctx)
+  in renderBinOp sfx op (renderExprToC ctx e1) (renderExprToC ctx e2)
 
 renderExprToC ctx (PMap op e) =
-  renderUnaryOp op (renderExprToC ctx e)
+  let sfx = descMathSuffix (rcDesc ctx)
+  in renderUnaryOp sfx op (renderExprToC ctx e)
 
 renderExprToC ctx
   (Dep (Proxy :: Proxy mapCs) (inner :: Alpha.Core.Expr ps decls no dInner a)) =
@@ -146,7 +159,7 @@ renderExprToC ctx (Case branches) =
 renderBranches
   :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
      RenderCtx -> Branches ps decls n amb branchDoms a -> String
-renderBranches _ctx BNil = "0.0 /* unreachable */"
+renderBranches _ctx BNil = "0 /* unreachable */"
 renderBranches ctx (BCons _ body BNil) =
   renderExprToC ctx body
 renderBranches ctx (BCons (_ :: Proxy d) body rest) =
@@ -322,20 +335,20 @@ varNameFromExpr _ = Nothing
 -- §8. Binary/unary op rendering
 -- ═══════════════════════════════════════════════════════════════════════
 
-renderBinOp :: BinOp -> String -> String -> String
-renderBinOp OpAdd a b = "(" ++ a ++ " + " ++ b ++ ")"
-renderBinOp OpSub a b = "(" ++ a ++ " - " ++ b ++ ")"
-renderBinOp OpMul a b = "(" ++ a ++ " * " ++ b ++ ")"
-renderBinOp OpDiv a b = "(" ++ a ++ " / " ++ b ++ ")"
-renderBinOp OpMin a b = "fmin(" ++ a ++ ", " ++ b ++ ")"
-renderBinOp OpMax a b = "fmax(" ++ a ++ ", " ++ b ++ ")"
+renderBinOp :: String -> BinOp -> String -> String -> String
+renderBinOp _   OpAdd a b = "(" ++ a ++ " + " ++ b ++ ")"
+renderBinOp _   OpSub a b = "(" ++ a ++ " - " ++ b ++ ")"
+renderBinOp _   OpMul a b = "(" ++ a ++ " * " ++ b ++ ")"
+renderBinOp _   OpDiv a b = "(" ++ a ++ " / " ++ b ++ ")"
+renderBinOp sfx OpMin a b = "fmin" ++ sfx ++ "(" ++ a ++ ", " ++ b ++ ")"
+renderBinOp sfx OpMax a b = "fmax" ++ sfx ++ "(" ++ a ++ ", " ++ b ++ ")"
 
-renderUnaryOp :: UnaryOp -> String -> String
-renderUnaryOp OpNeg   s = "(-(" ++ s ++ "))"
-renderUnaryOp OpAbs   s = "fabs(" ++ s ++ ")"
-renderUnaryOp OpFloor s = "floor(" ++ s ++ ")"
-renderUnaryOp OpCeil  s = "ceil(" ++ s ++ ")"
-renderUnaryOp OpSqrt  s = "sqrt(" ++ s ++ ")"
+renderUnaryOp :: String -> UnaryOp -> String -> String
+renderUnaryOp _   OpNeg   s = "(-(" ++ s ++ "))"
+renderUnaryOp sfx OpAbs   s = "fabs" ++ sfx ++ "(" ++ s ++ ")"
+renderUnaryOp sfx OpFloor s = "floor" ++ sfx ++ "(" ++ s ++ ")"
+renderUnaryOp sfx OpCeil  s = "ceil" ++ sfx ++ "(" ++ s ++ ")"
+renderUnaryOp sfx OpSqrt  s = "sqrt" ++ sfx ++ "(" ++ s ++ ")"
 
 
 -- ═══════════════════════════════════════════════════════════════════════

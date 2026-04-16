@@ -40,9 +40,8 @@ import qualified Data.Vector.Unboxed.Mutable as MV
 -- lower (unit diagonal *not* stored, zeros on and above the
 -- diagonal) and @U@ is upper with the diagonal stored.
 referenceLU
-  :: Int            -- ^ N
-  -> Vector Double  -- ^ A in row-major
-  -> (Vector Double, Vector Double)  -- ^ (L, U) in row-major
+  :: (Fractional a, V.Unbox a)
+  => Int -> Vector a -> (Vector a, Vector a)
 referenceLU n a = runST $ do
   l <- MV.replicate (n * n) 0
   u <- MV.replicate (n * n) 0
@@ -66,8 +65,7 @@ referenceLU n a = runST $ do
   u' <- V.unsafeFreeze u
   return (l', u')
 
--- | Strict monadic sum.
-sumM :: Monad m => [m Double] -> m Double
+sumM :: (Monad m, Num a) => [m a] -> m a
 sumM = go 0
   where
     go !acc []     = return acc

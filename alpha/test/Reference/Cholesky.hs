@@ -26,9 +26,8 @@ import qualified Data.Vector.Unboxed.Mutable as MV
 -- The input and output are stored row-major as flat vectors of length @n*n@.
 -- The output has zeros strictly above the diagonal.
 referenceCholesky
-  :: Int            -- ^ N
-  -> Vector Double  -- ^ A in row-major, symmetric positive-definite
-  -> Vector Double  -- ^ L in row-major, lower-triangular
+  :: (Floating a, Ord a, V.Unbox a)
+  => Int -> Vector a -> Vector a
 referenceCholesky n a = V.create $ do
   l <- MV.replicate (n * n) 0
   forM_ [0 .. n - 1] $ \i ->
@@ -49,9 +48,7 @@ referenceCholesky n a = V.create $ do
           MV.write l (i * n + j) ((a V.! (i * n + j) - s) / ljj)
   return l
 
--- | Sum a list of monadic actions producing @Double@s, with a strict
--- accumulator so the inner products don't build a thunk list.
-sumM :: Monad m => [m Double] -> m Double
+sumM :: (Monad m, Num a) => [m a] -> m a
 sumM = go 0
   where
     go !acc []     = return acc

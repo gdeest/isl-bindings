@@ -40,8 +40,9 @@ import Alpha.Schedule (Schedule(..), EqSchedule(..), DimAnnotation(..))
 import Alpha.Allocation (Allocation(..), EqStorage(..))
 import qualified Alpha.Polyhedral.Schedule as S
 import Alpha.Codegen.CRender (renderCNodeToC)
-import Alpha.Codegen.ExprRender (RenderCtx(..), renderEquationMacro, extractOneBound)
+import Alpha.Codegen.ExprRender (RenderCtx(..), renderEquationMacro, extractOneBound, descCType)
 import Alpha.Codegen.FunctionMapping (CFunctionMapping(..), ArgPassing(..))
+import Alpha.Scalar (ScalarDesc(..), cTypeName)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -69,8 +70,9 @@ codegen
   -> Schedule
   -> Allocation
   -> CFunctionMapping
+  -> Map.Map String ScalarDesc
   -> IO (Either CodegenError String)
-codegen sys@(System _decls eqs) sched alloc fmap' = runIslT $ Isl.do
+codegen sys@(System _decls eqs) sched alloc fmap' descs = runIslT $ Isl.do
   let (domains, _writes, _reads, _projections) = lowerSystem sys
       reduceMap = buildReduceMap eqs
       schedMaps = lowerScheduleMaps sched domains reduceMap
@@ -95,10 +97,10 @@ codegen sys@(System _decls eqs) sched alloc fmap' = runIslT $ Isl.do
       -- Extract ISL-determined iterator names from CUser calls
       let stmtArgs = extractStmtArgs cTree
           domBounds = extractAllBounds domains params
-          macros = generateMacros sys sched alloc params domBounds stmtArgs
+          macros = generateMacros sys sched alloc params domBounds stmtArgs descs
           annotations = mergeAnnotations sched
           skeleton = renderCNodeToC annotations cTree
-          cSrc = assembleCSource params fmap' alloc macros skeleton
+          cSrc = assembleCSource params fmap' alloc macros skeleton descs
       Isl.pure (Ur (Right cSrc))
 
 
@@ -181,13 +183,14 @@ generateMacros
   => System ps inputs outputs locals
   -> Schedule
   -> Allocation
-  -> [String]       -- parameter names
-  -> Map.Map String [String]  -- domain bounds per variable
-  -> Map.Map String [String]  -- ISL-determined stmt args per equation
-  -> String         -- all #define lines
-generateMacros (System _decls eqs) sched alloc params domBounds stmtArgs =
+  -> [String]
+  -> Map.Map String [String]
+  -> Map.Map String [String]
+  -> Map.Map String ScalarDesc
+  -> String
+generateMacros (System _decls eqs) sched alloc params domBounds stmtArgs descs =
   let storMap = allocEntries alloc
-      macroLines = generateFromEqList eqs sched storMap params domBounds stmtArgs
+      macroLines = generateFromEqList eqs sched storMap params domBounds stmtArgs descs
   in unlines macroLines
 
 generateFromEqList
@@ -198,12 +201,12 @@ generateFromEqList
   -> Map.Map String EqStorage
   -> [String]
   -> Map.Map String [String]
-  -> Map.Map String [String]  -- ISL stmt args
+  -> Map.Map String [String]
+  -> Map.Map String ScalarDesc
   -> [String]
-generateFromEqList EqNil _ _ _ _ _ = []
-generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap params domBounds stmtArgs =
+generateFromEqList EqNil _ _ _ _ _ _ = []
+generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap params domBounds stmtArgs descs =
   let eqName = symbolVal (Proxy @name)
-      -- Use ISL-determined args if available, else fall back to schedule dims
       iterVars = case Map.lookup eqName stmtArgs of
         Just args -> args
         Nothing ->
@@ -212,18 +215,21 @@ generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap pa
               nRedDims = case extractReduceInfo body of
                 Just ri -> riRedDims ri; Nothing -> 0
           in ["c" ++ show i | i <- [0 .. nSchedDims + nRedDims - 1]]
+      desc = case Map.lookup eqName descs of
+        Just d  -> d
+        Nothing -> error $ "Alpha.Codegen: no ScalarDesc for " ++ eqName
       ctx = RenderCtx
         { rcParams    = params
         , rcIterVars  = iterVars
         , rcStorage   = storMap
         , rcDomBounds = domBounds
-        , rcCType     = "double"
+        , rcDesc      = desc
         }
       nOutDims = case Map.lookup eqName (schedEntries sched) of
         Just es -> esNIter es
         Nothing -> 0
       macro = renderEquationMacro eqName nOutDims body ctx
-  in macro : generateFromEqList rest sched storMap params domBounds stmtArgs
+  in macro : generateFromEqList rest sched storMap params domBounds stmtArgs descs
 
 -- | Extract reduction info from an equation body: number of reduction
 -- dims and the body domain constraints (for ISL loop generation).
@@ -279,40 +285,35 @@ mergeAnnotations (Schedule entries) =
 -- ═══════════════════════════════════════════════════════════════════════
 
 assembleCSource
-  :: [String]           -- parameter names
+  :: [String]
   -> CFunctionMapping
   -> Allocation
-  -> String             -- macro definitions
-  -> String             -- loop skeleton
   -> String
-assembleCSource params fmap' alloc macros skeleton =
+  -> String
+  -> Map.Map String ScalarDesc
+  -> String
+assembleCSource params fmap' alloc macros skeleton descs =
   let funcName = cfName fmap'
       passing = cfArgPassing fmap'
 
-      -- Parameters as function args
+      lookupCType n = case Map.lookup n descs of
+        Just (MkScalarDesc { sdCNumType = ct }) -> cTypeName ct
+        Nothing -> "double"  -- fallback for inputs without explicit desc
+
       paramDecls = intercalate ", " ["int64_t " ++ p | p <- params]
 
-      -- Buffer arguments (CallerAllocated only — locals are stack-managed)
       callerBufNames = [ n | (n, CallerAllocated) <- Map.toAscList passing ]
-      callerArgs = [ ", double *restrict " ++ n ++ "_buf" | n <- callerBufNames ]
+      callerArgs = [ ", " ++ lookupCType n ++ " *restrict " ++ n ++ "_buf"
+                   | n <- callerBufNames ]
 
-      -- Local buffer allocations
-      localAllocs = [ "  double *" ++ n ++ "_buf = (double*)calloc("
+      localAllocs = [ "  " ++ lookupCType n ++ " *" ++ n ++ "_buf = ("
+                      ++ lookupCType n ++ "*)calloc("
                       ++ "1" -- TODO: compute size from domain bounds
-                      ++ ", sizeof(double));"
+                      ++ ", sizeof(" ++ lookupCType n ++ "));"
                     | (n, LocallyManaged) <- Map.toAscList passing ]
 
       localFrees = [ "  free(" ++ n ++ "_buf);"
                    | (n, LocallyManaged) <- Map.toAscList passing ]
-
-      -- Equation names (outputs + locals, not inputs) for undef
-      eqNames = [ n | (n, p) <- Map.toAscList passing
-                 , p == CallerAllocated || p == LocallyManaged
-                 -- Inputs don't get macros; filter by whether they have macros
-                 -- For now, undef everything that's not clearly an input
-                 -- The macro generator only generates macros for equations,
-                 -- so we extract those names from the macros string
-                 ]
 
   in unlines $
     [ "#include <stdlib.h>"
@@ -338,11 +339,12 @@ assembleCSource params fmap' alloc macros skeleton =
     ++ [ "}"
        , ""
        , "// Uniform wrapper for generic FFI calling convention"
-       , "void alpha_call(int64_t* params, double** bufs) {"
+       , "void alpha_call(int64_t* params, void** bufs) {"
        , "  " ++ funcName ++ "("
          ++ intercalate ", "
               (  [ "params[" ++ show i ++ "]" | i <- [0 .. length params - 1] ]
-              ++ [ "bufs[" ++ show i ++ "]"   | (i, _) <- zip [0..] callerBufNames ])
+              ++ [ "(" ++ lookupCType n ++ "*)bufs[" ++ show i ++ "]"
+                 | (i, n) <- zip [0..] callerBufNames ])
          ++ ");"
        , "}"
        ]
