@@ -30,6 +30,7 @@ module Examples.MatmulTransposed
 import Alpha.Core (VarDecl(..))
 import Examples.Matmul (matmul, SquareN)
 import Alpha.Transform.Introduce (introduce)
+import Alpha.Transform.Types (TransformError(..))
 import Isl.TypeLevel.Constraint (TConstraint, IslPreimageMultiAff)
 import Isl.TypeLevel.Expr (D, TExpr(..))
 import Isl.TypeLevel.Reflection (DomTag(..))
@@ -42,7 +43,9 @@ type TransposeMap = '[ 'TDim (D 1), 'TDim (D 0) ] :: [TExpr '["N"] 2]
 -- This adds local Bt[j,k] = B[k,j] and rewrites C's equation
 -- to read Bt[j,k] instead of B[k,j].
 matmulT :: _
-matmulT = introduce @"B" @"Bt" @2 @'["N"] @TransposeMap matmul
+matmulT = case introduce @"B" @"Bt" @2 @'["N"] @TransposeMap matmul of
+  Right sys -> sys
+  Left err  -> error $ "matmulT: " ++ show err
 
 type BtDomCs = IslPreimageMultiAff '["N"] 2 2 TransposeMap SquareN
 

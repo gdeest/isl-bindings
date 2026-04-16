@@ -78,8 +78,9 @@ introduce
          ('Literal newDomCs) ('Literal sourceDomCs)
      )
   => System ps inputs outputs locals
-  -> System ps inputs outputs
-       (IntroducedVarDecl ps proxy newN newDomCs a ': locals)
+  -> Either TransformError
+            (System ps inputs outputs
+               (IntroducedVarDecl ps proxy newN newDomCs a ': locals))
 introduce sys = case sys of
   MkSystem @_ @_ @_ @_ @defined _ decls eqs ->
     introduceImpl @source @proxy @newN @ps @mapExprs
@@ -122,21 +123,27 @@ introduceImpl
      )
   => Decls ps inputs outputs locals
   -> EqList ps (OldDecls ps inputs outputs locals) defined
-  -> System ps inputs outputs
-       (IntroducedVarDecl ps proxy newN newDomCs a ': locals)
-introduceImpl decls eqs =
+  -> Either TransformError
+            (System ps inputs outputs
+               (IntroducedVarDecl ps proxy newN newDomCs a ': locals))
+introduceImpl decls eqs
+  -- Freshness check: proxy must not collide with any existing variable
+  | proxyName `elem` allNames =
+      Left (ImageOutOfBounds
+        ("introduce: proxy name " ++ show proxyName
+         ++ " collides with existing declaration")
+        proxyName proxyName)
+  | otherwise =
   case definesAllIntroduce @ps
          @(IntroducedVarDecl ps proxy newN newDomCs a)
          @proxy @outputs @locals @defined of
     Dict ->
-      -- Evidence for the copy equation's Var @source in the new decl env
       case lookupIntroduceDecl @ps @proxy @source
              @(IntroducedVarDecl ps proxy newN newDomCs a)
              @(OldDecls ps inputs outputs locals)
              @(NewDecls ps inputs outputs locals proxy newN newDomCs a)
              (Proxy @proxy) (Proxy @source) of
         Right Dict ->
-          -- Evidence for Defines @proxy
           case lookupIntroduce @ps @proxy
                  @(IntroducedVarDecl ps proxy newN newDomCs a)
                  @inputs @outputs @locals of
@@ -145,7 +152,6 @@ introduceImpl decls eqs =
                     :: Decl ps (IntroducedVarDecl ps proxy newN newDomCs a)
                   newDecls = introduceDecls proxyDecl decls
 
-                  -- Copy equation: proxy[...] = Dep introMap (Var @source)
                   sourceVar :: Expr ps (NewDecls ps inputs outputs locals proxy newN newDomCs a)
                                    sourceN ('Literal sourceDomCs) a
                   sourceVar = Var (Proxy @source)
@@ -158,24 +164,34 @@ introduceImpl decls eqs =
                   copyEq :: Equation ps (NewDecls ps inputs outputs locals proxy newN newDomCs a) proxy
                   copyEq = Defines (Proxy @proxy) copyBody
 
-                  -- Transport + rewrite existing equations
                   transportedEqs = introduceEqList @ps
                     @(IntroducedVarDecl ps proxy newN newDomCs a)
                     @inputs @outputs @locals eqs
 
-                  rewrittenEqs = case walkEqListIntroduce
-                        @source @proxy @ps
-                        @(OldDecls ps inputs outputs locals)
-                        @(NewDecls ps inputs outputs locals proxy newN newDomCs a)
-                        @(IntroducedVarDecl ps proxy newN newDomCs a)
-                        @newN @newDomCs @mapExprs
-                        transportedEqs of
-                    Left _err -> transportedEqs
-                    Right ok  -> ok
+              in case walkEqListIntroduce
+                       @source @proxy @ps
+                       @(OldDecls ps inputs outputs locals)
+                       @(NewDecls ps inputs outputs locals proxy newN newDomCs a)
+                       @(IntroducedVarDecl ps proxy newN newDomCs a)
+                       @newN @newDomCs @mapExprs
+                       transportedEqs of
+                   Left err -> Left err
+                   Right rewrittenEqs ->
+                     Right (MkSystem () newDecls (copyEq :& rewrittenEqs))
 
-              in MkSystem () newDecls (copyEq :& rewrittenEqs)
+        Left _ -> Left (ImageOutOfBounds
+          "introduce: source == proxy (names must differ)"
+          proxyName proxyName)
+  where
+    proxyName = symbolVal (Proxy @proxy)
+    allNames = declListNames (dInputs decls)
+            ++ declListNames (dOutputs decls)
+            ++ declListNames (dLocals decls)
 
-        Left _ -> error "introduce: source == proxy (names must differ)"
+declListNames :: forall ps ds. DeclList ps ds -> [String]
+declListNames Nil = []
+declListNames ((MkDecl :: Decl ps d) :> rest) =
+  symbolVal (Proxy @(DeclName d)) : declListNames rest
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -212,9 +228,7 @@ walkExprIntroduce = go
     go (Pw op a b) = Pw op <$> go a <*> go b
     go (PMap op a) = PMap op <$> go a
 
-    go (Var @name pn) =
-      -- Var doesn't change decls, no rewriting needed
-      Right (Var pn)
+    go (Var @name pn) = Right (Var pn)
 
     -- Dep targeting source variable: compose maps, redirect to proxy.
     -- Three evidence steps:
