@@ -27,45 +27,52 @@
 -- = Design at a glance
 --
 -- 'DomTag' identifies a polyhedral domain at the type level.  It has
--- two constructors:
+-- three constructors:
 --
---   * 'Literal' carries a type-level constraint list.  Used by
---     programs the user wrote in source.
+--   * 'Literal' carries a single type-level conjunction of constraints.
+--     Used by programs the user wrote in source.
+--
+--   * 'LiteralU' carries a type-level disjunction of conjunctions.
+--     Used by branches whose effective domain is a union.
 --
 --   * 'ReflectedTag' wraps a fresh skolem introduced by
 --     'Data.Reflection.reify'.  Used by transforms that build a new
 --     domain at runtime via ISL.
 --
--- 'KnownDom' is a one-method class whose method 'reflectDomString'
--- returns the ISL string representation of the tagged domain.  This
--- representation is unrestricted (a plain Haskell 'String'), avoiding
--- the linear-types plumbing of @highlevel/Set@ entirely.  The two
--- routes converge: literal tags use 'IslToString' (a plugin-rewritten
--- type family that computes the string at GHC compile time); reflected
--- tags read the string out of a 'Reifies' dictionary.  Consumers see
--- one API.
+-- 'KnownDom' is the one-stop dictionary: it reflects a tagged domain
+-- to a value-level @['Conjunction' 'SetIx']@ (the union form).  From
+-- there, 'domToSet' is the sole bridge to a raw ISL 'Isl.Set' — every
+-- predicate or transform that needs an ISL object for a tagged domain
+-- goes through it.  'domToString' is the single text-derivation path
+-- and is reserved for display (error messages, diagnostic assertions).
 --
--- The mirror functions ('islUnion', 'islIntersect', 'islSubsetCheck')
--- take 'KnownDom' arguments, build the runtime ISL sets via
--- 'fromString', perform the operation, and return either a fresh
--- reflected tag (CPS-style) or a 'Bool'.  The CPS form is what makes
--- the 'reifyDom' skolem stay scoped to the continuation.
+-- The three mirror predicates ('islSubsetCheck', 'islNonEmpty',
+-- 'islImageSubsetCheck') take 'KnownDom' arguments, build the runtime
+-- ISL sets via 'domToSet', and return either 'Bool' or a typed proof
+-- token ('Maybe' ('Dict' ...)).  Reflected-tag construction is done by
+-- 'reifyDomFromConjunctions', which takes a value-level disjunction
+-- and hands the continuation a fresh 'ReflectedTag' phantom.
 --
 -- = Trust base
 --
 -- Two seal points:
 --
---   1. 'unsafeCoerce' inside 'reifyDom', lifting the @s :: Type@
---      skolem produced by 'Data.Reflection.reify' into a
+--   1. 'unsafeCoerce' inside 'reifyDomFromConjunctions', lifting the
+--      @s :: Type@ skolem produced by 'Data.Reflection.reify' into a
 --      @'ReflectedTag' s :: DomTag ps n@ slot.  Sound by mirrored
 --      construction: the 'Reifies' library guarantees @s@ is fresh
 --      and nominal, and the 'KnownDom' instance for 'ReflectedTag'
---      uses exactly the dictionary @reify@ established.
+--      uses exactly the dictionary @reify@ established.  The
+--      same-shape 'unsafeCoerce' inside 'withPartitionsD',
+--      'islSubsetCheck', and 'islImageSubsetCheck[S]' is an identity
+--      cast at the value level (the target classes are method-less,
+--      so their runtime dicts are unit); this does not add new trust
+--      beyond the class-method-lessness invariant.
 --
---   2. 'unsafePerformIO' inside the mirror functions to extract pure
---      'String' / 'Bool' results from 'IslT IO' computations.  Sound
---      because ISL operations are referentially transparent given
---      the same ISL context.
+--   2. 'unsafePerformIO' inside 'domToString' and the retained mirror
+--      predicates, used to extract pure 'String' / 'Bool' results
+--      from 'IslT IO' computations.  Sound because ISL operations are
+--      referentially transparent given the same ISL context.
 --
 -- That's all the new trust this module introduces, on top of the
 -- 'Data.Reflection' library and the existing @highlevel/Set@ API.
@@ -91,49 +98,47 @@ module Isl.TypeLevel.Reflection
     -- * D-from-U evidence combinators
   , withPartitionsD
     -- * Reflected route
-  , reifyDomFromString
+  , reifyDomFromConjunctions
     -- * Proof tokens (v6 — see deviation D3)
   , Dict(..)
-    -- * Mirror functions
-  , islUnion
-  , islIntersect
-  , islApply
+    -- * ISL object construction from a KnownDom dictionary
+  , domToSet
+  , domToString
+    -- * Mirror predicates
   , islSubsetCheck
   , islImageSubsetCheck
   , islImageSubsetCheckS
   , islNonEmpty
   ) where
 
+import Control.Monad.IO.Class (MonadIO)
 import Data.Kind (Constraint, Type)
 import Data.Proxy (Proxy(..))
 import qualified Data.Reflection as R
 import GHC.TypeLits
-  ( KnownNat, KnownSymbol, Nat, Symbol, symbolVal, type (+) )
+  ( KnownNat, KnownSymbol, Nat, Symbol, natVal, symbolVal, type (+) )
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.Typed.Constraints (SetIx, Conjunction(..))
 import qualified Isl.Typed.Constraints as C
-import Isl.Typed.Params (KnownSymbols, Length)
+import Isl.Typed.Params (KnownSymbols, Length, symbolVals)
 import qualified Isl.Set as RawS
 import qualified Isl.Map as RawM
-import Isl.Monad (IslT, Ur(..), runIslT)
-import Isl.Linear (query_, freeM)
-import qualified Isl.Linear as Isl
+import qualified Isl.Space as Space
 import qualified Isl.Types as Isl
+import Isl.Monad (IslT, Ur(..), runIslT)
+import Isl.Linear (query_)
+import qualified Isl.Linear as Isl
 import Isl.TypeLevel.Constraint
-  ( IslCovers
-  , IslCoversU
+  ( IslCoversU
   , IslImageSubset
   , IslImageSubsetU
   , IslMapToString
-  , IslPartitions
   , IslPartitionsU
   , IslRangeOf
   , IslSubset
   , IslSubsetU
-  , IslToString
-  , IslToStringU
   , TConstraint
   )
 import Isl.TypeLevel.Sing
@@ -214,50 +219,39 @@ type family EffectiveDomTag (d :: DomTag ps n) (amb :: DomTag ps n)
 -- §2. The KnownDom class
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | A 'KnownDom' dictionary returns the ISL string representation of
--- the tagged domain.  The string is unrestricted ('String' is a plain
--- Haskell value), avoiding the linear-types story of @highlevel/Set@
--- entirely.
+-- | A 'KnownDom' dictionary reflects a tagged domain to its value-level
+-- disjunction of conjunctions.  All three tag constructors converge on
+-- one API, which is then consumed by 'domToSet' to materialise a raw
+-- ISL object.
 class KnownDom (ps :: [Symbol]) (n :: Nat) (d :: DomTag ps n) where
-  -- | The ISL textual form of the tagged domain.
-  reflectDomString :: String
-
-  -- | Single-conjunction constraint list.  Errors for union/reflected tags.
+  -- | Single-conjunction constraint list.  Errors for union/reflected
+  -- tags unless the reflected disjunction happens to be a singleton.
   reflectDomConstraints :: [C.Constraint SetIx]
 
-  -- | The domain as a list of conjunctions (union-safe).
+  -- | The domain as a list of conjunctions (union-safe, total).
   reflectDomConjunctions :: [Conjunction SetIx]
 
--- | Literal route: the plugin computes the ISL string at compile
--- time via the 'IslToString' type family, and 'KnownSymbol' gives us
--- the runtime String.  The constraint list is reflected via
--- 'KnownConstraints'.
-instance
-  ( KnownSymbol (IslToString ps n cs)
-  , KnownConstraints ps n cs
-  ) => KnownDom ps n ('Literal cs) where
-  reflectDomString = symbolVal (Proxy @(IslToString ps n cs))
+-- | Literal route: a single conjunction reflected via 'KnownConstraints'.
+instance KnownConstraints ps n cs => KnownDom ps n ('Literal cs) where
   reflectDomConstraints = reifySTConstraintsSet (knownConstraints @ps @n @cs)
-  reflectDomConjunctions = [Conjunction (reifySTConstraintsSet (knownConstraints @ps @n @cs))]
+  reflectDomConjunctions =
+    [Conjunction (reifySTConstraintsSet (knownConstraints @ps @n @cs))]
 
--- | Union literal route: the plugin computes the ISL string via
--- 'IslToStringU', and the disjunction is reflected via 'KnownDisjunction'.
-instance
-  ( KnownSymbol (IslToStringU ps n css)
-  , KnownDisjunction ps n css
-  ) => KnownDom ps n ('LiteralU css) where
-  reflectDomString = symbolVal (Proxy @(IslToStringU ps n css))
+-- | Union literal route: a disjunction reflected via 'KnownDisjunction'.
+instance KnownDisjunction ps n css => KnownDom ps n ('LiteralU css) where
   reflectDomConstraints =
     error "reflectDomConstraints: not available for union domains (use reflectDomConjunctions)"
   reflectDomConjunctions = reifySTDisjunctionSet (knownDisjunction @ps @n @css)
 
--- | Reflected route: constraint reflection is not available.
-instance R.Reifies s String => KnownDom ps n ('ReflectedTag s) where
-  reflectDomString = R.reflect (Proxy @s)
-  reflectDomConstraints =
-    error "reflectDomConstraints: not available for reflected domains"
-  reflectDomConjunctions =
-    error "reflectDomConjunctions: not available for reflected domains"
+-- | Reflected route: the payload is the already-computed disjunction.
+-- 'reflectDomConstraints' succeeds only when the disjunction is a
+-- singleton, matching the same partiality contract as 'LiteralU'.
+instance R.Reifies s [Conjunction SetIx] => KnownDom ps n ('ReflectedTag s) where
+  reflectDomConstraints = case R.reflect (Proxy @s) of
+    [Conjunction cs] -> cs
+    _ ->
+      error "reflectDomConstraints: not available for reflected union domains (use reflectDomConjunctions)"
+  reflectDomConjunctions = R.reflect (Proxy @s)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -357,179 +351,99 @@ type family LiteralBranchesU (ds :: [DomTag ps n]) :: [[[TConstraint ps n]]] whe
 -- §4. The reifyDom helper
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | Smuggle a runtime ISL string into a fresh phantom 'DomTag' tag and
--- run a continuation that has access to the resulting 'KnownDom'
--- dictionary.
+-- | Smuggle a runtime disjunction of conjunctions into a fresh phantom
+-- 'DomTag' tag and run a continuation that has access to the resulting
+-- 'KnownDom' dictionary.
 --
 -- The trusted seal lives entirely inside 'Data.Reflection.reify'
 -- (which uses 'unsafeCoerce' once to introduce a fresh skolem).
 -- Our additional 'unsafeCoerce' lifts the library's @s :: Type@ skolem
 -- into the @'ReflectedTag s :: DomTag ps n@ slot — this is the only
 -- 'unsafeCoerce' in this module's reflected-route code path.
-reifyDomFromString
+reifyDomFromConjunctions
   :: forall ps n r.
      ( KnownNat n
      , KnownSymbols ps
      , KnownNat (Length ps)
      )
-  => String
+  => [Conjunction SetIx]
   -> ( forall (d :: DomTag ps n). KnownDom ps n d => Proxy d -> r )
   -> r
-reifyDomFromString str k =
-  R.reify str $ \(_ :: Proxy s) ->
+reifyDomFromConjunctions cs k =
+  R.reify cs $ \(_ :: Proxy s) ->
     k (unsafeCoerce (Proxy @('ReflectedTag s))
         :: Proxy ('ReflectedTag s :: DomTag ps n))
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §5. Internal helpers for unrestricted ISL string operations
+-- §5. Boundary helpers: KnownDom dict → raw ISL object / text
 -- ═══════════════════════════════════════════════════════════════════════
---
--- These wrap the linear @highlevel/Set@ API in 'unsafePerformIO' so we
--- can produce pure 'String' / 'Bool' results.  Soundness: ISL
--- operations are pure given the same context, and the linear types in
--- @highlevel/Set@ exist for resource discipline (avoiding double-free
--- of the underlying ISL handles), not for semantic invariants — so
--- treating them as unrestricted in this contained scope is safe.
 
--- | Parse two ISL set strings, apply a binary set operation, and
--- return the result string.
-binopString
-  :: (Isl.Set %1 -> Isl.Set %1 -> IslT IO Isl.Set)
-  -> String -> String -> String
-binopString op str1 str2 = unsafePerformIO $ runIslT $ Isl.do
-  s1 <- RawS.readFromStr str1
-  s2 <- RawS.readFromStr str2
-  s3 <- op s1 s2
-  Ur str <- query_ s3 RawS.toStr
+-- | Build an ISL 'Isl.Set' from a 'KnownDom' dictionary.  The sole
+-- bridge from a typed 'DomTag' to a raw ISL object: every predicate or
+-- transform that needs an ISL 'Isl.Set' for a tagged domain goes
+-- through this.
+--
+-- The empty-disjunction case builds an empty 'Isl.Set' directly from
+-- a parameter-named 'Isl.Space'.  The non-empty case folds
+-- 'C.buildBasicSet' + 'RawS.fromBasicSet' + 'RawS.union' over the
+-- disjunction, matching the plugin's 'buildUnionSetFromDisj' shape.
+domToSet
+  :: forall ps n d m.
+     ( KnownDom ps n d
+     , KnownSymbols ps
+     , KnownNat n
+     , MonadIO m
+     )
+  => IslT m Isl.Set
+domToSet = Isl.do
+  let conjs    = reflectDomConjunctions @ps @n @d
+      paramNs  = symbolVals @ps
+      nParams  = length paramNs
+      nVal     = fromIntegral (natVal (Proxy @n)) :: Int
+  case conjs of
+    [] -> Isl.do
+      space0 <- Space.setAlloc (fromIntegral nParams) (fromIntegral nVal)
+      space  <- Isl.foldM
+                  (\sp (i, name) -> Space.setDimName sp Isl.islDimParam i name)
+                  space0 (zip [0..] paramNs)
+      RawS.empty space
+    (c0 : cs) -> Isl.do
+      bs0 <- C.buildBasicSet paramNs nVal c0
+      s0  <- RawS.fromBasicSet bs0
+      Isl.foldM
+        (\s c' -> Isl.do
+            bs <- C.buildBasicSet paramNs nVal c'
+            s' <- RawS.fromBasicSet bs
+            RawS.union s s')
+        s0 cs
+
+-- | Derived ISL-text form of a tagged domain.  For display only
+-- (error messages, diagnostic assertions).  Replaces the old
+-- @reflectDomString@ method on 'KnownDom'.
+domToString
+  :: forall ps n d.
+     ( KnownDom ps n d
+     , KnownSymbols ps
+     , KnownNat n
+     )
+  => String
+domToString = unsafePerformIO $ runIslT $ Isl.do
+  s <- domToSet @ps @n @d
+  Ur str <- query_ s RawS.toStr
   Isl.pure (Ur str)
 
--- | Parse two ISL set strings, apply a binary predicate, return Bool.
-binopBool
-  :: (Isl.SetRef -> Isl.SetRef -> Bool)
-  -> String -> String -> Bool
-binopBool op str1 str2 = unsafePerformIO $ runIslT $ Isl.do
-  s1 <- RawS.readFromStr str1
-  Ur b <- Isl.queryM_ s1 (\ref1 -> Isl.do
-    s2 <- RawS.readFromStr str2
-    Ur r <- query_ s2 (\ref2 -> op ref1 ref2)
-    Isl.pure (Ur r))
-  Isl.pure (Ur b)
-
--- | Parse a single ISL set string, apply a unary predicate, return Bool.
-unopSetBool
-  :: (Isl.SetRef -> Bool)
-  -> String -> Bool
-unopSetBool op str = unsafePerformIO $ runIslT $ Isl.do
-  s <- RawS.readFromStr str
-  Ur b <- query_ s op
-  Isl.pure (Ur b)
-
--- | Apply a map to a set (both as ISL strings), return the result string.
-binopStringMap :: String -> String -> String
-binopStringMap mapStr setStr = unsafePerformIO $ runIslT $ Isl.do
-  m  <- RawM.readFromStr mapStr
-  s  <- RawS.readFromStr setStr
-  s' <- RawS.apply s m
-  Ur str <- query_ s' RawS.toStr
-  Isl.pure (Ur str)
-
--- | Apply a map to a set and check if the image is a subset of a target set.
-applySubsetCheck :: String -> String -> String -> Bool
-applySubsetCheck mapStr srcStr dstStr = unsafePerformIO $ runIslT $ Isl.do
-  m    <- RawM.readFromStr mapStr
-  src  <- RawS.readFromStr srcStr
-  img  <- RawS.apply src m
-  Ur b <- Isl.queryM_ img (\imgRef -> Isl.do
-    dst <- RawS.readFromStr dstStr
-    Ur r <- query_ dst (\dstRef -> RawS.isSubset imgRef dstRef)
-    Isl.pure (Ur r))
-  Isl.pure (Ur b)
-
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §6. Mirror functions — the pillar-1 catalog
+-- §6. Mirror predicates — the pillar-1 catalog
 -- ═══════════════════════════════════════════════════════════════════════
-
--- | Compute the union of two domains and yield a fresh reflected tag.
 --
--- This is a one-sided mirror: the plugin doesn't currently expose an
--- 'IslUnionSet' type family rewriter, so there's no compile-time twin
--- to compare against.  See deviation D16 in the implementation log.
-islUnion
-  :: forall ps n d1 d2 r.
-     ( KnownDom ps n d1
-     , KnownDom ps n d2
-     , KnownNat n
-     , KnownSymbols ps
-     , KnownNat (Length ps)
-     )
-  => Proxy d1
-  -> Proxy d2
-  -> ( forall (d3 :: DomTag ps n). KnownDom ps n d3 => Proxy d3 -> r )
-  -> r
-islUnion _ _ k =
-  let str1 = reflectDomString @ps @n @d1
-      str2 = reflectDomString @ps @n @d2
-      strRes = binopString RawS.union str1 str2
-   in reifyDomFromString @ps @n strRes k
-
--- | Compute the intersection of two domains and yield a fresh
--- reflected tag.  This is the value-level mirror of the plugin's
--- 'IslIntersectSet' type family rewriter.
-islIntersect
-  :: forall ps n d1 d2 r.
-     ( KnownDom ps n d1
-     , KnownDom ps n d2
-     , KnownNat n
-     , KnownSymbols ps
-     , KnownNat (Length ps)
-     )
-  => Proxy d1
-  -> Proxy d2
-  -> ( forall (d3 :: DomTag ps n). KnownDom ps n d3 => Proxy d3 -> r )
-  -> r
-islIntersect _ _ k =
-  let str1 = reflectDomString @ps @n @d1
-      str2 = reflectDomString @ps @n @d2
-      strRes = binopString RawS.intersect str1 str2
-   in reifyDomFromString @ps @n strRes k
-
--- | Apply a runtime-built ISL map (given as an ISL string) to the set
--- labelled by @d@ and yield a fresh reflected tag for the image.
---
--- This is the value-level mirror of the plugin's 'Isl.TypeLevel.Constraint.IslApply'
--- type family rewriter.  The plugin rewrites @IslApply ps ni no mapCs
--- setCs@ by reifying @mapCs@ / @setCs@ to runtime ISL objects, calling
--- @isl_set_apply@, and lifting the result back to type-level syntax;
--- 'islApply' calls the same @isl_set_apply@ (via 'HMap.apply') on
--- runtime objects produced from the map string and the source
--- dictionary's 'reflectDomString'.  Two code paths, same C primitive,
--- same answer.
---
--- Unlike the plugin path, 'islApply' takes the map as a plain
--- ISL string rather than as a type-level constraint list — v6 does
--- not need type-level map tags because the only mirrors that consume
--- maps ('islApply' and 'islImageSubsetCheck') take them as strings
--- built either from 'IslMapToString' on a literal constraint list or
--- by value-level formatting inside a transform body.
-islApply
-  :: forall ps ni no dSrc r.
-     ( KnownDom ps ni dSrc
-     , KnownNat ni
-     , KnownNat no
-     , KnownSymbols ps
-     , KnownNat (Length ps)
-     )
-  => String            -- ^ the map's ISL text (runtime-built or 'symbolVal')
-  -> Proxy dSrc        -- ^ the source domain dictionary
-  -> ( forall (dDst :: DomTag ps no). KnownDom ps no dDst
-        => Proxy dDst -> r )
-  -> r
-islApply mapStr _ k =
-  let srcStr = reflectDomString @ps @ni @dSrc
-      imgStr = binopStringMap mapStr srcStr
-   in reifyDomFromString @ps @no imgStr k
+-- Each predicate builds its sets via 'domToSet' (inside a single
+-- 'runIslT') and extracts a pure 'Bool' through 'unsafePerformIO'.
+-- Soundness: ISL predicates are pure given the same context, and the
+-- linear discipline in @highlevel/Set@ is resource-tracking, not
+-- semantic; treating it as unrestricted in this contained scope is
+-- safe.
 
 -- | Predicate mirror: check whether @d1@ is a subset of @d2@ at runtime,
 -- returning a typed proof token on success.  The value-level mirror of
@@ -568,9 +482,13 @@ islSubsetCheck
   -> Proxy d2
   -> Maybe (Dict (IslSubsetD ps n d1 d2))
 islSubsetCheck _ _ =
-  let ok = binopBool RawS.isSubset
-             (reflectDomString @ps @n @d1)
-             (reflectDomString @ps @n @d2)
+  let ok = unsafePerformIO $ runIslT $ Isl.do
+             s1 <- domToSet @ps @n @d1
+             Ur b <- Isl.queryM_ s1 (\r1 -> Isl.do
+               s2 <- domToSet @ps @n @d2
+               Ur r <- query_ s2 (\r2 -> RawS.isSubset r1 r2)
+               Isl.pure (Ur r))
+             Isl.pure (Ur b)
    in if ok then Just subsetDict else Nothing
   where
     subsetDict :: Dict (IslSubsetD ps n d1 d2)
@@ -603,9 +521,15 @@ islImageSubsetCheck
   -> Maybe (Dict (IslImageSubsetD ps ni no mapCs dSrc dDst))
 islImageSubsetCheck _ _ =
   let mapStr = symbolVal (Proxy @(IslMapToString ps ni no mapCs))
-      srcStr = reflectDomString @ps @ni @dSrc
-      dstStr = reflectDomString @ps @no @dDst
-      ok     = applySubsetCheck mapStr srcStr dstStr
+      ok = unsafePerformIO $ runIslT $ Isl.do
+             src <- domToSet @ps @ni @dSrc
+             m   <- RawM.readFromStr mapStr
+             img <- RawS.apply src m
+             Ur b <- Isl.queryM_ img (\imgRef -> Isl.do
+               dst <- domToSet @ps @no @dDst
+               Ur r <- query_ dst (\dstRef -> RawS.isSubset imgRef dstRef)
+               Isl.pure (Ur r))
+             Isl.pure (Ur b)
    in if ok then Just imgDict else Nothing
   where
     imgDict :: Dict (IslImageSubsetD ps ni no mapCs dSrc dDst)
@@ -652,9 +576,15 @@ islImageSubsetCheckS
   -> Proxy dDst
   -> Maybe (Dict (IslImageSubsetD ps ni no mapCs dSrc dDst))
 islImageSubsetCheckS mapStr _ _ =
-  let srcStr = reflectDomString @ps @ni @dSrc
-      dstStr = reflectDomString @ps @no @dDst
-      ok     = applySubsetCheck mapStr srcStr dstStr
+  let ok = unsafePerformIO $ runIslT $ Isl.do
+             src <- domToSet @ps @ni @dSrc
+             m   <- RawM.readFromStr mapStr
+             img <- RawS.apply src m
+             Ur b <- Isl.queryM_ img (\imgRef -> Isl.do
+               dst <- domToSet @ps @no @dDst
+               Ur r <- query_ dst (\dstRef -> RawS.isSubset imgRef dstRef)
+               Isl.pure (Ur r))
+             Isl.pure (Ur b)
    in if ok then Just imgDict else Nothing
   where
     imgDict :: Dict (IslImageSubsetD ps ni no mapCs dSrc dDst)
@@ -678,6 +608,8 @@ islNonEmpty
   => Proxy d
   -> Bool
 islNonEmpty _ =
-  not (unopSetBool RawS.isEmpty (reflectDomString @ps @n @d))
-
-
+  let isEmpty = unsafePerformIO $ runIslT $ Isl.do
+                  s <- domToSet @ps @n @d
+                  Ur b <- query_ s RawS.isEmpty
+                  Isl.pure (Ur b)
+   in not isEmpty

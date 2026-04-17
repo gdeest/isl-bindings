@@ -32,13 +32,13 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import Data.Ord (comparing)
 import Data.Proxy (Proxy(..))
-import GHC.TypeLits (symbolVal, type (+))
+import GHC.TypeLits (KnownNat, Nat, Symbol, symbolVal, type (+))
 
 import Isl.Typed.Constraints
   ( Constraint(..), MapIx(..), SetIx(..) )
 import qualified Isl.Typed.Constraints as C
 import Isl.Typed.Params (KnownSymbols)
-import Isl.TypeLevel.Reflection (DomTag, reflectDomConstraints)
+import Isl.TypeLevel.Reflection (DomTag, KnownDom, reflectDomConstraints, domToSet)
 import Isl.TypeLevel.Sing (knownConstraints, reifySTConstraintsMapSplit)
 import Isl.Monad (IslT, Ur(..))
 import Isl.Linear (query, query_, freeM, Both(..))
@@ -455,12 +455,19 @@ instance NFData BoundErr where
 -- structurally via @isl_pw_aff_n_piece@ — no substring heuristic.
 --
 -- Returns one upper bound per dimension.  'Left (dim, err)' on the
--- first failing dimension.
+-- first failing dimension.  The domain is materialised from its
+-- 'KnownDom' dictionary via 'domToSet' — a fresh 'Isl.Set' is built
+-- per dim (mirrors the prior one-set-per-'readFromStr' shape).
 extractBoundsISLM
-  :: String -> Int
+  :: forall (ps :: [Symbol]) (n :: Nat) (d :: DomTag ps n).
+     ( KnownDom ps n d
+     , KnownSymbols ps
+     , KnownNat n
+     )
+  => Int
   -> IslT IO (Ur (Either (Int, BoundErr) [String]))
-extractBoundsISLM domStr nDims = Isl.do
-  Ur results <- Isl.mapM (extractOneDimBoundM domStr) [0 .. nDims - 1]
+extractBoundsISLM nDims = Isl.do
+  Ur results <- Isl.mapM (extractOneDimBoundM @ps @n @d) [0 .. nDims - 1]
   -- 'Isl.mapM' returns 'Ur [Ur (Either ...)]'; flatten the inner Ur
   -- wrappers before sequencing dims into a single 'Either'.
   let flat = [ e | Ur e <- results ]
@@ -470,17 +477,22 @@ extractBoundsISLM domStr nDims = Isl.do
     sequenceDims = go 0
       where
         go _ []                = Right []
-        go d (Left err : _)    = Left (d, err)
-        go d (Right b  : rest) = fmap (b :) (go (d + 1) rest)
+        go d' (Left err : _)    = Left (d', err)
+        go d' (Right b  : rest) = fmap (b :) (go (d' + 1) rest)
 
 -- | Extract an exclusive upper bound for one dimension, using
 -- @dim_max + 1@.  Fails if the result is piecewise (@n_piece /= 1@)
 -- or the printed form doesn't match the single-piece template.
 extractOneDimBoundM
-  :: String -> Int
+  :: forall (ps :: [Symbol]) (n :: Nat) (d :: DomTag ps n).
+     ( KnownDom ps n d
+     , KnownSymbols ps
+     , KnownNat n
+     )
+  => Int
   -> IslT IO (Ur (Either BoundErr String))
-extractOneDimBoundM domStr d = Isl.do
-  s <- RS.readFromStr domStr
+extractOneDimBoundM d = Isl.do
+  s <- domToSet @ps @n @d
   pa <- RS.dimMax s d
   one <- Val.intFromSi 1
   excl <- PA.addConstantVal pa one

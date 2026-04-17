@@ -4,7 +4,9 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE LinearTypes #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE QualifiedDo #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
@@ -29,8 +31,7 @@ import Data.IORef
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
-import Foreign.C (newCString)
-import GHC.TypeLits (natVal, symbolVal, type (+))
+import GHC.TypeLits (KnownNat, Nat, Symbol, natVal, symbolVal, type (+))
 import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
@@ -38,13 +39,11 @@ import Isl.Typed.Constraints (SetIx(..))
 import qualified Isl.Typed.Constraints as C
 import Isl.Typed.Params (KnownSymbols, symbolVals)
 import qualified Isl.Set as RS
-import Isl.Types
-  ( Ctx(..)
-  , c_ctx_alloc, c_ctx_free
-  , islDimParam, islDimSet
-  )
 import qualified Isl.Types as IT
-import Isl.TypeLevel.Reflection (DomTag, EffectiveDomTag, reflectDomString)
+import Isl.Monad (IslT, runIslT, Ur(..))
+import Isl.Linear (query_)
+import qualified Isl.Linear as Isl
+import Isl.TypeLevel.Reflection (DomTag, EffectiveDomTag, KnownDom, domToSet)
 import Isl.TypeLevel.Sing
   ( knownConstraints, reifySTConstraintsSet )
 
@@ -148,7 +147,8 @@ lookupCached env varName point = do
 
 evalEquation
   :: forall ps decls defined.
-     Env
+     KnownSymbols ps
+  => Env
   -> EqList ps decls defined
   -> String -> [Int] -> IO Carrier
 evalEquation _   EqNil target _ =
@@ -169,7 +169,8 @@ evalEquation env (Defines (Proxy :: Proxy name) body :& rest) target point
 
 evalExpr
   :: forall ps decls n (d :: DomTag ps n) a.
-     ScalarDesc -> Env -> Expr ps decls n d a -> [Int] -> IO a
+     KnownSymbols ps
+  => ScalarDesc -> Env -> Expr ps decls n d a -> [Int] -> IO a
 
 evalExpr _desc env (Var (Proxy :: Proxy name)) point = do
   let varName = symbolVal (Proxy @name)
@@ -207,14 +208,13 @@ evalExpr desc env (Reduce reduceOp (Proxy :: Proxy projCs)
   let nVal     = fromIntegral (natVal (Proxy @n)) :: Int
       nBodyVal = fromIntegral (natVal (Proxy @nBody)) :: Int
       nRed  = nBodyVal - nVal
-      bodyDomStr = reflectDomString @ps @nBody @dBody
       maxVal = envMaxParam env
       redRanges = replicate nRed [0 .. maxVal]
       candidates = sequence redRanges
   let validBodyPoints =
         [ point ++ red
         | red <- candidates
-        , islMember (envParams env) (envParamVec env) nBodyVal bodyDomStr (point ++ red)
+        , islMember @ps @nBody @dBody (envParams env) (envParamVec env) (point ++ red)
         ]
   vals <- mapM (evalExpr desc env body) validBodyPoints
   case desc of
@@ -239,15 +239,15 @@ evalExpr desc env (Case branches) point =
 
 evalBranches
   :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
-     ScalarDesc -> Env
+     (KnownSymbols ps, KnownNat n)
+  => ScalarDesc -> Env
   -> Branches ps decls n amb branchDoms a
   -> [Int] -> IO a
 evalBranches _ _ BNil point =
   error $ "Alpha.Interpret: no branch matches point " ++ show point
-evalBranches desc env (BCons (_ :: Proxy d) body rest) point = do
-  let effDomStr = reflectDomString @ps @n @(EffectiveDomTag d amb)
-      nDims = length point
-  if islMember (envParams env) (envParamVec env) nDims effDomStr point
+evalBranches desc env (BCons (_ :: Proxy d) body rest) point =
+  if islMember @ps @n @(EffectiveDomTag d amb)
+       (envParams env) (envParamVec env) point
     then evalExpr desc env body point
     else evalBranches desc env rest point
 
@@ -302,33 +302,39 @@ evalAff dimVal paramVal = go
 -- §7. ISL-backed domain membership testing
 -- ═══════════════════════════════════════════════════════════════════════
 
+-- | Test whether @point@ lies in the domain tagged by @d@, with
+-- @params@ plugged in for parameter names.  Built on the high-level
+-- linear bindings: 'domToSet' yields the raw set, 'RS.fixSi' nails the
+-- parameters and coordinates, 'RS.isEmpty' decides non-membership.
+-- No manual context or C-string plumbing.
 islMember
-  :: Map String Int -> [String] -> Int -> String -> [Int] -> Bool
-islMember params paramNames _nDims domStr point = unsafePerformIO $ do
-  ctxPtr <- c_ctx_alloc
-  let ctx = Ctx ctxPtr
-  domCStr <- newCString domStr
-  set0 <- RS.c_readFromStr ctx domCStr
-  set1 <- fixAllParams (0 :: Int) paramNames params set0
-  set2 <- fixAllDims (0 :: Int) point set1
-  let !result = not (RS.isEmpty (IT.SetRef (IT.unSet set2)))
-  RS.c_free set2
-  c_ctx_free ctxPtr
-  pure result
+  :: forall (ps :: [Symbol]) (n :: Nat) (d :: DomTag ps n).
+     ( KnownDom ps n d
+     , KnownSymbols ps
+     , KnownNat n
+     )
+  => Map String Int -> [String] -> [Int] -> Bool
+islMember params paramNames point = unsafePerformIO $ runIslT $ Isl.do
+  s0 <- domToSet @ps @n @d
+  s1 <- fixAllParams 0 paramNames params s0
+  s2 <- fixAllDims 0 point s1
+  Ur empty <- query_ s2 RS.isEmpty
+  Isl.pure (Ur (not empty))
 {-# NOINLINE islMember #-}
 
-fixAllParams :: Int -> [String] -> Map String Int -> IT.Set -> IO IT.Set
-fixAllParams _ [] _ s = pure s
-fixAllParams i (p:ps) params s = case Map.lookup p params of
-  Just v  -> do
-    s' <- RS.c_fixSi s islDimParam (fromIntegral i) (fromIntegral v)
-    fixAllParams (i + 1) ps params s'
-  Nothing -> fixAllParams (i + 1) ps params s
+fixAllParams
+  :: Int -> [String] -> Map String Int -> IT.Set %1 -> IslT IO IT.Set
+fixAllParams _ [] _ s = Isl.pure s
+fixAllParams i (p:ps') paramsMap s = case Map.lookup p paramsMap of
+  Just v  -> Isl.do
+    s' <- RS.fixSi s IT.islDimParam i v
+    fixAllParams (i + 1) ps' paramsMap s'
+  Nothing -> fixAllParams (i + 1) ps' paramsMap s
 
-fixAllDims :: Int -> [Int] -> IT.Set -> IO IT.Set
-fixAllDims _ [] s = pure s
-fixAllDims i (v:vs) s = do
-  s' <- RS.c_fixSi s islDimSet (fromIntegral i) (fromIntegral v)
+fixAllDims :: Int -> [Int] -> IT.Set %1 -> IslT IO IT.Set
+fixAllDims _ [] s = Isl.pure s
+fixAllDims i (v:vs) s = Isl.do
+  s' <- RS.fixSi s IT.islDimSet i v
   fixAllDims (i + 1) vs s'
 
 

@@ -82,8 +82,6 @@ test-suite alpha-test
                    , Examples.LU
                    , Examples.Heat3D
                    , Examples.OverWideCholesky
-                   , Examples.ReflectedMatmul
-                   , Examples.ReflectedMatmulFails
                    , Examples.MatmulNormalize
                    , Examples.MatmulTransposed
                    , Examples.IntRowMax

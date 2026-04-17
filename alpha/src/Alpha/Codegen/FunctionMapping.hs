@@ -22,7 +22,8 @@ import Data.Proxy (Proxy(..))
 import GHC.TypeLits (natVal, symbolVal)
 
 import Isl.Typed.Constraints (Conjunction(..))
-import Isl.TypeLevel.Reflection (reflectDomConstraints, reflectDomString)
+import Isl.Typed.Params (KnownSymbols)
+import Isl.TypeLevel.Reflection (reflectDomConstraints)
 import Isl.Monad (IslT, Ur(..))
 import qualified Isl.Linear as Isl
 import Alpha.Core
@@ -78,7 +79,7 @@ declListNames ((MkDecl :: Decl ps d) :> rest) =
 -- Runs in 'IslT' so ISL failures surface as @Left (name, dim, err)@
 -- rather than sentinel strings or 'unsafePerformIO' escapes.
 declListBoundsM
-  :: forall ps decls. [String] -> DeclList ps decls
+  :: forall ps decls. KnownSymbols ps => [String] -> DeclList ps decls
   -> IslT IO (Ur (Either (String, Int, BoundErr) (Map String [String])))
 declListBoundsM _params Nil = Isl.pure (Ur (Right Map.empty))
 declListBoundsM params ((MkDecl :: Decl ps d) :> rest) = Isl.do
@@ -89,13 +90,11 @@ declListBoundsM params ((MkDecl :: Decl ps d) :> rest) = Isl.do
       patternBounds = [ extractOneBound params conjs dim | dim <- [0..nDims-1] ]
   Ur hereRes <-
     if any isNothing patternBounds
-      then
-        let domStr = reflectDomString @ps @(DeclDims d) @(DeclDomTag d)
-        in Isl.do
-          Ur r <- extractBoundsISLM domStr nDims
-          Isl.pure (Ur (case r of
-            Left (d', err) -> Left (name, d', err)
-            Right bs       -> Right bs))
+      then Isl.do
+        Ur r <- extractBoundsISLM @ps @(DeclDims d) @(DeclDomTag d) nDims
+        Isl.pure (Ur (case r of
+          Left (d', err) -> Left (name, d', err)
+          Right bs       -> Right bs))
       else Isl.pure (Ur (Right [ b | Just b <- patternBounds ]))
   Ur restRes <- declListBoundsM params rest
   Isl.pure (Ur (do

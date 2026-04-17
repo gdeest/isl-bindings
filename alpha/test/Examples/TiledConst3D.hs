@@ -33,7 +33,7 @@ import Alpha.TypeLevel.Tiling (TileMapExprs)
 import Examples.Const3D (const3D, CubeN3)
 import Isl.TypeLevel.Constraint (IslPreimageMultiAff, IslToString)
 import Isl.TypeLevel.Expr (TExpr)
-import Isl.TypeLevel.Reflection (DomTag(..), reflectDomString)
+import Isl.TypeLevel.Reflection (DomTag(..), domToString)
 
 
 -- Full-rank preimage: [Just 2, Just 2, Just 2] on CubeN3
@@ -64,7 +64,7 @@ runTileConst3DPartial =
 -- | Full-rank domain content check.
 runTileConst3DFullDomain :: Assertion
 runTileConst3DFullDomain = do
-  let domStr = reflectDomString @'["N"] @6 @('Literal FullPreimage)
+  let domStr = domToString @'["N"] @6 @('Literal FullPreimage)
   assertBool ("domain mentions N: " ++ domStr) ("N" `isInfixOf` domStr)
   assertBool ("domain has tile factor 2i0: " ++ domStr)
              ("2i0" `isInfixOf` domStr)
@@ -72,7 +72,7 @@ runTileConst3DFullDomain = do
 -- | Partial tile domain content check.
 runTileConst3DPartialDomain :: Assertion
 runTileConst3DPartialDomain = do
-  let domStr = reflectDomString @'["N"] @5 @('Literal PartialPreimage)
+  let domStr = domToString @'["N"] @5 @('Literal PartialPreimage)
   assertBool ("domain mentions N: " ++ domStr) ("N" `isInfixOf` domStr)
   assertBool ("domain has tile factor 2i0: " ++ domStr)
              ("2i0" `isInfixOf` domStr)

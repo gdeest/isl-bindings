@@ -1,6 +1,10 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -Wno-unused-imports #-}
+{-# OPTIONS_GHC -fplugin=Isl.Plugin #-}
 
 -- | Test harness for the Alpha milestones v1 + v2 (+ v3).
 --
@@ -24,15 +28,6 @@
 --     solve the bad obligation at runtime via the D15 force-method
 --     pattern (the rank/kind-mismatch 'Expr'-level cases still
 --     use bang + seq on the bad value).
---
---   * Phase B (reflected route end-to-end): v1 Phase B demo — build
---     matmul, compute a fresh runtime ISL set via the @islUnion@
---     mirror, install it as a fresh @KnownDom@-bound tag via
---     @reifyDomFromString@, hand it to @replaceInputDomain@ which
---     validates the consequent read obligations at runtime, then
---     verify via @reflectDomString@ that the new tag holds the
---     expected runtime set.  A matching negative demo exercises
---     @replaceInputDomain@'s runtime-failure path.
 --
 --   * Phase C (cholesky + case path): v2 — first in-package use of
 --     'Case' / 'Branches' / 'IslCoversD'.  Structural existence plus
@@ -82,7 +77,8 @@ import Alpha.Allocation (Allocation(..), EqStorage(..), allocating, allocate)
 import Alpha.Polyhedral.Contraction (modularTime)
 import Alpha.Schedule
 import Isl.Typed.Constraints (Expr(..), MapIx(..), Conjunction(..), Constraint(..))
-import Isl.TypeLevel.Constraint (TConstraint)
+import Isl.TypeLevel.Constraint (TConstraint, type (>=.), type (<=.))
+import Isl.TypeLevel.Expr (D, P, TExpr(..), Z(..), type (-.))
 import Isl.TypeLevel.Reflection (DomTag(..))
 
 import qualified Examples.Cholesky as Cholesky
@@ -91,8 +87,6 @@ import qualified Examples.Heat3D as H3
 import qualified Examples.OverWideCholesky as OWC
 import qualified Examples.LU as LU
 import qualified Examples.Matmul as Matmul
-import qualified Examples.ReflectedMatmul as Refl
-import qualified Examples.ReflectedMatmulFails as ReflFail
 import qualified Examples.DepReindex as DepReindex
 import qualified Examples.MatmulTransposed as MatT
 import qualified Examples.IntRowMax as IRM
@@ -144,6 +138,20 @@ shouldFailWithTypeError label action = do
     Left _  -> return ()
     Right () -> assertFailure $
       label ++ ": expected a deferred type error to fire, but the action ran cleanly"
+
+-- Domain types for the 'regress #6 / #10' IslT bound-extraction tests
+-- (see the @regress_*_bound*@ cases below).  Replacing the old ISL
+-- string inputs to 'extractBoundsISLM' with 'KnownDom' type arguments.
+type LineN_ =
+  '[ 'TDim (D 0) >=. 'TConst ('Pos 0)
+   , 'TDim (D 0) <=. ('TParam (P "N") -. 'TConst ('Pos 1))
+   ] :: [TConstraint '["N"] 1]
+
+type LineMN_ =
+  '[ 'TDim (D 0) >=. 'TConst ('Pos 0)
+   , 'TDim (D 0) <=. ('TParam (P "N") -. 'TConst ('Pos 1))
+   , 'TDim (D 0) <=. ('TParam (P "M") -. 'TConst ('Pos 1))
+   ] :: [TConstraint '["M", "N"] 1]
 
 main :: IO ()
 main = defaultMain $ testGroup "alpha-test"
@@ -372,20 +380,6 @@ main = defaultMain $ testGroup "alpha-test"
           assertBool "boundary string non-empty" (not $ null H3E.testElsewhereDom)
       ]
 
-  , testGroup "phase-B reflected route end-to-end"
-      [ -- The headline v1 demo: a transform that exercises every step
-        -- of the reflected pipeline (literal KnownDom, mirror function,
-        -- reifyDom, reflected KnownDom, reflectDomString) on a real
-        -- matmul program.  See Examples.ReflectedMatmul.
-        testCase "augment A's domain via islUnion + replaceInputDomain" $
-          Refl.runReflectedMatmulPositive
-
-        -- The runtime obligation-failure path: replaceInputDomain
-        -- rejects an unsafe narrowing.  See Examples.ReflectedMatmulFails.
-      , testCase "narrow A's domain via islIntersect — should fail" $
-          ReflFail.runReflectedMatmulNegative
-      ]
-
   , testGroup "phase-H tile and reindex (constructive)"
       [ testCase "tile \"y\" [Just 4] zero1D" $
           TiledZero1D.runTileZero1D
@@ -597,8 +591,11 @@ main = defaultMain $ testGroup "alpha-test"
           -- 'extractBoundsISLM' runs entirely inside the top-level
           -- runIslT, threading errors via 'Either' rather than
           -- sentinel strings.  A standard affine bound should succeed.
+          --
+          -- Post-refactor: domain passed via 'KnownDom' dict instead of
+          -- an ISL string.  See 'LineN_' below.
           result <- runIslT $
-            extractBoundsISLM "[N] -> { [i] : 0 <= i and i < N }" 1
+            extractBoundsISLM @'["N"] @1 @('Literal LineN_) 1
           case result of
             Right [b] -> assertBool ("bound extracted: " ++ b) (not (null b))
             other     -> assertFailure $
@@ -614,8 +611,7 @@ main = defaultMain $ testGroup "alpha-test"
           -- Domain: i < N AND i < M — dim_max is @min(N-1, M-1)@,
           -- which is piecewise (two pieces).
           result <- runIslT $
-            extractBoundsISLM
-              "[M, N] -> { [i] : 0 <= i and i < N and i < M }" 1
+            extractBoundsISLM @'["M", "N"] @1 @('Literal LineMN_) 1
           case result of
             Left (0, BEPieceCount n) | n >= 2 -> pure ()
             other -> assertFailure $

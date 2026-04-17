@@ -16,7 +16,7 @@ module Alpha.Transform.Walk
   ) where
 
 import Data.Proxy (Proxy(..))
-import GHC.TypeLits (KnownNat, Nat, Symbol, natVal, type (+))
+import GHC.TypeLits (KnownNat, Nat, natVal, type (+))
 import System.IO.Unsafe (unsafePerformIO)
 
 import Isl.Typed.Constraints (Conjunction(..), MapIx, Constraint)
@@ -29,6 +29,7 @@ import qualified Isl.Map as RawM
 import qualified Isl.Set as RawS
 import Isl.TypeLevel.Constraint (TConstraint)
 import Isl.TypeLevel.Expr (TExpr)
+import Isl.TypeLevel.Reflection (DomTag, KnownDom, domToSet)
 import Isl.TypeLevel.Sing
   ( KnownConstraints(..), KnownExprs(..), SBasicMap(..), SMultiAff(..)
   , evalSBasicMap, evalSMultiAff
@@ -53,16 +54,19 @@ import Isl.TypeLevel.Sing
 composeAccess
   :: forall ps (ni :: Nat) (oldNo :: Nat) (newNo :: Nat)
             (mapCs :: [TConstraint ps (ni + oldNo)])
-            (mapExprs :: [TExpr ps newNo]).
+            (mapExprs :: [TExpr ps newNo])
+            (dSrc :: DomTag ps ni) (dDst :: DomTag ps newNo).
      ( KnownNat ni, KnownNat oldNo, KnownNat newNo
      , KnownSymbols ps, KnownNat (Length ps)
      , KnownConstraints ps (ni + oldNo) mapCs
      , KnownExprs ps newNo mapExprs
+     , KnownDom ps ni dSrc
+     , KnownDom ps newNo dDst
      )
-  => String  -- ^ source domain ISL string (ni-dim)
-  -> String  -- ^ destination domain ISL string (newNo-dim)
+  => Proxy dSrc
+  -> Proxy dDst
   -> Maybe (String, [Constraint MapIx])
-composeAccess srcStr dstStr = unsafePerformIO $ runIslT $ Isl.do
+composeAccess _ _ = unsafePerformIO $ runIslT $ Isl.do
   oldMap <- evalSBasicMap @ps @ni @oldNo
               (MkSBasicMap (knownConstraints @ps @(ni + oldNo) @mapCs))
   reindexMA <- evalSMultiAff @ps @newNo @oldNo
@@ -82,9 +86,9 @@ composeAccess srcStr dstStr = unsafePerformIO $ runIslT $ Isl.do
           [Conjunction c] -> c
           _ -> error "composeAccess: non-basic composed map"
     Isl.pure (Ur (str, constrs')))
-  src <- RawS.readFromStr srcStr
+  src <- domToSet @ps @ni @dSrc
   img <- RawS.apply src composed2
-  dst <- RawS.readFromStr dstStr
+  dst <- domToSet @ps @newNo @dDst
   Ur b <- queryM_ img (\imgRef ->
     Isl.query_ dst (\dstRef -> RawS.isSubset imgRef dstRef))
   Isl.pure (Ur (if b then Just (composedStr, constrs) else Nothing))

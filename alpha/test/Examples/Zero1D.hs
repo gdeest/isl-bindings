@@ -24,7 +24,8 @@
 --     declared rank.
 --   * Builds the new tiled domain ISL string from the original
 --     domain string and the runtime factors.
---   * Reifies the new domain into a fresh 'ReflectedTag'.
+--   * Wraps the new domain in a 'Literal' tag produced by ISL
+--     preimage computation.
 --   * Short-circuits on empty tiled domains via 'islNonEmpty'.
 --   * Returns a 'TileResult' whose new target carries the new rank
 --     and new reflected tag.

@@ -34,7 +34,7 @@ import Alpha.Transform.Tile (tile)
 import Examples.Zero1D (zero1D, LineN)
 import Isl.TypeLevel.Constraint (IslPreimageMultiAff, IslToString)
 import Isl.TypeLevel.Expr (D, TExpr(..), Z(..))
-import Isl.TypeLevel.Reflection (DomTag(..), reflectDomString)
+import Isl.TypeLevel.Reflection (DomTag(..), domToString)
 
 
 -- The tiling multi-aff: [ti, i] -> [4*ti + i]
@@ -58,10 +58,10 @@ runTileZero1D =
 
 
 -- | Verify the ISL-computed tiled domain has the right shape.
--- Uses reflectDomString on the IslPreimageMultiAff result.
+-- Uses domToString on the IslPreimageMultiAff result.
 runTileDomainCheck :: Assertion
 runTileDomainCheck = do
-  let domStr = reflectDomString @'["N"] @2 @('Literal PreimageDomain)
+  let domStr = domToString @'["N"] @2 @('Literal PreimageDomain)
   -- Expected: {[i0, i1] : 4*i0 + i1 >= 0, 4*i0 + i1 <= N - 1}
   assertBool ("domain mentions N: " ++ domStr)
              ("N" `isInfixOf` domStr)

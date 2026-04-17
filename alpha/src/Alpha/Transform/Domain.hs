@@ -44,7 +44,7 @@
 -- deviation D10 in the implementation log for the rationale.
 --
 -- The continuation receives the *original* System unchanged.  It can
--- still observe the new domain via 'reflectDomString' on the new tag,
+-- still observe the new domain via 'domToString' on the new tag,
 -- which is enough to demonstrate the reflected route end-to-end (and
 -- enough for the v1 acceptance test).  Pillar 3's full type-level
 -- replacement is deferred to v5+.
@@ -66,7 +66,7 @@ import Isl.TypeLevel.Reflection
   , DomTag
   , KnownDom
   , islSubsetCheck
-  , reflectDomString
+  , domToString
   )
 
 
@@ -119,6 +119,6 @@ replaceInputDomain _ _ _ _sys k =
     Just Dict -> Right <$> k
     Nothing ->
       let nameStr  = symbolVal (Proxy @name)
-          imgStr   = reflectDomString @ps @n @expectedImageDom
-          newStr   = reflectDomString @ps @n @newD
+          imgStr   = domToString @ps @n @expectedImageDom
+          newStr   = domToString @ps @n @newD
        in pure (Left (DomainShrinkUnsafe nameStr imgStr newStr))
