@@ -79,9 +79,9 @@ instance NFData CompileError where
 -- ═══════════════════════════════════════════════════════════════════════
 
 compile
-  :: forall ps inputs outputs locals.
+  :: forall ps pctx inputs outputs locals.
      (KnownSymbols ps, KnownNat (Length ps))
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> Schedule
   -> Allocation
   -> IO (Either CompileError ())
@@ -181,9 +181,9 @@ runWawCheck _params (entry : rest) schedMaps =
 
 -- | Validate a schedule without an allocation (flow deps only).
 validateSchedule
-  :: forall ps inputs outputs locals.
+  :: forall ps pctx inputs outputs locals.
      (KnownSymbols ps, KnownNat (Length ps))
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> Schedule
   -> IO (Either CompileError ())
 validateSchedule sys sched =

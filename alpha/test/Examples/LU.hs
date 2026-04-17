@@ -143,7 +143,7 @@ uBody3D =
 -- The LU decomposition system (v7 surface form)
 -- ═══════════════════════════════════════════════════════════════════════
 
-luDecomp :: System '["N"] _ _ _
+luDecomp :: System '["N"] '[] _ _ _
 luDecomp = system
   ( Decls
       { dInputs  = input @"A" squareN (Proxy @Double)

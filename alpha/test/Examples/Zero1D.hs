@@ -69,7 +69,7 @@ type Zero1DOutputs =
    ]
 type Zero1DLocals = '[]
 
-zero1D :: System '["N"] Zero1DInputs Zero1DOutputs Zero1DLocals
+zero1D :: System '["N"] '[] Zero1DInputs Zero1DOutputs Zero1DLocals
 zero1D = System
   ( Decls
       { dInputs  = Nil

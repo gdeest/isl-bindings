@@ -31,11 +31,12 @@ import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownNat, Nat, Symbol, natVal, type (+))
 
 import Alpha.Core (Expr(..), VarDecl)
+import Isl.TypeLevel.Constraint (TConstraint)
 import qualified Isl.Typed.Constraints as TC
 import Isl.Typed.Constraints (Constraint(EqualityConstraint), MapIx(InDim, OutDim))
 import Isl.Typed.Params (KnownSymbols, Length, symbolVals)
 import Isl.TypeLevel.Reflection
-  ( Dict(..), DomTag, KnownDom, islImageSubsetCheckS )
+  ( Dict(..), DomTag, KnownDom, islImageSubsetCheckSPctx )
 import Isl.TypeLevel.Sing
   ( liftConstraintsMap, withKnownConstraints )
 
@@ -52,7 +53,8 @@ import Isl.TypeLevel.Sing
 -- semantically identical (identity-map Deps are eliminated by ISL
 -- during scheduling, so there is no runtime cost).
 weakenExpr
-  :: forall (ps :: [Symbol]) (decls :: [VarDecl ps])
+  :: forall (ps :: [Symbol]) (pctx :: [TConstraint ps 0])
+            (decls :: [VarDecl ps])
             (n :: Nat)
             (dInner :: DomTag ps n) (dOuter :: DomTag ps n) a.
      ( KnownSymbols ps, KnownNat (Length ps)
@@ -61,16 +63,18 @@ weakenExpr
      , KnownDom ps n dOuter
      )
   => Proxy dOuter
-  -> Expr ps decls n dInner a
-  -> Maybe (Expr ps decls n dOuter a)
+  -> Expr ps pctx decls n dInner a
+  -> Maybe (Expr ps pctx decls n dOuter a)
 weakenExpr _ inner =
   let n_val   = fromIntegral (natVal (Proxy @n))
       mapStr  = identityMapStr (symbolVals @ps) n_val
       idCs    = identityConstraints n_val
       someCs  = liftConstraintsMap @ps @(n + n) n_val idCs
    in withKnownConstraints someCs $ \(idProxy :: Proxy identityCs) ->
-        case islImageSubsetCheckS @ps @n @n @identityCs
-               mapStr (Proxy @dOuter) (Proxy @dInner) of
+        case islImageSubsetCheckSPctx @ps @pctx @n @n
+               @identityCs
+               @dOuter @dInner
+               mapStr Proxy Proxy Proxy of
           Nothing   -> Nothing
           Just Dict -> Just (Dep idProxy inner)
 

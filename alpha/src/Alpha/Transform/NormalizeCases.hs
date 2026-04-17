@@ -46,7 +46,9 @@ import Alpha.Core
 import Alpha.Transform.Types (TransformError(..))
 import Alpha.Transform.Weaken (weakenExpr)
 import Isl.Typed.Params (KnownSymbols, Length)
-import Isl.TypeLevel.Reflection (DomTag, EffectiveDomTag, KnownDom)
+import Isl.TypeLevel.Constraint (TConstraint)
+import Isl.TypeLevel.Reflection
+  (DomTag, EffectiveDomTag, KnownDom)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -54,10 +56,10 @@ import Isl.TypeLevel.Reflection (DomTag, EffectiveDomTag, KnownDom)
 -- ═══════════════════════════════════════════════════════════════════════
 
 normalizeCases
-  :: forall ps inputs outputs locals.
+  :: forall ps pctx inputs outputs locals.
      (KnownSymbols ps, KnownNat (Length ps))
-  => System ps inputs outputs locals
-  -> Either TransformError (System ps inputs outputs locals)
+  => System ps pctx inputs outputs locals
+  -> Either TransformError (System ps pctx inputs outputs locals)
 normalizeCases (System decls eqs) = do
   eqs' <- walkEqList eqs
   pure (System decls eqs')
@@ -68,18 +70,18 @@ normalizeCases (System decls eqs) = do
 -- ═══════════════════════════════════════════════════════════════════════
 
 walkEqList
-  :: forall ps decls defined.
+  :: forall ps pctx decls defined.
      (KnownSymbols ps, KnownNat (Length ps))
-  => EqList ps decls defined
-  -> Either TransformError (EqList ps decls defined)
+  => EqList ps pctx decls defined
+  -> Either TransformError (EqList ps pctx decls defined)
 walkEqList EqNil        = Right EqNil
 walkEqList (eq :& rest) = (:&) <$> walkEq eq <*> walkEqList rest
 
 walkEq
-  :: forall ps decls name.
+  :: forall ps pctx decls name.
      (KnownSymbols ps, KnownNat (Length ps))
-  => Equation ps decls name
-  -> Either TransformError (Equation ps decls name)
+  => Equation ps pctx decls name
+  -> Either TransformError (Equation ps pctx decls name)
 walkEq (Defines pn body) = Defines pn <$> normExpr body
 
 
@@ -90,11 +92,12 @@ walkEq (Defines pn body) = Defines pn <$> normExpr body
 -- | Recurse into an expression, hoisting 'Case' above 'Pw'/'PMap'
 -- whenever possible.  Types are phantom-preserving.
 normExpr
-  :: forall ps (decls :: [VarDecl ps]) n (d :: DomTag ps n) a.
+  :: forall ps (pctx :: [TConstraint ps 0]) (decls :: [VarDecl ps])
+            n (d :: DomTag ps n) a.
      ( KnownSymbols ps, KnownNat (Length ps)
      , KnownNat n, KnownDom ps n d )
-  => Expr ps decls n d a
-  -> Either TransformError (Expr ps decls n d a)
+  => Expr ps pctx decls n d a
+  -> Either TransformError (Expr ps pctx decls n d a)
 normExpr e0 = case e0 of
   Const k   -> Right (Const k)
   Var   pn  -> Right (Var pn)
@@ -120,12 +123,12 @@ normExpr e0 = case e0 of
   Case branches -> Case <$> normBranches branches
 
 normBranches
-  :: forall ps (decls :: [VarDecl ps]) n
+  :: forall ps (pctx :: [TConstraint ps 0]) (decls :: [VarDecl ps]) n
             (amb :: DomTag ps n) (branchDoms :: [DomTag ps n]) a.
      ( KnownSymbols ps, KnownNat (Length ps)
      , KnownNat n )
-  => Branches ps decls n amb branchDoms a
-  -> Either TransformError (Branches ps decls n amb branchDoms a)
+  => Branches ps pctx decls n amb branchDoms a
+  -> Either TransformError (Branches ps pctx decls n amb branchDoms a)
 normBranches BNil = Right BNil
 normBranches (BCons pd body rest) =
   BCons pd <$> normExpr body <*> normBranches rest
@@ -144,25 +147,25 @@ normBranches (BCons pd body rest) =
 -- would require an extra pass after unwrapping the identity-'Dep';
 -- it is not implemented in this first cut.
 hoistPw
-  :: forall ps (decls :: [VarDecl ps]) n (d :: DomTag ps n) a.
+  :: forall ps pctx (decls :: [VarDecl ps]) n (d :: DomTag ps n) a.
      ( KnownSymbols ps, KnownNat (Length ps)
      , KnownNat n, KnownDom ps n d )
   => BinOp
-  -> Expr ps decls n d a
-  -> Expr ps decls n d a
-  -> Either TransformError (Expr ps decls n d a)
+  -> Expr ps pctx decls n d a
+  -> Expr ps pctx decls n d a
+  -> Either TransformError (Expr ps pctx decls n d a)
 hoistPw op (Case bs) rhs = Case <$> pushPwBranchesL op bs rhs
 hoistPw op lhs (Case bs) = Case <$> pushPwBranchesR op lhs bs
 hoistPw op a b           = Right (Pw op a b)
 
 -- | Distribute 'PMap' over a 'Case' operand.
 hoistPMap
-  :: forall ps (decls :: [VarDecl ps]) n (d :: DomTag ps n) a.
+  :: forall ps pctx (decls :: [VarDecl ps]) n (d :: DomTag ps n) a.
      ( KnownSymbols ps, KnownNat (Length ps)
      , KnownNat n, KnownDom ps n d )
   => UnaryOp
-  -> Expr ps decls n d a
-  -> Either TransformError (Expr ps decls n d a)
+  -> Expr ps pctx decls n d a
+  -> Either TransformError (Expr ps pctx decls n d a)
 hoistPMap op (Case bs) = Right (Case (pushPMapBranches op bs))
 hoistPMap op e         = Right (PMap op e)
 
@@ -176,14 +179,14 @@ hoistPMap op e         = Right (PMap op e)
 -- @EffectiveDomTag di d@; we weaken @rhs@ down to the same narrower
 -- domain and pair it with the branch body.
 pushPwBranchesL
-  :: forall ps (decls :: [VarDecl ps]) n
+  :: forall ps pctx (decls :: [VarDecl ps]) n
             (amb :: DomTag ps n) (branchDoms :: [DomTag ps n]) a.
      ( KnownSymbols ps, KnownNat (Length ps), KnownNat n
      , KnownDom ps n amb )
   => BinOp
-  -> Branches ps decls n amb branchDoms a
-  -> Expr ps decls n amb a
-  -> Either TransformError (Branches ps decls n amb branchDoms a)
+  -> Branches ps pctx decls n amb branchDoms a
+  -> Expr ps pctx decls n amb a
+  -> Either TransformError (Branches ps pctx decls n amb branchDoms a)
 pushPwBranchesL _  BNil                      _   = Right BNil
 pushPwBranchesL op (BCons pd body rest) rhs = do
   body' <- mkPwL pd op body rhs
@@ -192,14 +195,14 @@ pushPwBranchesL op (BCons pd body rest) rhs = do
 
 -- | Symmetric: distribute @Pw op lhs · @ through branches.
 pushPwBranchesR
-  :: forall ps (decls :: [VarDecl ps]) n
+  :: forall ps pctx (decls :: [VarDecl ps]) n
             (amb :: DomTag ps n) (branchDoms :: [DomTag ps n]) a.
      ( KnownSymbols ps, KnownNat (Length ps), KnownNat n
      , KnownDom ps n amb )
   => BinOp
-  -> Expr ps decls n amb a
-  -> Branches ps decls n amb branchDoms a
-  -> Either TransformError (Branches ps decls n amb branchDoms a)
+  -> Expr ps pctx decls n amb a
+  -> Branches ps pctx decls n amb branchDoms a
+  -> Either TransformError (Branches ps pctx decls n amb branchDoms a)
 pushPwBranchesR _  _   BNil                      = Right BNil
 pushPwBranchesR op lhs (BCons pd body rest) = do
   body' <- mkPwR pd op lhs body
@@ -208,11 +211,11 @@ pushPwBranchesR op lhs (BCons pd body rest) = do
 
 -- | Distribute 'PMap' op through branches — no weakening needed.
 pushPMapBranches
-  :: forall ps (decls :: [VarDecl ps]) n
+  :: forall ps pctx (decls :: [VarDecl ps]) n
             (amb :: DomTag ps n) (branchDoms :: [DomTag ps n]) a.
      UnaryOp
-  -> Branches ps decls n amb branchDoms a
-  -> Branches ps decls n amb branchDoms a
+  -> Branches ps pctx decls n amb branchDoms a
+  -> Branches ps pctx decls n amb branchDoms a
 pushPMapBranches _  BNil               = BNil
 pushPMapBranches op (BCons pd body rest) =
   BCons pd (PMap op body) (pushPMapBranches op rest)
@@ -227,16 +230,16 @@ pushPMapBranches op (BCons pd body rest) =
 -- so callers pattern-matching 'BCons' don't need explicit type
 -- applications to satisfy the non-injective 'EffectiveDomTag'.
 mkPwL
-  :: forall ps (decls :: [VarDecl ps]) n
+  :: forall ps pctx (decls :: [VarDecl ps]) n
             (amb :: DomTag ps n) (di :: DomTag ps n) a.
      ( KnownSymbols ps, KnownNat (Length ps), KnownNat n
      , KnownDom ps n amb
      , KnownDom ps n (EffectiveDomTag di amb) )
   => Proxy di
   -> BinOp
-  -> Expr ps decls n (EffectiveDomTag di amb) a
-  -> Expr ps decls n amb a
-  -> Either TransformError (Expr ps decls n (EffectiveDomTag di amb) a)
+  -> Expr ps pctx decls n (EffectiveDomTag di amb) a
+  -> Expr ps pctx decls n amb a
+  -> Either TransformError (Expr ps pctx decls n (EffectiveDomTag di amb) a)
 mkPwL _ op body rhs =
   case weakenExpr (Proxy @(EffectiveDomTag di amb)) rhs of
     Just rhs' -> Right (Pw op body rhs')
@@ -246,16 +249,16 @@ mkPwL _ op body rhs =
 
 -- | @Pw op (weaken lhs) body_i@ — mirror of 'mkPwL'.
 mkPwR
-  :: forall ps (decls :: [VarDecl ps]) n
+  :: forall ps pctx (decls :: [VarDecl ps]) n
             (amb :: DomTag ps n) (di :: DomTag ps n) a.
      ( KnownSymbols ps, KnownNat (Length ps), KnownNat n
      , KnownDom ps n amb
      , KnownDom ps n (EffectiveDomTag di amb) )
   => Proxy di
   -> BinOp
-  -> Expr ps decls n amb a
-  -> Expr ps decls n (EffectiveDomTag di amb) a
-  -> Either TransformError (Expr ps decls n (EffectiveDomTag di amb) a)
+  -> Expr ps pctx decls n amb a
+  -> Expr ps pctx decls n (EffectiveDomTag di amb) a
+  -> Either TransformError (Expr ps pctx decls n (EffectiveDomTag di amb) a)
 mkPwR _ op lhs body =
   case weakenExpr (Proxy @(EffectiveDomTag di amb)) lhs of
     Just lhs' -> Right (Pw op lhs' body)

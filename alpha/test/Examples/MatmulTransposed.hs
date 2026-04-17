@@ -39,6 +39,6 @@ type TransposeMap = '[ 'TDim (D 1), 'TDim (D 0) ] :: [TExpr '["N"] 2]
 -- This adds local Bt[j,k] = B[k,j] and rewrites C's equation
 -- to read Bt[j,k] instead of B[k,j].
 matmulT :: _
-matmulT = case introduce @"B" @"Bt" @_ @'["N"] @TransposeMap matmul of
+matmulT = case introduce @"B" @"Bt" @_ @'["N"] @_ @TransposeMap matmul of
   Right sys -> sys
   Left err  -> error $ "matmulT: " ++ show err

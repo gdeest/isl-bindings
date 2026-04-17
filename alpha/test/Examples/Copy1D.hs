@@ -42,7 +42,7 @@ lineN :: DomExpr '["i"] _
 lineN = range0 @"N" #i
 
 -- | @y[i] = x[i]@ on a 1D line.
-copy1D :: System '["N"] _ _ _
+copy1D :: System '["N"] '[] _ _ _
 copy1D = system
   ( Decls
       { dInputs  = input @"x" lineN (Proxy @Double) :> Nil

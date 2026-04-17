@@ -65,7 +65,7 @@ type Const3DOutputs =
    ]
 type Const3DLocals = '[]
 
-const3D :: System '["N"] Const3DInputs Const3DOutputs Const3DLocals
+const3D :: System '["N"] '[] Const3DInputs Const3DOutputs Const3DLocals
 const3D = System
   ( Decls
       { dInputs  = Nil

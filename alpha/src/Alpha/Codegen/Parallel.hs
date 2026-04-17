@@ -67,9 +67,9 @@ instance NFData AnnotationError where
 -- ═══════════════════════════════════════════════════════════════════════
 
 validateAnnotations
-  :: forall ps inputs outputs locals.
+  :: forall ps pctx inputs outputs locals.
      KnownSymbols ps
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> Schedule
   -> IO (Either AnnotationError ())
 validateAnnotations sys@(System _ eqs) sched =

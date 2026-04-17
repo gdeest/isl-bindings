@@ -34,18 +34,13 @@ module Examples.FloydWarshall
   , FWKEq0_3D
   , FWKGe1_3D
   , NGeOne
-  , NeedsNGeOneSrc
-  , NeedsNGeOneDst
-  , hasParamCtxDemoPositive
   ) where
 
 import Data.Proxy (Proxy(..))
 
 import Alpha.Surface
 import Isl.TypeLevel.Constraint
-  ( HasParamCtx
-  , IslSubset(..)
-  , TConstraint
+  ( TConstraint
   , type (>=.)
   , type (<=.)
   , type (==.)
@@ -147,7 +142,7 @@ fwKGe1 = between (lit @1) (par @"N" -. lit @1) #k /\ range0 @"N" #i /\ range0 @"
 -- The Floyd-Warshall system (v7 surface form)
 -- ═══════════════════════════════════════════════════════════════════════
 
-floyd :: System '["N"] _ _ _
+floyd :: System '["N"] NGeOne _ _ _
 floyd = system
   ( Decls
       { dInputs  = input @"A" squareN (Proxy @Double)
@@ -176,24 +171,3 @@ floyd = system
  :& EqNil )
 
 
--- ═══════════════════════════════════════════════════════════════════════
--- Positive demonstration of the 'HasParamCtx' plugin path (v3 / D19)
--- ═══════════════════════════════════════════════════════════════════════
-
--- 1-dim source: @{ [k] : k == N - 1 }@.  Non-empty for all @N@.
-type NeedsNGeOneSrc =
-  '[ 'TDim (D 0) ==. ('TParam (P "N") -. 'TConst ('Pos 1))
-   ] :: [TConstraint '["N"] 1]
-
--- 1-dim target: @{ [k] : 0 ≤ k ≤ N - 1 }@.  Empty when @N ≤ 0@.
-type NeedsNGeOneDst =
-  '[ 'TDim (D 0) >=. 'TConst ('Pos 0)
-   , 'TDim (D 0) <=. ('TParam (P "N") -. 'TConst ('Pos 1))
-   ] :: [TConstraint '["N"] 1]
-
--- | Positive demo: requires the 'HasParamCtx' given at this
--- binding's compile time.
-hasParamCtxDemoPositive
-  :: HasParamCtx '["N"] NGeOne => ()
-hasParamCtxDemoPositive =
-  islSubsetEv @'["N"] @1 @NeedsNGeOneSrc @NeedsNGeOneDst

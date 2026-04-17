@@ -49,6 +49,7 @@ import Alpha.Core
   , DefinesAllExactlyOnce
   , type (++)
   )
+import Isl.TypeLevel.Constraint (TConstraint)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -195,11 +196,12 @@ introduceDecls newD (Decls ins outs locs) =
 -- Sound when @newDecl@ has a fresh name: 'Lookup' for every existing
 -- name gives the same result in both environments.
 introduceEqList
-  :: forall (ps :: [Symbol]) (newDecl :: VarDecl ps)
+  :: forall (ps :: [Symbol]) (pctx :: [TConstraint ps 0])
+            (newDecl :: VarDecl ps)
             (inputs :: [VarDecl ps]) (outputs :: [VarDecl ps])
             (locals :: [VarDecl ps]) (defined :: [Symbol]).
-     EqList ps (inputs ++ (outputs ++ locals)) defined
-  -> EqList ps (inputs ++ (outputs ++ (newDecl ': locals))) defined
+     EqList ps pctx (inputs ++ (outputs ++ locals)) defined
+  -> EqList ps pctx (inputs ++ (outputs ++ (newDecl ': locals))) defined
 introduceEqList = unsafeCoerce
 {-# INLINE introduceEqList #-}
 

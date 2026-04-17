@@ -36,7 +36,7 @@ lineDoubleN :: DomExpr '["k"] _
 lineDoubleN = (#k .>=. lit @0)
            /\ (#k .<=. ((par @"N" +. par @"N") -. lit @2))
 
-sumIndex2DSquare :: System '["N"] _ _ _
+sumIndex2DSquare :: System '["N"] '[] _ _ _
 sumIndex2DSquare = system
   ( Decls
       { dInputs  = input @"B" lineDoubleN (Proxy @Double) :> Nil

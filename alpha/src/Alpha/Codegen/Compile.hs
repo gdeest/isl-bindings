@@ -86,9 +86,9 @@ instance Exception CompileException
 -- ═══════════════════════════════════════════════════════════════════════
 
 compileKernel
-  :: forall ps inputs outputs locals.
+  :: forall ps pctx inputs outputs locals.
      KnownSymbols ps
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> Map String ScalarDesc
   -> Schedule -> Allocation -> CFunctionMapping
   -> IO CompiledKernel
@@ -138,9 +138,9 @@ compileKernel sys@(System decls _eqs) descs sched alloc fmap' = do
 
 -- | Homogeneous convenience: all variables share type @a@.
 withCompiledKernel
-  :: forall a ps inputs outputs locals r.
+  :: forall a ps pctx inputs outputs locals r.
      (AlphaScalar a, KnownSymbols ps)
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> Schedule -> Allocation -> CFunctionMapping
   -> (CompiledKernel -> IO r) -> IO r
 withCompiledKernel sys sched alloc fmap' =
@@ -335,8 +335,8 @@ withPtrArray xs action =
     mapM_ (\(i, v) -> pokeElemOff (castPtr ptr) i v) (zip [0..] xs)
     action (castPtr ptr)
 
-uniformDescs :: forall ps inputs outputs locals.
-  ScalarDesc -> System ps inputs outputs locals -> Map String ScalarDesc
+uniformDescs :: forall ps pctx inputs outputs locals.
+  ScalarDesc -> System ps pctx inputs outputs locals -> Map String ScalarDesc
 uniformDescs desc (System decls _) =
   let names = declListNames (dInputs decls)
            ++ declListNames (dOutputs decls)

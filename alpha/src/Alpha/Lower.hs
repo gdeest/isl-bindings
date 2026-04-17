@@ -59,9 +59,9 @@ import Alpha.Core
 --                     equation spaces (for composing before dep
 --                     computation)
 lowerSystem
-  :: forall ps inputs outputs locals.
+  :: forall ps pctx inputs outputs locals.
      KnownSymbols ps
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> ([NamedSet], [NamedMap], [NamedMap], [NamedMap])
 lowerSystem (System (Decls ins outs locs) eqs) =
   let params = symbolVals @ps
@@ -118,10 +118,10 @@ data ReadCtx = ReadCtx
 -- ═══════════════════════════════════════════════════════════════════════
 
 lowerEqList
-  :: forall ps decls defined.
+  :: forall ps pctx decls defined.
      KnownSymbols ps
   => Map String (Int, [Constraint SetIx])
-  -> [String] -> Int -> EqList ps decls defined
+  -> [String] -> Int -> EqList ps pctx decls defined
   -> ([LoweredQuad], Int)
 lowerEqList _ _ counter EqNil = ([], counter)
 lowerEqList declInfos params counter (Defines (Proxy :: Proxy name) body :& rest) =
@@ -151,11 +151,11 @@ lowerEqList declInfos params counter (Defines (Proxy :: Proxy name) body :& rest
 -- single-statement path; surviving 'Case' nodes fall through to the
 -- ternary renderer in 'Alpha.Codegen.ExprRender'.
 lowerOneEq
-  :: forall ps decls n (d :: DomTag ps n) a.
+  :: forall ps pctx decls n (d :: DomTag ps n) a.
      KnownSymbols ps
   => [String] -> Int -> String
   -> Int -> [Constraint SetIx]  -- rank + domain constraints from decl
-  -> Expr ps decls n d a
+  -> Expr ps pctx decls n d a
   -> ([LoweredQuad], Int)
 lowerOneEq params counter eqName nDims domCs (Case branches) =
   lowerCaseBranches params counter eqName nDims branches 0
@@ -188,10 +188,10 @@ lowerOneEq params counter eqName nDims domCs body =
 -- branch index @i@ is threaded separately from the synthetic-name
 -- counter used inside 'extractReads' for 'Reduce' bodies.
 lowerCaseBranches
-  :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
+  :: forall ps pctx decls n (amb :: DomTag ps n) branchDoms a.
      KnownSymbols ps
   => [String] -> Int -> String -> Int
-  -> Branches ps decls n amb branchDoms a
+  -> Branches ps pctx decls n amb branchDoms a
   -> Int   -- branch index
   -> ([LoweredQuad], Int)
 lowerCaseBranches _ counter _ _ BNil _ = ([], counter)
@@ -256,8 +256,8 @@ logicalName n
 
 -- | Returns (reads, projections, updated counter).
 extractReads
-  :: forall ps decls n (d :: DomTag ps n) a.
-     ReadCtx -> Int -> Expr ps decls n d a
+  :: forall ps pctx decls n (d :: DomTag ps n) a.
+     ReadCtx -> Int -> Expr ps pctx decls n d a
   -> ([NamedMap], [NamedMap], Int)
 
 extractReads _ c (Var _)   = ([], [], c)
@@ -272,7 +272,7 @@ extractReads ctx c (PMap _ e) = extractReads ctx c e
 
 extractReads ctx c
   (Dep (Proxy :: Proxy mapCs)
-       (inner :: Expr ps decls no dInner a)) =
+       (inner :: Expr ps pctx decls no dInner a)) =
   let ni   = rcNDims ctx
       no_  = fromIntegral (natVal (Proxy @no)) :: Int
       mapCs_ = reifySTConstraintsMapSplit ni
@@ -292,7 +292,7 @@ extractReads ctx c
 
 extractReads ctx c
   (Reduce _reduceOp (Proxy :: Proxy projCs)
-          (body :: Expr ps decls nBody dBody a)) =
+          (body :: Expr ps pctx decls nBody dBody a)) =
   let nEq     = rcNDims ctx
       nBody_  = fromIntegral (natVal (Proxy @nBody)) :: Int
       bodyDomCs = reflectDomConstraints @ps @nBody @dBody
@@ -324,8 +324,8 @@ extractReads ctx c (Case branches) =
   extractBranchReads ctx c branches
 
 extractBranchReads
-  :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
-     ReadCtx -> Int -> Branches ps decls n amb branchDoms a
+  :: forall ps pctx decls n (amb :: DomTag ps n) branchDoms a.
+     ReadCtx -> Int -> Branches ps pctx decls n amb branchDoms a
   -> ([NamedMap], [NamedMap], Int)
 extractBranchReads _ c BNil = ([], [], c)
 extractBranchReads ctx c (BCons (_ :: Proxy d) body rest) =
@@ -340,8 +340,8 @@ extractBranchReads ctx c (BCons (_ :: Proxy d) body rest) =
 -- §5. Helpers
 -- ═══════════════════════════════════════════════════════════════════════
 
-innerVarName :: forall ps decls n (d :: DomTag ps n) a.
-                Expr ps decls n d a -> String
+innerVarName :: forall ps pctx decls n (d :: DomTag ps n) a.
+                Expr ps pctx decls n d a -> String
 innerVarName (Var (Proxy :: Proxy name)) = symbolVal (Proxy @name)
 innerVarName (PMap _ e) = innerVarName e
 innerVarName (Dep _ inner) = innerVarName inner

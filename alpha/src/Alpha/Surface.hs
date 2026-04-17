@@ -82,13 +82,14 @@ import GHC.TypeLits
 import Isl.Typed.Params (KnownSymbols, Length)
 import Isl.TypeLevel.Constraint
   ( IslDifferenceSetU, IslMultiAffToMap, IslPartitionsU, TConstraint
+  , IslNonEmpty, LiftPctxN
   , type (>=.), type (<=.), type (==.) )
 import Isl.TypeLevel.Expr
   ( D, Elem, P, TExpr(..), Z(..) )
 import Isl.TypeLevel.Reflection
-  ( DomTag(..), DomToUnion, EffectiveDomTag
+  ( Append, DomTag(..), DomToUnion, EffectiveDomTag
   , IslImageSubsetD, IslPartitionsD, LiteralBranchesU
-  , KnownDom, withPartitionsD )
+  , KnownDom, LitPrepend, MapLitPrepend, withPartitionsD )
 
 import Alpha.Core
 import Alpha.Scalar (AlphaScalar)
@@ -345,44 +346,44 @@ ix4 a b c d = ICons a (ICons b (ICons c (ICons d INil)))
 -- @Length scope@ so that 'def' can bridge @Length scope ~ DeclDims decl@
 -- without a kind-level equality check that GHC can't perform.
 -- Combinators constrain @n ~ Length scope@ via their own signatures.
-newtype Body ps decls (scope :: [Symbol]) (n :: Nat) d a =
-  Body { unBody :: Expr ps decls n d a }
+newtype Body ps pctx decls (scope :: [Symbol]) (n :: Nat) d a =
+  Body { unBody :: Expr ps pctx decls n d a }
 
 -- | Pointwise addition.
-(.+.) :: Body ps decls scope n d a -> Body ps decls scope n d a
-      -> Body ps decls scope n d a
+(.+.) :: Body ps pctx decls scope n d a -> Body ps pctx decls scope n d a
+      -> Body ps pctx decls scope n d a
 a .+. b = Body (Pw OpAdd (unBody a) (unBody b))
 infixl 6 .+.
 
 -- | Pointwise subtraction.
-(.-.) :: Body ps decls scope n d a -> Body ps decls scope n d a
-      -> Body ps decls scope n d a
+(.-.) :: Body ps pctx decls scope n d a -> Body ps pctx decls scope n d a
+      -> Body ps pctx decls scope n d a
 a .-. b = Body (Pw OpSub (unBody a) (unBody b))
 infixl 6 .-.
 
 -- | Pointwise multiplication.
-(.*.) :: Body ps decls scope n d a -> Body ps decls scope n d a
-      -> Body ps decls scope n d a
+(.*.) :: Body ps pctx decls scope n d a -> Body ps pctx decls scope n d a
+      -> Body ps pctx decls scope n d a
 a .*. b = Body (Pw OpMul (unBody a) (unBody b))
 infixl 7 .*.
 
 -- | Pointwise division.
-(./.) :: Body ps decls scope n d a -> Body ps decls scope n d a
-      -> Body ps decls scope n d a
+(./.) :: Body ps pctx decls scope n d a -> Body ps pctx decls scope n d a
+      -> Body ps pctx decls scope n d a
 a ./. b = Body (Pw OpDiv (unBody a) (unBody b))
 infixl 7 ./.
 
 -- | Body-level literal (wraps 'Const').
-litB :: AlphaScalar a => a -> Body ps decls scope n d a
+litB :: AlphaScalar a => a -> Body ps pctx decls scope n d a
 litB = Body . Const
 
 -- | Lift a unary operation over a body (wraps 'PMap').
-mapB :: UnaryOp -> Body ps decls scope n d a -> Body ps decls scope n d a
+mapB :: UnaryOp -> Body ps pctx decls scope n d a -> Body ps pctx decls scope n d a
 mapB op = Body . PMap op . unBody
 
 -- | Pointwise binary operation (wraps 'Pw').
-pwB :: BinOp -> Body ps decls scope n d a -> Body ps decls scope n d a
-    -> Body ps decls scope n d a
+pwB :: BinOp -> Body ps pctx decls scope n d a -> Body ps pctx decls scope n d a
+    -> Body ps pctx decls scope n d a
 pwB op a b = Body (Pw op (unBody a) (unBody b))
 
 -- | Array access.  @at \@\"A\" (ix2 #i #k)@ elaborates to a
@@ -391,7 +392,7 @@ pwB op a b = Body (Pw op (unBody a) (unBody b))
 -- The access map is computed at the type level from the index list's
 -- kind-level descriptions via 'CompileIxList', and the plugin's
 -- 'IslImageSubsetD' obligation dispatches through the literal route.
-at :: forall (name :: Symbol) {ps} {decls} {scope :: [Symbol]}
+at :: forall (name :: Symbol) {ps} {pctx} {decls} {scope :: [Symbol]}
             {ixs :: [IxE]} {decl :: VarDecl ps} {bodyDom}.
       ( decl ~ Lookup name decls
       , KnownSymbol name
@@ -403,13 +404,14 @@ at :: forall (name :: Symbol) {ps} {decls} {scope :: [Symbol]}
           (IslMultiAffToMap ps (Length scope) (DeclDims decl)
              (CompileIxList ps scope (Length scope) ixs))
       , IslImageSubsetD ps (Length scope) (DeclDims decl)
-          (IslMultiAffToMap ps (Length scope) (DeclDims decl)
-             (CompileIxList ps scope (Length scope) ixs))
-          bodyDom
-          (DeclDomTag decl)
+          (Append (LiftPctxN (Length scope + DeclDims decl) pctx)
+             (IslMultiAffToMap ps (Length scope) (DeclDims decl)
+                (CompileIxList ps scope (Length scope) ixs)))
+          (LitPrepend (LiftPctxN (Length scope) pctx) bodyDom)
+          (LitPrepend (LiftPctxN (DeclDims decl) pctx) (DeclDomTag decl))
       )
    => IxList scope ixs
-   -> Body ps decls scope (Length scope) bodyDom (DeclType decl)
+   -> Body ps pctx decls scope (Length scope) bodyDom (DeclType decl)
 at _ = Body $ Dep (Proxy :: Proxy
                      (IslMultiAffToMap ps (Length scope) (DeclDims decl)
                         (CompileIxList ps scope (Length scope) ixs)))
@@ -427,7 +429,7 @@ at _ = Body $ Dep (Proxy :: Proxy
 -- the outer domain and the reduction variable's range.
 reduceOver
   :: forall (k :: Symbol) {outerScope :: [Symbol]} {bodyDomE :: DomE}
-            {ps} {decls} {dOuter} {a}.
+            {ps} {pctx} {decls} {dOuter} {a}.
      ( KnownSymbol k
      , Elem k outerScope ~ 'False
      , KnownNat (Length outerScope)
@@ -439,16 +441,18 @@ reduceOver
          (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
             (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope))
      , IslImageSubsetD ps (Length (outerScope ++ '[k])) (Length outerScope)
-         (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
-            (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope))
-         ('Literal (CompileDom ps (outerScope ++ '[k]) (Length (outerScope ++ '[k])) bodyDomE))
-         dOuter
+         (Append (LiftPctxN (Length (outerScope ++ '[k]) + Length outerScope) pctx)
+           (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
+              (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope)))
+         (LitPrepend (LiftPctxN (Length (outerScope ++ '[k])) pctx)
+            ('Literal (CompileDom ps (outerScope ++ '[k]) (Length (outerScope ++ '[k])) bodyDomE)))
+         (LitPrepend (LiftPctxN (Length outerScope) pctx) dOuter)
      )
   => ReduceOp
   -> DomExpr (outerScope ++ '[k]) bodyDomE
-  -> Body ps decls (outerScope ++ '[k]) (Length (outerScope ++ '[k]))
+  -> Body ps pctx decls (outerScope ++ '[k]) (Length (outerScope ++ '[k]))
           ('Literal (CompileDom ps (outerScope ++ '[k]) (Length (outerScope ++ '[k])) bodyDomE)) a
-  -> Body ps decls outerScope (Length outerScope) dOuter a
+  -> Body ps pctx decls outerScope (Length outerScope) dOuter a
 reduceOver op _ (Body body) =
   Body $ Reduce op
            (Proxy :: Proxy
@@ -459,7 +463,7 @@ reduceOver op _ (Body body) =
 -- | Sum reduction over a named dimension.
 sumOver
   :: forall (k :: Symbol) {outerScope :: [Symbol]} {bodyDomE :: DomE}
-            {ps} {decls} {dOuter} {a}.
+            {ps} {pctx} {decls} {dOuter} {a}.
      ( KnownSymbol k
      , Elem k outerScope ~ 'False
      , KnownNat (Length outerScope)
@@ -471,15 +475,17 @@ sumOver
          (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
             (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope))
      , IslImageSubsetD ps (Length (outerScope ++ '[k])) (Length outerScope)
-         (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
-            (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope))
-         ('Literal (CompileDom ps (outerScope ++ '[k]) (Length (outerScope ++ '[k])) bodyDomE))
-         dOuter
+         (Append (LiftPctxN (Length (outerScope ++ '[k]) + Length outerScope) pctx)
+           (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
+              (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope)))
+         (LitPrepend (LiftPctxN (Length (outerScope ++ '[k])) pctx)
+            ('Literal (CompileDom ps (outerScope ++ '[k]) (Length (outerScope ++ '[k])) bodyDomE)))
+         (LitPrepend (LiftPctxN (Length outerScope) pctx) dOuter)
      )
   => DomExpr (outerScope ++ '[k]) bodyDomE
-  -> Body ps decls (outerScope ++ '[k]) (Length (outerScope ++ '[k]))
+  -> Body ps pctx decls (outerScope ++ '[k]) (Length (outerScope ++ '[k]))
           ('Literal (CompileDom ps (outerScope ++ '[k]) (Length (outerScope ++ '[k])) bodyDomE)) a
-  -> Body ps decls outerScope (Length outerScope) dOuter a
+  -> Body ps pctx decls outerScope (Length outerScope) dOuter a
 sumOver dom body = reduceOver @k ReduceSum dom body
 
 
@@ -490,52 +496,54 @@ sumOver dom body = reduceOver @k ReduceSum dom body
 -- | Surface-level mirror of Core's 'Branches', indexed by @[DomE]@
 -- instead of @[DomTag ps n]@.  'unSBranches' maps it to Core.
 type SBranches
-  :: forall (ps :: [Symbol]) -> [VarDecl ps]
+  :: forall (ps :: [Symbol]) -> [TConstraint ps 0] -> [VarDecl ps]
   -> forall (scope :: [Symbol])
   -> DomTag ps (Length scope) -> [DomE] -> Type -> Type
-data SBranches ps decls scope amb doms a where
-  SBNil  :: SBranches ps decls scope amb '[] a
-  SBCons :: forall dom ps decls scope amb doms a.
+data SBranches ps pctx decls scope amb doms a where
+  SBNil  :: SBranches ps pctx decls scope amb '[] a
+  SBCons :: forall dom ps pctx decls scope amb doms a.
             ( KnownDom ps (Length scope)
                 ('Literal (CompileDom ps scope (Length scope) dom))
             , KnownDom ps (Length scope)
                 (EffectiveDomTag ('Literal (CompileDom ps scope (Length scope) dom)) amb)
             )
          => DomExpr scope dom
-         -> Body ps decls scope (Length scope)
+         -> Body ps pctx decls scope (Length scope)
                  (EffectiveDomTag ('Literal (CompileDom ps scope (Length scope) dom)) amb) a
-         -> SBranches ps decls scope amb doms a
-         -> SBranches ps decls scope amb (dom ': doms) a
+         -> SBranches ps pctx decls scope amb doms a
+         -> SBranches ps pctx decls scope amb (dom ': doms) a
 
 -- | Add a branch to a case.
-when_ :: forall dom ps decls scope amb doms a.
+when_ :: forall dom ps pctx decls scope amb doms a.
          ( KnownDom ps (Length scope)
              ('Literal (CompileDom ps scope (Length scope) dom))
          , KnownDom ps (Length scope)
              (EffectiveDomTag ('Literal (CompileDom ps scope (Length scope) dom)) amb)
          )
       => DomExpr scope dom
-      -> Body ps decls scope (Length scope)
+      -> Body ps pctx decls scope (Length scope)
               (EffectiveDomTag ('Literal (CompileDom ps scope (Length scope) dom)) amb) a
-      -> SBranches ps decls scope amb doms a
-      -> SBranches ps decls scope amb (dom ': doms) a
+      -> SBranches ps pctx decls scope amb doms a
+      -> SBranches ps pctx decls scope amb (dom ': doms) a
 when_ = SBCons
 
 -- | Build a 'Case' expression from surface branches.
-caseB :: forall {ps} {decls} {scope :: [Symbol]} {amb} {doms} {a}.
+caseB :: forall {ps} {pctx} {decls} {scope :: [Symbol]} {amb} {doms} {a}.
          ( KnownNat (Length scope)
          , KnownDom ps (Length scope) amb
-         , IslPartitionsD ps (Length scope) amb
-             (DomsToLitList ps scope (Length scope) doms)
+         , IslPartitionsD ps (Length scope)
+             (LitPrepend (LiftPctxN (Length scope) pctx) amb)
+             (MapLitPrepend (LiftPctxN (Length scope) pctx)
+                (DomsToLitList ps scope (Length scope) doms))
          )
-      => SBranches ps decls scope amb doms a
-      -> Body ps decls scope (Length scope) amb a
+      => SBranches ps pctx decls scope amb doms a
+      -> Body ps pctx decls scope (Length scope) amb a
 caseB bs = Body $ Case (unSBranches bs)
 
 -- | Convert surface branches to Core branches.
 unSBranches
-  :: SBranches ps decls scope amb doms a
-  -> Branches ps decls (Length scope) amb
+  :: SBranches ps pctx decls scope amb doms a
+  -> Branches ps pctx decls (Length scope) amb
        (DomsToLitList ps scope (Length scope) doms) a
 unSBranches SBNil = BNil
 unSBranches (SBCons (_ :: DomExpr scope dom) (Body body) rest) =
@@ -575,18 +583,20 @@ type family ElsewhereDom (ps :: [Symbol]) (scope :: [Symbol]) (n :: Nat)
 --   $ elsewhere        (litB 0))
 -- @
 caseWithElsewhere
-  :: forall {ps} {decls} {scope :: [Symbol]} {amb} {doms} {a} {elseCss}.
+  :: forall {ps} {pctx} {decls} {scope :: [Symbol]} {amb} {doms} {a} {elseCss}.
      ( elseCss ~ ElsewhereDom ps scope (Length scope) amb doms
      , KnownNat (Length scope)
      , KnownDom ps (Length scope) amb
      , KnownDom ps (Length scope) ('LiteralU elseCss)
      , KnownDom ps (Length scope) (EffectiveDomTag ('LiteralU elseCss) amb)
-     , IslPartitionsU ps (Length scope) (DomToUnion amb)
+     , IslPartitionsU ps (Length scope)
+         (DomToUnion (LitPrepend (LiftPctxN (Length scope) pctx) amb))
          (LiteralBranchesU
-           ( 'LiteralU elseCss ': DomsToLitList ps scope (Length scope) doms ))
+           (MapLitPrepend (LiftPctxN (Length scope) pctx)
+             ( 'LiteralU elseCss ': DomsToLitList ps scope (Length scope) doms )))
      )
-  => SBranchesElse ps decls scope amb doms a
-  -> Body ps decls scope (Length scope) amb a
+  => SBranchesElse ps pctx decls scope amb doms a
+  -> Body ps pctx decls scope (Length scope) amb a
 caseWithElsewhere (SBE elseBody bs) =
   -- The plugin solves IslPartitionsU directly; we fabricate the
   -- IslPartitionsD dictionary from it.  Sound because IslPartitionsD
@@ -597,51 +607,56 @@ caseWithElsewhere (SBE elseBody bs) =
   -- are not always presented to the plugin solver, so we bypass
   -- IslPartitionsD's instance dispatch and use IslPartitionsU
   -- evidence directly.
-  Body $ caseWithPartitionsU $
+  Body $ caseWithPartitionsU @ps @pctx $
     BCons (Proxy @('LiteralU elseCss))
           elseBody
           (unSBranches bs)
 
 -- | Build a 'Case' using 'IslPartitionsU' evidence directly.
 caseWithPartitionsU
-  :: forall ps n d branchDoms a decls.
+  :: forall ps pctx n d branchDoms a decls.
      ( KnownNat n
      , KnownDom ps n d
-     , IslPartitionsU ps n (DomToUnion d) (LiteralBranchesU branchDoms) )
-  => Branches ps decls n d branchDoms a
-  -> Expr ps decls n d a
+     , IslPartitionsU ps n
+         (DomToUnion (LitPrepend (LiftPctxN n pctx) d))
+         (LiteralBranchesU
+           (MapLitPrepend (LiftPctxN n pctx) branchDoms)) )
+  => Branches ps pctx decls n d branchDoms a
+  -> Expr ps pctx decls n d a
 caseWithPartitionsU bs =
-  withPartitionsD @ps @n @d @branchDoms (Case bs)
+  withPartitionsD @ps @n
+    @(LitPrepend (LiftPctxN n pctx) d)
+    @(MapLitPrepend (LiftPctxN n pctx) branchDoms) (Case bs)
 
 -- | Surface branches terminated by an elsewhere catch-all.
 type SBranchesElse
-  :: forall (ps :: [Symbol]) -> [VarDecl ps]
+  :: forall (ps :: [Symbol]) -> [TConstraint ps 0] -> [VarDecl ps]
   -> forall (scope :: [Symbol])
   -> DomTag ps (Length scope) -> [DomE] -> Type -> Type
-data SBranchesElse ps decls scope amb doms a where
-  SBE :: forall ps decls scope amb doms a elseCss.
+data SBranchesElse ps pctx decls scope amb doms a where
+  SBE :: forall ps pctx decls scope amb doms a elseCss.
          ( elseCss ~ ElsewhereDom ps scope (Length scope) amb doms
          , KnownDom ps (Length scope) ('LiteralU elseCss)
          , KnownDom ps (Length scope)
              (EffectiveDomTag ('LiteralU elseCss) amb)
          )
-      => Expr ps decls (Length scope)
+      => Expr ps pctx decls (Length scope)
               (EffectiveDomTag ('LiteralU elseCss) amb) a
-      -> SBranches ps decls scope amb doms a
-      -> SBranchesElse ps decls scope amb doms a
+      -> SBranches ps pctx decls scope amb doms a
+      -> SBranchesElse ps pctx decls scope amb doms a
 
 -- | Terminate a branch list with a catch-all body.
 elsewhere
-  :: forall {ps} {decls} {scope :: [Symbol]} {amb} {doms} {a} {elseCss}.
+  :: forall {ps} {pctx} {decls} {scope :: [Symbol]} {amb} {doms} {a} {elseCss}.
      ( elseCss ~ ElsewhereDom ps scope (Length scope) amb doms
      , KnownDom ps (Length scope) ('LiteralU elseCss)
      , KnownDom ps (Length scope)
          (EffectiveDomTag ('LiteralU elseCss) amb)
      )
-  => Body ps decls scope (Length scope)
+  => Body ps pctx decls scope (Length scope)
           (EffectiveDomTag ('LiteralU elseCss) amb) a
-  -> SBranches ps decls scope amb doms a
-  -> SBranchesElse ps decls scope amb doms a
+  -> SBranches ps pctx decls scope amb doms a
+  -> SBranchesElse ps pctx decls scope amb doms a
 elsewhere (Body body) bs = SBE body bs
 
 
@@ -688,24 +703,25 @@ local _ _ = MkDecl
 -- | Define an equation for a declared variable.  The scope must be
 -- provided via a type application: @def \@\"C\" \@'[\"i\",\"j\"] body@.
 def :: forall (name :: Symbol) (scope :: [Symbol])
-             {ps} {decls} {decl :: VarDecl ps}.
+             {ps} {pctx} {decls} {decl :: VarDecl ps}.
        ( decl ~ Lookup name decls
        , KnownSymbol name
        , Length scope ~ DeclDims decl
        , KnownNat (DeclDims decl)
        , KnownDom ps (DeclDims decl) (DeclDomTag decl)
        )
-    => Body ps decls scope (DeclDims decl) (DeclDomTag decl) (DeclType decl)
-    -> Equation ps decls name
+    => Body ps pctx decls scope (DeclDims decl) (DeclDomTag decl) (DeclType decl)
+    -> Equation ps pctx decls name
 def (Body body) = Defines (Proxy @name) body
 
 -- | Construct a system.  Thin alias for the Core 'System' pattern
 -- synonym, re-exported for import convenience.
-system :: forall ps inputs outputs locals defined.
+system :: forall ps pctx inputs outputs locals defined.
           ( KnownSymbols ps
+          , IslNonEmpty ps 0 pctx
           , DefinesAllExactlyOnce (outputs ++ locals) defined
           )
        => Decls  ps inputs outputs locals
-       -> EqList ps (inputs ++ outputs ++ locals) defined
-       -> System ps inputs outputs locals
+       -> EqList ps pctx (inputs ++ outputs ++ locals) defined
+       -> System ps pctx inputs outputs locals
 system = System

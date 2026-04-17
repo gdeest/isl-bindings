@@ -129,12 +129,12 @@ sched mkDef =
 -- schedOf \@\"C\"  matmulT $ \\_ -> embedAt 1 (identity 2)
 -- @
 schedOf
-  :: forall (name :: Symbol) {ps} {inputs} {outputs} {locals} {decl}.
+  :: forall (name :: Symbol) {ps} {pctx} {inputs} {outputs} {locals} {decl}.
      ( decl ~ Lookup name (inputs ++ (outputs ++ locals))
      , KnownSymbol name
      , KnownNat (DeclDims decl)
      )
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> (Int -> S.ScheduleDef) -> ScheduleBuilder ()
 schedOf _ = sched @name @(inputs ++ (outputs ++ locals))
 

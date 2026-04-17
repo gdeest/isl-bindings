@@ -82,7 +82,7 @@ squareN = range0 @"N" #i /\ range0 @"N" #j
 cubeN :: DomExpr '["i", "j", "k"] _
 cubeN = range0 @"N" #i /\ range0 @"N" #j /\ range0 @"N" #k
 
-matmul :: System '["N"] _ _ _
+matmul :: System '["N"] '[] _ _ _
 matmul = system
   ( Decls
       { dInputs  = input @"A" squareN (Proxy @Double)

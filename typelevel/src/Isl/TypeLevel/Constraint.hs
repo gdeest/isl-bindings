@@ -40,8 +40,8 @@ module Isl.TypeLevel.Constraint
   , IslPartitions(..)
     -- * Multi-aff proof obligations (solved by isl-plugin)
   , IslMultiAffEqual(..)
-    -- * Parameter precondition marker (consumed by isl-plugin from givens)
-  , HasParamCtx(..)
+    -- * Parameter-context lifting (fuses pctx into n-dim obligation sites)
+  , LiftPctxN, LiftC, LiftExpr
     -- * Type-level ISL computations (plugin-rewritten type families)
   , IslIntersectSet
   , IslComplementSet
@@ -488,26 +488,6 @@ class IslMultiAffEqual (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
   islMultiAffEqualEv :: ()
 
 
--- * Parameter precondition marker
-
--- | @HasParamCtx ps cs@ is a marker class that ferries a list of
--- parameter-only constraints @cs@ (over parameter list @ps@, with
--- zero set dimensions) from the user's type signature into the
--- plugin's *given* list.  The plugin's 'solveIsl' scans incoming
--- givens for this class, reifies @cs@, and intersects the
--- corresponding constraints with every ISL set/map built during
--- wanted discharge — giving the solver access to assumptions like
--- @N ≥ 1@ when verifying subset / image / coverage obligations.
---
--- There is no instance for this class.  Users must place
--- @HasParamCtx ps cs@ in the type signature of any binding that
--- needs the precondition; GHC then hands the constraint to the
--- plugin as a given when elaborating the body.  See deviation D19
--- in @doc/alpha-implementation.md@ (v3 plan) for the full story.
-class HasParamCtx (ps :: [Symbol]) (cs :: [TConstraint ps 0]) where
-  hasParamCtxEv :: ()
-
-
 -- * Multi-aff type families (plugin-rewritten)
 
 -- | Convert a multi-aff to map constraints.
@@ -551,6 +531,42 @@ type family IslSetDimMax (ps :: [Symbol]) (n :: Nat) (d :: Nat)
 -- | Minimum value of dimension @d@ in a set, as piecewise affine pieces.
 type family IslSetDimMin (ps :: [Symbol]) (n :: Nat) (d :: Nat)
     (cs :: [[TConstraint ps n]]) :: [( [TConstraint ps n], TExpr ps n )]
+
+
+-- ═══════════════════════════════════════════════════════════════
+-- Parameter-context lifting
+--
+-- @LiftPctxN n pctx@ structurally lifts a list of parameter-only
+-- constraints (dim 0) into an n-dim space.  Safe because a
+-- @TExpr ps 0@ structurally cannot contain @'TDim@ (the @Idx 0@
+-- type is uninhabited at n = 0, so no value-level constructor can
+-- introduce one); the type family therefore has no @'TDim@ case.
+--
+-- These families replace the plugin's previous givens-scanning
+-- @ParamCtx@ machinery: obligation-emitting constructors fuse
+-- @LiftPctxN n pctx@ into their emitted constraint lists at the
+-- type level, so the plugin sees pctx as part of the constraint
+-- list without any special givens handling.
+-- ═══════════════════════════════════════════════════════════════
+
+type family LiftPctxN (n :: Nat) (pctx :: [TConstraint ps 0])
+                   :: [TConstraint ps n] where
+  LiftPctxN _ '[]       = '[]
+  LiftPctxN n (c ': cs) = LiftC n c ': LiftPctxN n cs
+
+type family LiftC (n :: Nat) (c :: TConstraint ps 0) :: TConstraint ps n where
+  LiftC n ('TEq e) = 'TEq (LiftExpr n e)
+  LiftC n ('TGe e) = 'TGe (LiftExpr n e)
+
+type family LiftExpr (n :: Nat) (e :: TExpr ps 0) :: TExpr ps n where
+  LiftExpr _ ('TConst v)      = 'TConst v
+  LiftExpr _ ('TParam p)      = 'TParam p
+  LiftExpr n ('TAdd a b)      = 'TAdd (LiftExpr n a) (LiftExpr n b)
+  LiftExpr n ('TMul k e)      = 'TMul k (LiftExpr n e)
+  LiftExpr n ('TFloorDiv e k) = 'TFloorDiv (LiftExpr n e) k
+  -- No 'TDim case: structurally unreachable for TExpr ps 0.
+  -- Idx 0 has no inhabitants at the type level (MkIdx d requires
+  -- d < 0, impossible for Nat).
 
 
 -- ═══════════════════════════════════════════════════════════════

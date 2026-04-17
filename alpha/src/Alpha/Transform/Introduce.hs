@@ -32,14 +32,17 @@ import Alpha.Transform.Types
   (TransformError(..), requireJust, requireC, internalError)
 import Alpha.Transform.Walk (composeAccess)
 import Isl.Typed.Params (KnownSymbols, Length)
-import Isl.TypeLevel.Constraint (TConstraint, IslMultiAffToMap, IslPreimageMultiAff)
+import Isl.TypeLevel.Constraint
+  (TConstraint, IslMultiAffToMap, IslPreimageMultiAff, IslNonEmpty, LiftPctxN)
 import Isl.TypeLevel.Expr (TExpr)
 import Isl.TypeLevel.Reflection
-  ( DomTag(..)
+  ( Append
+  , DomTag(..)
   , IslImageSubsetD
   , KnownDom
+  , LitPrepend
   , domToString
-  , islImageSubsetCheckS
+  , islImageSubsetCheckSPctx
   )
 import Isl.TypeLevel.Sing
   ( KnownExprs(..)
@@ -56,7 +59,8 @@ type IntroducedVarDecl ps proxy newN newDomCs a =
 
 introduce
   :: forall (source :: Symbol) (proxy :: Symbol) (newN :: Nat)
-            (ps :: [Symbol]) (mapExprs :: [TExpr ps newN])
+            (ps :: [Symbol]) (pctx :: [TConstraint ps 0])
+            (mapExprs :: [TExpr ps newN])
             (inputs :: [VarDecl ps]) (outputs :: [VarDecl ps])
             (locals :: [VarDecl ps])
             (sourceN :: Nat) (sourceDomCs :: [TConstraint ps sourceN])
@@ -73,18 +77,24 @@ introduce
      , KnownConstraints ps (newN + sourceN)
          (IslMultiAffToMap ps newN sourceN mapExprs)
      , IslImageSubsetD ps newN sourceN
-         (IslMultiAffToMap ps newN sourceN mapExprs)
-         ('Literal newDomCs) ('Literal sourceDomCs)
+         (Append (LiftPctxN (newN + sourceN) pctx)
+            (IslMultiAffToMap ps newN sourceN mapExprs))
+         (LitPrepend (LiftPctxN newN pctx) ('Literal newDomCs))
+         (LitPrepend (LiftPctxN sourceN pctx) ('Literal sourceDomCs))
      )
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> Either TransformError
-            (System ps inputs outputs
+            (System ps pctx inputs outputs
                (IntroducedVarDecl ps proxy newN newDomCs a ': locals))
 introduce sys = case sys of
-  System @_ @_ @_ @_ @defined decls eqs ->
-    introduceImpl @source @proxy @newN @ps @mapExprs
+  System @_ @_ @_ @_ @_ @defined decls eqs ->
+    introduceImpl @source @proxy @newN @ps @pctx @mapExprs
       @inputs @outputs @locals @defined
       @sourceN @sourceDomCs @a @newDomCs decls eqs
+
+-- See the D32 staging: 'introduce' inherits its @pctx@ from the input
+-- System's phantom; the plugin obligation in 'introduceImpl' fuses
+-- pctx into the image-subset check automatically.
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -99,7 +109,8 @@ type OldDecls ps inputs outputs locals =
 
 introduceImpl
   :: forall (source :: Symbol) (proxy :: Symbol) (newN :: Nat)
-            (ps :: [Symbol]) (mapExprs :: [TExpr ps newN])
+            (ps :: [Symbol]) (pctx :: [TConstraint ps 0])
+            (mapExprs :: [TExpr ps newN])
             (inputs :: [VarDecl ps]) (outputs :: [VarDecl ps])
             (locals :: [VarDecl ps]) (defined :: [Symbol])
             (sourceN :: Nat) (sourceDomCs :: [TConstraint ps sourceN])
@@ -116,14 +127,17 @@ introduceImpl
      , KnownConstraints ps (newN + sourceN)
          (IslMultiAffToMap ps newN sourceN mapExprs)
      , IslImageSubsetD ps newN sourceN
-         (IslMultiAffToMap ps newN sourceN mapExprs)
-         ('Literal newDomCs) ('Literal sourceDomCs)
+         (Append (LiftPctxN (newN + sourceN) pctx)
+            (IslMultiAffToMap ps newN sourceN mapExprs))
+         (LitPrepend (LiftPctxN newN pctx) ('Literal newDomCs))
+         (LitPrepend (LiftPctxN sourceN pctx) ('Literal sourceDomCs))
      , DefinesAllExactlyOnce (outputs ++ locals) defined
+     , IslNonEmpty ps 0 pctx
      )
   => Decls ps inputs outputs locals
-  -> EqList ps (OldDecls ps inputs outputs locals) defined
+  -> EqList ps pctx (OldDecls ps inputs outputs locals) defined
   -> Either TransformError
-            (System ps inputs outputs
+            (System ps pctx inputs outputs
                (IntroducedVarDecl ps proxy newN newDomCs a ': locals))
 introduceImpl decls eqs
   -- Freshness check: proxy must not collide with any existing variable
@@ -148,25 +162,25 @@ introduceImpl decls eqs
                   :: Decl ps (IntroducedVarDecl ps proxy newN newDomCs a)
                 newDecls = introduceDecls proxyDecl decls
 
-                sourceVar :: Expr ps (NewDecls ps inputs outputs locals proxy newN newDomCs a)
+                sourceVar :: Expr ps pctx (NewDecls ps inputs outputs locals proxy newN newDomCs a)
                                  sourceN ('Literal sourceDomCs) a
                 sourceVar = Var (Proxy @source)
 
-                copyBody :: Expr ps (NewDecls ps inputs outputs locals proxy newN newDomCs a)
+                copyBody :: Expr ps pctx (NewDecls ps inputs outputs locals proxy newN newDomCs a)
                                 newN ('Literal newDomCs) a
                 copyBody = Dep (Proxy @(IslMultiAffToMap ps newN sourceN mapExprs))
                                sourceVar
 
-                copyEq :: Equation ps (NewDecls ps inputs outputs locals proxy newN newDomCs a) proxy
+                copyEq :: Equation ps pctx (NewDecls ps inputs outputs locals proxy newN newDomCs a) proxy
                 copyEq = Defines (Proxy @proxy) copyBody
 
-                transportedEqs = introduceEqList @ps
+                transportedEqs = introduceEqList @ps @pctx
                   @(IntroducedVarDecl ps proxy newN newDomCs a)
                   @inputs @outputs @locals eqs
 
             in (\rewrittenEqs -> System newDecls (copyEq :& rewrittenEqs))
                <$> walkEqListIntroduce
-                     @source @proxy @ps
+                     @source @proxy @ps @pctx
                      @(OldDecls ps inputs outputs locals)
                      @(NewDecls ps inputs outputs locals proxy newN newDomCs a)
                      @(IntroducedVarDecl ps proxy newN newDomCs a)
@@ -193,6 +207,7 @@ declListNames ((MkDecl :: Decl ps d) :> rest) =
 
 walkExprIntroduce
   :: forall (source :: Symbol) (proxy :: Symbol) (ps :: [Symbol])
+            (pctx :: [TConstraint ps 0])
             (oldDecls :: [VarDecl ps]) (newDecls :: [VarDecl ps])
             (newVD :: VarDecl ps)
             (newNo :: Nat) (newDomCs :: [TConstraint ps newNo])
@@ -206,21 +221,21 @@ walkExprIntroduce
      , newVD ~ IntroducedVarDecl ps proxy newNo newDomCs
                (DeclType (Lookup source oldDecls))
      )
-  => Expr ps newDecls n d a
-  -> Either TransformError (Expr ps newDecls n d a)
+  => Expr ps pctx newDecls n d a
+  -> Either TransformError (Expr ps pctx newDecls n d a)
 walkExprIntroduce = go
   where
     sourceName = symbolVal (Proxy @source)
 
     go :: forall n' (d' :: DomTag ps n') a'.
-          Expr ps newDecls n' d' a'
-       -> Either TransformError (Expr ps newDecls n' d' a')
+          Expr ps pctx newDecls n' d' a'
+       -> Either TransformError (Expr ps pctx newDecls n' d' a')
 
     go (Const k)   = Right (Const k)
     go (Pw op a b) = Pw op <$> go a <*> go b
     go (PMap op a) = PMap op <$> go a
 
-    go (Var @name pn) = Right (Var pn)
+    go (Var @_ pn) = Right (Var pn)
 
     -- Dep targeting source variable: compose maps, redirect to proxy.
     -- Three evidence steps:
@@ -229,8 +244,8 @@ walkExprIntroduce = go
     --   3. lookupIntroduceDecl @proxy @proxy → Lookup proxy newDecls ~ newVD
     -- Chain: DeclType (Lookup name newDecls) = DeclType (Lookup source newDecls)
     --        = DeclType (Lookup source oldDecls) = DeclType newVD (from walker constraint)
-    go (Dep @_ @_ @ni @no @mapCs @dOuter @_dInner @_ _mapP
-           (Var @name @_ @_ @_ pn))
+    go (Dep @_ @_ @_ @ni @no @mapCs @dOuter @_dInner @_ _mapP
+           (Var @name @_ @_ @_ @_ pn))
       | symbolVal pn == sourceName =
           case sameSymbol (Proxy @name) (Proxy @source) of
             Nothing -> internalError "introduce: symbolVal/sameSymbol mismatch"
@@ -260,8 +275,9 @@ walkExprIntroduce = go
                          (ImageOutOfBounds
                             "introduce: image-subset re-check failed"
                             srcStr dstStr)
-                         (islImageSubsetCheckS @ps @ni @newNo @composedCs
-                            mapStr (Proxy @dOuter) (Proxy @('Literal newDomCs)))
+                         (islImageSubsetCheckSPctx @ps @pctx @ni @newNo
+                            @composedCs @dOuter @('Literal newDomCs)
+                            mapStr Proxy Proxy Proxy)
                          $
                          -- (3) Lookup proxy newDecls ~ newVD
                          withIntroduceDecl @ps @proxy @proxy
@@ -276,8 +292,8 @@ walkExprIntroduce = go
     go (Case branches)     = Case <$> goBranches branches
 
     goBranches :: forall n' (amb :: DomTag ps n') (bdoms :: [DomTag ps n']) a'.
-                  Branches ps newDecls n' amb bdoms a'
-               -> Either TransformError (Branches ps newDecls n' amb bdoms a')
+                  Branches ps pctx newDecls n' amb bdoms a'
+               -> Either TransformError (Branches ps pctx newDecls n' amb bdoms a')
     goBranches BNil = Right BNil
     goBranches (BCons pd body rest) =
       BCons pd <$> go body <*> goBranches rest
@@ -289,6 +305,7 @@ walkExprIntroduce = go
 
 walkEqListIntroduce
   :: forall (source :: Symbol) (proxy :: Symbol) (ps :: [Symbol])
+            (pctx :: [TConstraint ps 0])
             (oldDecls :: [VarDecl ps]) (newDecls :: [VarDecl ps])
             (newVD :: VarDecl ps)
             (newNo :: Nat) (newDomCs :: [TConstraint ps newNo])
@@ -302,12 +319,12 @@ walkEqListIntroduce
                (DeclType (Lookup source oldDecls))
      , KnownSymbols ps, KnownNat (Length ps)
      )
-  => EqList ps newDecls defined
-  -> Either TransformError (EqList ps newDecls defined)
+  => EqList ps pctx newDecls defined
+  -> Either TransformError (EqList ps pctx newDecls defined)
 walkEqListIntroduce EqNil = Right EqNil
 walkEqListIntroduce (Defines pn body :& rest) =
   (:&) <$> (Defines pn <$>
-              walkExprIntroduce @source @proxy @ps @oldDecls @newDecls
+              walkExprIntroduce @source @proxy @ps @pctx @oldDecls @newDecls
                 @newVD @newNo @newDomCs @mapExprs body)
-       <*> walkEqListIntroduce @source @proxy @ps @oldDecls @newDecls
+       <*> walkEqListIntroduce @source @proxy @ps @pctx @oldDecls @newDecls
              @newVD @newNo @newDomCs @mapExprs rest

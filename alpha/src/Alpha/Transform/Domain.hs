@@ -60,6 +60,7 @@ import GHC.TypeLits (KnownNat, KnownSymbol, Nat, Symbol, symbolVal)
 
 import Alpha.Core (System, VarDecl)
 import Alpha.Transform.Types (TransformError(..))
+import Isl.TypeLevel.Constraint (TConstraint)
 import Isl.Typed.Params (KnownSymbols, Length)
 import Isl.TypeLevel.Reflection
   ( Dict(..)
@@ -93,6 +94,7 @@ import Isl.TypeLevel.Reflection
 -- continuation's result if the check passes.
 replaceInputDomain
   :: forall (name :: Symbol) (ps :: [Symbol]) (n :: Nat)
+            (pctx :: [TConstraint ps 0])
             (inputs :: [VarDecl ps]) (outputs :: [VarDecl ps])
             (locals :: [VarDecl ps])
             (expectedImageDom :: DomTag ps n) (newD :: DomTag ps n) r.
@@ -106,7 +108,10 @@ replaceInputDomain
   => Proxy name
   -> Proxy expectedImageDom
   -> Proxy newD
-  -> System ps inputs outputs locals
+  -> System ps pctx inputs outputs locals
+  -- NOTE: replaceInputDomain's runtime mirror @islSubsetCheck@ does not
+  -- consume the system's pctx — a follow-up should thread pctx through
+  -- the check so the shrink validates under the system's preconditions.
   -> IO r
   -> IO (Either TransformError r)
 replaceInputDomain _ _ _ _sys k =

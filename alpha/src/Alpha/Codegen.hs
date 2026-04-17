@@ -104,9 +104,9 @@ instance NFData CodegenError where
 -- ═══════════════════════════════════════════════════════════════════════
 
 codegen
-  :: forall ps inputs outputs locals.
+  :: forall ps pctx inputs outputs locals.
      KnownSymbols ps
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> Schedule
   -> Allocation
   -> CFunctionMapping
@@ -233,9 +233,9 @@ extractStmtArgs (CBlock cs)         = foldMap extractStmtArgs cs
 extractStmtArgs (CUser name args)   = Map.singleton name args
 
 generateMacros
-  :: forall ps inputs outputs locals.
+  :: forall ps pctx inputs outputs locals.
      KnownSymbols ps
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> Schedule
   -> Allocation
   -> [String]
@@ -248,9 +248,9 @@ generateMacros (System _decls eqs) sched alloc params domBounds stmtArgs descs =
   in unlines <$> generateFromEqList eqs sched storMap params domBounds stmtArgs descs
 
 generateFromEqList
-  :: forall ps decls defined.
+  :: forall ps pctx decls defined.
      KnownSymbols ps
-  => EqList ps decls defined
+  => EqList ps pctx decls defined
   -> Schedule
   -> Map.Map String EqStorage
   -> [String]
@@ -273,11 +273,11 @@ generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap pa
 -- @eqName__br0(...), eqName__br1(...), …@, each writing to the same
 -- logical array @eqName@.
 renderOneEq
-  :: forall ps decls n (d :: DomTag ps n) a.
+  :: forall ps pctx decls n (d :: DomTag ps n) a.
      KnownSymbols ps
   => String
   -> Int
-  -> Alpha.Core.Expr ps decls n d a
+  -> Alpha.Core.Expr ps pctx decls n d a
   -> Schedule
   -> Map.Map String EqStorage
   -> [String]
@@ -297,10 +297,10 @@ renderOneEq eqName nOutDims body _sched storMap params domBounds stmtArgs descs 
 -- of each macro is the logical array name @eqName@ (shared), so all N
 -- branches write to the same buffer under disjoint domains.
 renderBranchList
-  :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
+  :: forall ps pctx decls n (amb :: DomTag ps n) branchDoms a.
      KnownSymbols ps
   => String -> Int -> Int
-  -> Branches ps decls n amb branchDoms a
+  -> Branches ps pctx decls n amb branchDoms a
   -> Map.Map String EqStorage
   -> [String]
   -> Map.Map String [String]
@@ -319,12 +319,12 @@ renderBranchList eqName nOutDims i
 
 -- | Shared macro-emission tail: look up stmtArgs, scalar desc, render.
 renderWithStmtName
-  :: forall ps decls n (d :: DomTag ps n) a.
+  :: forall ps pctx decls n (d :: DomTag ps n) a.
      KnownSymbols ps
   => String  -- macro / stmt name (key into stmtArgs)
   -> String  -- logical array name (LHS of the write)
   -> Int     -- output dims
-  -> Alpha.Core.Expr ps decls n d a
+  -> Alpha.Core.Expr ps pctx decls n d a
   -> Map.Map String EqStorage
   -> [String]
   -> Map.Map String [String]
@@ -368,11 +368,11 @@ data ReduceInfo = ReduceInfo
   }
 
 extractReduceInfo
-  :: forall ps decls n d a.
+  :: forall ps pctx decls n d a.
      String  -- logical array name (equation name)
-  -> Alpha.Core.Expr ps decls n d a
+  -> Alpha.Core.Expr ps pctx decls n d a
   -> Maybe ReduceInfo
-extractReduceInfo eqName (Reduce op _ (_inner :: Alpha.Core.Expr ps decls nBody dBody a)) =
+extractReduceInfo eqName (Reduce op _ (_inner :: Alpha.Core.Expr ps pctx decls nBody dBody a)) =
   let nRed = fromIntegral (natVal (Proxy @nBody)) - fromIntegral (natVal (Proxy @n))
       bodyCs = reflectDomConstraints @ps @nBody @dBody
   in Just (ReduceInfo op nRed [C.Conjunction bodyCs] eqName)
@@ -386,8 +386,8 @@ extractReduceInfo _ _ = Nothing
 -- lifts the v1 "uniform Reduce across branches" restriction — each
 -- fanned-out statement carries its own independent reduction metadata.
 buildReduceMap
-  :: forall ps decls defined.
-     EqList ps decls defined -> Map.Map String ReduceInfo
+  :: forall ps pctx decls defined.
+     EqList ps pctx decls defined -> Map.Map String ReduceInfo
 buildReduceMap EqNil = Map.empty
 buildReduceMap (Defines (Proxy :: Proxy name) body :& rest) =
   let eqName = symbolVal (Proxy @name)
@@ -403,9 +403,9 @@ buildReduceMap (Defines (Proxy :: Proxy name) body :& rest) =
 -- 'renderBranchList' / 'lowerCaseBranches' so keys align with
 -- statement names everywhere.
 addBranchReduces
-  :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
+  :: forall ps pctx decls n (amb :: DomTag ps n) branchDoms a.
      String -> Int
-  -> Branches ps decls n amb branchDoms a
+  -> Branches ps pctx decls n amb branchDoms a
   -> Map.Map String ReduceInfo
   -> Map.Map String ReduceInfo
 addBranchReduces _ _ BNil acc = acc

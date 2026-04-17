@@ -68,7 +68,7 @@ lineN = range0 @"N" #i
 squareN :: DomExpr '["i", "k"] _
 squareN = range0 @"N" #i /\ range0 @"N" #k
 
-intRowMax :: System '["N"] IntRowMaxInputs IntRowMaxOutputs IntRowMaxLocals
+intRowMax :: System '["N"] '[] IntRowMaxInputs IntRowMaxOutputs IntRowMaxLocals
 intRowMax = system
   ( Decls
       { dInputs  = input @"A" squareN (Proxy @Int32) :> Nil

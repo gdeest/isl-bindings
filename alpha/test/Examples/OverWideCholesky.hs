@@ -95,7 +95,7 @@ type TestDecls =
 -- 'IslPartitionsD' on 'LowerTri' against
 -- @'[OverWideDiagN, StrictLowerN]@.
 overWideCaseExpr
-  :: Expr '["N"] TestDecls 2 ('Literal LowerTri) Double
+  :: Expr '["N"] '[] TestDecls 2 ('Literal LowerTri) Double
 overWideCaseExpr =
   Case
     ( BCons (Proxy :: Proxy ('Literal OverWideDiagN))  (Const 0)

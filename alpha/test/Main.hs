@@ -40,7 +40,7 @@
 -- traps) govern how the negative tests fire at runtime.
 module Main where
 
-import Control.Exception (SomeException, try)
+import Control.Exception (SomeException, evaluate, try)
 import Control.Monad (forM_)
 import Data.Int (Int32)
 import Data.List (isInfixOf)
@@ -77,12 +77,16 @@ import Alpha.Allocation (Allocation(..), EqStorage(..), allocating, allocate)
 import Alpha.Polyhedral.Contraction (modularTime)
 import Alpha.Schedule
 import Isl.Typed.Constraints (Expr(..), MapIx(..), Conjunction(..), Constraint(..))
-import Isl.TypeLevel.Constraint (TConstraint, type (>=.), type (<=.))
+import Isl.TypeLevel.Constraint
+  ( TConstraint, type (>=.), type (<=.) )
+import Alpha.Transform.Reindex (reindex)
+import qualified Alpha.Transform.Tile as XTile
 import Isl.TypeLevel.Expr (D, P, TExpr(..), Z(..), type (-.))
 import Isl.TypeLevel.Reflection (DomTag(..))
 
 import qualified Examples.Cholesky as Cholesky
 import qualified Examples.FloydWarshall as FW
+import qualified Examples.NeedsPctx as NeedsPctx
 import qualified Examples.Heat3D as H3
 import qualified Examples.OverWideCholesky as OWC
 import qualified Examples.LU as LU
@@ -96,6 +100,7 @@ import qualified Examples.TiledZero1D as TiledZero1D
 import qualified Examples.Zero1D as Zero1D
 import qualified Examples.Copy1D as Copy1D
 import qualified Examples.TiledConst3D as TiledConst3D
+import qualified Examples.Const3D as Const3D
 import qualified Examples.Heat3DElsewhere as H3E
 import qualified Examples.UnionCompose as UC
 -- import qualified Negative.Cases as Neg  -- excluded: plugin errors non-deferrable in GHC 9.10
@@ -152,6 +157,21 @@ type LineMN_ =
    , 'TDim (D 0) <=. ('TParam (P "N") -. 'TConst ('Pos 1))
    , 'TDim (D 0) <=. ('TParam (P "M") -. 'TConst ('Pos 1))
    ] :: [TConstraint '["M", "N"] 1]
+
+-- | Identity 2D map used by the pctx transform-preservation test.
+type IdMap2 = '[ 'TDim (D 0), 'TDim (D 1) ] :: [TExpr '["N"] 2]
+
+-- | Positive: constructing 'NeedsPctx.needsPctx' requires the plugin
+-- to discharge an 'IslImageSubset' obligation that is only provable
+-- under the system's pctx @[N >= 1]@.  If the fused-pctx path works,
+-- this module compiled and the system-value exists; the test merely
+-- forces that value here.  Weakening the pctx to @'[]@ in
+-- 'Examples.NeedsPctx' is the negative regression: the plugin
+-- rejects the obligation with counterexample @{[-1+N] : N <= 0}@.
+testNeedsPctxBuilds :: Assertion
+testNeedsPctxBuilds = do
+  let _ = NeedsPctx.needsPctx
+  assertBool "needsPctx system constructed under [N >= 1]" True
 
 main :: IO ()
 main = defaultMain $ testGroup "alpha-test"
@@ -213,23 +233,15 @@ main = defaultMain $ testGroup "alpha-test"
 
   , testGroup "phase-D floyd-warshall literal route (v3)"
       [ testCase "floyd-warshall module type-checks" $ do
-          -- First in-package exercise of 'HasParamCtx': the
-          -- 'Result[i,j] = D[N-1,i,j]' slice only discharges its
-          -- IslImageSubsetD under 'N >= 1', which 'FW.floyd''s type
-          -- signature supplies via the marker class.  If the plugin
-          -- failed to pick up the given or inject it into the ISL
-          -- set build, 'Examples.FloydWarshall' would not compile
-          -- and this test binary would not link.
-          --
-          -- We cannot reference 'FW.floyd' at the value level here
-          -- because instantiating it would demand 'HasParamCtx' at
-          -- the call site, and 'main :: IO ()' has no way to
-          -- propagate the constraint without materialising a dict
-          -- via an unsafe trick (which Alpha's zero-unsafeCoerce
-          -- discipline forbids).  Instead we reference a type
-          -- synonym from the module, which forces the module to be
-          -- loaded (and therefore type-checked) without touching
-          -- any constraint.
+          -- Non-trivial pctx: the 'Result[i,j] = D[N-1,i,j]' slice
+          -- only discharges its 'IslImageSubsetD' under @N >= 1@,
+          -- which @FW.floyd@'s type signature supplies via the
+          -- 'NGeOne' pctx.  Under the current pctx-fusion path the
+          -- plugin sees pctx as part of the constraint list; if the
+          -- fusion broke, 'Examples.FloydWarshall' would fail to
+          -- compile and this test binary would not link.  Here we
+          -- merely reference a type synonym to force the module to
+          -- be loaded.
           let _ = Proxy :: Proxy FW.FWCube3D
           assertBool "FloydWarshall module loaded" True
 
@@ -258,6 +270,75 @@ main = defaultMain $ testGroup "alpha-test"
                 ]
               result = RefFW.referenceFloydWarshall 4 a
           assertEqual "FW(4-node)" expected result
+      ]
+
+  , testGroup "System pctx type index (D32)"
+      [ -- Positive: the 'NeedsPctx' system's body obligation
+        -- (@IslImageSubset@ on @{[N-1]} ⊆ {[k] : 0 ≤ k ≤ N-1}@) is
+        -- only discharged when pctx = @[N ≥ 1]@ is fused into the
+        -- constraint list.  If the fused-pctx path works, the module
+        -- compiles; this test merely forces the value.
+        testCase "needsPctx system builds under [N >= 1] (pctx fused)" $
+          testNeedsPctxBuilds
+
+      , testCase "needsPctx interpret: N=2 accepted, N=0 rejected" $ do
+          -- N=2: y[0] = x[1] = 42.0, interpret returns that value.
+          evalOK <- interpret NeedsPctx.needsPctx
+                      (Map.fromList [("N", 2)])
+                      (Map.fromList [("x", \_ -> 42.0 :: Double)])
+          v <- evalOK "y" [0]
+          assertEqual "needsPctx interpret at N=2" (42.0 :: Double) v
+          -- N=0 violates pctx; interpret must throw at parameter check.
+          result <- try (do
+            eval <- interpret NeedsPctx.needsPctx
+                      (Map.fromList [("N", 0)])
+                      (Map.fromList [("x", \_ -> 0.0 :: Double)])
+            _ <- eval "y" [0]
+            return ()
+            ) :: IO (Either SomeException ())
+          case result of
+            Left e ->
+              assertBool ("expected pctx violation, got: " ++ show e)
+                ("parameter context violated" `isInfixOf` show e)
+            Right () ->
+              assertFailure "expected interpret to reject N=0 (pctx N>=1)"
+
+      , testCase "empty pctx builds matmul" $ do
+          let _ = Matmul.matmul
+          assertBool "matmul with '[] pctx constructed" True
+
+      , testCase "transforms preserve pctx (reindex)" $
+          case reindex "A" 2 (type IdMap2) DepReindex.depSystem of
+            Left err -> assertFailure ("reindex pctx preservation: " ++ show err)
+            Right _  -> assertBool "reindex returned" True
+
+      , testCase "transforms preserve pctx (tile)" $
+          case XTile.tile "w" (type '[ 'Just 2, 'Nothing, 'Just 2 ])
+                 Const3D.const3D of
+            Left err -> assertFailure ("tile pctx preservation: " ++ show err)
+            Right _  -> assertBool "tile returned" True
+
+      , testCase "interpret floyd-warshall rejects N=0 (pctx)" $ do
+          result <- try (do
+            eval <- interpret FW.floyd
+                      (Map.fromList [("N", 0)])
+                      (Map.fromList [("A", \_ -> 0.0 :: Double)])
+            _ <- eval "Result" [0, 0]
+            return ()
+            ) :: IO (Either SomeException ())
+          case result of
+            Left e ->
+              assertBool ("expected pctx violation, got: " ++ show e)
+                ("parameter context violated" `isInfixOf` show e)
+            Right () ->
+              assertFailure "expected interpret to reject N=0 (pctx N>=1)"
+
+      , testCase "interpret floyd-warshall accepts N=4 (pctx)" $ do
+          eval <- interpret FW.floyd
+                    (Map.fromList [("N", 4)])
+                    (Map.fromList [("A", \_ -> 1.0 :: Double)])
+          _ <- eval "Result" [0, 0]
+          assertBool "interpret accepted valid params" True
       ]
 
   , testGroup "phase-E lu decomposition literal route (v4)"
@@ -820,7 +901,7 @@ main = defaultMain $ testGroup "alpha-test"
                 , rcDomBounds = Map.empty
                 , rcDesc      = bridgelessDesc
                 }
-              constExpr :: Core.Expr '[] '[] 0 ('Literal ('[] :: [TConstraint '[] 0])) Double
+              constExpr :: Core.Expr '[] '[] '[] 0 ('Literal ('[] :: [TConstraint '[] 0])) Double
               constExpr = Core.Const 3.14
               rendered = renderExprToC ctx constExpr
           assertEqual "Const renders via captured dict, not rcDesc"

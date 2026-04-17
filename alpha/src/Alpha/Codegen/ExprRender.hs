@@ -88,12 +88,12 @@ descMathSuffix (MkScalarDesc { sdCNumType = ct }) = cMathSuffix ct
 -- the accumulation step: @C_buf[...] += body_c@.
 -- The output array must be zero-initialized by the caller.
 renderEquationMacro
-  :: forall ps decls n (d :: DomTag ps n) a.
+  :: forall ps pctx decls n (d :: DomTag ps n) a.
      KnownSymbols ps
   => String                -- statement macro name (used for #define)
   -> String                -- logical array name (used for LHS write)
   -> Int                   -- number of output dimensions
-  -> Alpha.Core.Expr ps decls n d a  -- equation (or branch) body
+  -> Alpha.Core.Expr ps pctx decls n d a  -- equation (or branch) body
   -> RenderCtx
   -> Either RenderErr String        -- complete #define line
 renderEquationMacro macroName lhsName nOutDims body ctx = do
@@ -144,8 +144,8 @@ reduceOpToC ReduceMax  desc lhs  bc =
 -- rendering surfaces a structured error (currently only
 -- 'RENonStandardMapConstraint' from 'extractSubscripts').
 renderExprToC
-  :: forall ps decls n (d :: DomTag ps n) a.
-     RenderCtx -> Alpha.Core.Expr ps decls n d a -> Either RenderErr String
+  :: forall ps pctx decls n (d :: DomTag ps n) a.
+     RenderCtx -> Alpha.Core.Expr ps pctx decls n d a -> Either RenderErr String
 
 renderExprToC ctx (Var (Proxy :: Proxy name)) =
   let varName = symbolVal (Proxy @name)
@@ -168,7 +168,7 @@ renderExprToC ctx (PMap op e) = do
   pure (renderUnaryOp sfx op s)
 
 renderExprToC ctx
-  (Dep (Proxy :: Proxy mapCs) (inner :: Alpha.Core.Expr ps decls no dInner a)) = do
+  (Dep (Proxy :: Proxy mapCs) (inner :: Alpha.Core.Expr ps pctx decls no dInner a)) = do
   let ni  = length (rcIterVars ctx)
       cs  = reifySTConstraintsMapSplit ni
               (knownConstraints @ps @(n + no) @mapCs)
@@ -190,8 +190,8 @@ renderExprToC ctx (Case branches) =
   renderBranches ctx branches
 
 renderBranches
-  :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
-     RenderCtx -> Branches ps decls n amb branchDoms a
+  :: forall ps pctx decls n (amb :: DomTag ps n) branchDoms a.
+     RenderCtx -> Branches ps pctx decls n amb branchDoms a
   -> Either RenderErr String
 renderBranches _ctx BNil = Right "0 /* unreachable */"
 renderBranches ctx (BCons _ body BNil) =

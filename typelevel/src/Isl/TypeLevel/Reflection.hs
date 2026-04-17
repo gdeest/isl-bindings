@@ -82,6 +82,8 @@ module Isl.TypeLevel.Reflection
     DomTag(..)
     -- * Type-level list helpers
   , Append, MapAppend
+    -- * Parameter-context lifting into DomTag wrappers
+  , LitPrepend, MapLitPrepend, MapPrependEach
     -- * Domain → union conversion
   , DomToUnion
     -- * Effective domain (branch ∩ ambient)
@@ -108,11 +110,14 @@ module Isl.TypeLevel.Reflection
   , islSubsetCheck
   , islImageSubsetCheck
   , islImageSubsetCheckS
+  , islImageSubsetCheckSPctx
   , islNonEmpty
+  , checkParamCtx
   ) where
 
 import Control.Monad.IO.Class (MonadIO)
 import Data.Kind (Constraint, Type)
+import qualified Data.Map.Strict
 import Data.Proxy (Proxy(..))
 import qualified Data.Reflection as R
 import GHC.TypeLits
@@ -139,6 +144,7 @@ import Isl.TypeLevel.Constraint
   , IslRangeOf
   , IslSubset
   , IslSubsetU
+  , LiftPctxN
   , TConstraint
   )
 import Isl.TypeLevel.Sing
@@ -172,6 +178,31 @@ type family Append (xs :: [k]) (ys :: [k]) :: [k] where
 type family MapAppend (css :: [[k]]) (extra :: [k]) :: [[k]] where
   MapAppend '[] _ = '[]
   MapAppend (cs ': css) extra = Append cs extra ': MapAppend css extra
+
+-- | Prepend a conjunction @cs@ to every branch of a disjunction.
+-- Dual to 'MapAppend' at the head: @cs ∩ (B₁ ∪ B₂) = (cs ∩ B₁) ∪ (cs ∩ B₂)@.
+type family MapPrependEach (cs :: [k]) (css :: [[k]]) :: [[k]] where
+  MapPrependEach _  '[]         = '[]
+  MapPrependEach cs (bs ': rest) = Append cs bs ': MapPrependEach cs rest
+
+-- | Fuse a parameter-derived conjunction @cs@ into a Literal-shaped
+-- DomTag wrapper.  For 'Literal', prepends @cs@ to the single
+-- conjunction.  For 'LiteralU', prepends @cs@ to each disjunct.
+-- Reflected tags are untouched (the runtime reified set is not
+-- statically indexed by a constraint list).
+type family LitPrepend (cs :: [TConstraint ps n]) (d :: DomTag ps n)
+                    :: DomTag ps n where
+  LitPrepend cs ('Literal bs)    = 'Literal (Append cs bs)
+  LitPrepend cs ('LiteralU css)  = 'LiteralU (MapPrependEach cs css)
+  LitPrepend _  ('ReflectedTag s) = 'ReflectedTag s
+
+-- | Apply 'LitPrepend' with the same conjunction @cs@ to every
+-- element of a list of DomTags.  Used by 'Case' to fuse the lifted
+-- pctx into the ambient and each branch domain.
+type family MapLitPrepend (cs :: [TConstraint ps n]) (ds :: [DomTag ps n])
+                       :: [DomTag ps n] where
+  MapLitPrepend _  '[]       = '[]
+  MapLitPrepend cs (d ': ds) = LitPrepend cs d ': MapLitPrepend cs ds
 
 -- | Convert any 'DomTag' to its union representation.
 type family DomToUnion (d :: DomTag ps n) :: [[TConstraint ps n]] where
@@ -590,6 +621,61 @@ islImageSubsetCheckS mapStr _ _ =
     imgDict :: Dict (IslImageSubsetD ps ni no mapCs dSrc dDst)
     imgDict = unsafeCoerce (Dict :: Dict (() :: Constraint))
 
+-- | Like 'islImageSubsetCheckS' but returns a 'Dict' for the
+-- /pctx-fused/ obligation shape.  Used by transforms that reconstruct
+-- 'Alpha.Core.Dep' nodes, whose plugin obligation is on
+-- @(LiftPctxN (ni+no) pctx ++ mapCs)@ /
+-- @(LitPrepend (LiftPctxN ni pctx) dSrc)@ /
+-- @(LitPrepend (LiftPctxN no pctx) dDst)@.
+--
+-- Runs the ISL check on the /bare/ map and /bare/ DomTags: the
+-- parameter-only constraints in @pctx@ (after lifting) are vacuous
+-- w.r.t. the set/map dim algebra, so the ISL result is identical to
+-- the fused form at every valid parameter assignment.  The returned
+-- 'Dict' is shaped for the fused types, bypassing 'KnownDom' resolution
+-- on the fused wrappers.
+--
+-- Sound by the same unsafe-seal argument as 'islImageSubsetCheckS':
+-- the obligation classes are method-less, their dictionaries are unit
+-- at runtime, and the ISL-level equivalence between fused and unfused
+-- image-subset is parametric.
+islImageSubsetCheckSPctx
+  :: forall ps pctx ni no
+            (mapCs :: [TConstraint ps (ni + no)])
+            dSrc dDst.
+     ( KnownDom ps ni dSrc
+     , KnownDom ps no dDst
+     , KnownNat ni
+     , KnownNat no
+     , KnownSymbols ps
+     , KnownNat (Length ps)
+     )
+  => String            -- ^ map ISL text
+  -> Proxy pctx
+  -> Proxy dSrc
+  -> Proxy dDst
+  -> Maybe (Dict (IslImageSubsetD ps ni no
+                    (Append (LiftPctxN (ni + no) pctx) mapCs)
+                    (LitPrepend (LiftPctxN ni pctx) dSrc)
+                    (LitPrepend (LiftPctxN no pctx) dDst)))
+islImageSubsetCheckSPctx mapStr _ _ _ =
+  let ok = unsafePerformIO $ runIslT $ Isl.do
+             src <- domToSet @ps @ni @dSrc
+             m   <- RawM.readFromStr mapStr
+             img <- RawS.apply src m
+             Ur b <- Isl.queryM_ img (\imgRef -> Isl.do
+               dst <- domToSet @ps @no @dDst
+               Ur r <- query_ dst (\dstRef -> RawS.isSubset imgRef dstRef)
+               Isl.pure (Ur r))
+             Isl.pure (Ur b)
+   in if ok then Just imgDict else Nothing
+  where
+    imgDict :: Dict (IslImageSubsetD ps ni no
+                       (Append (LiftPctxN (ni + no) pctx) mapCs)
+                       (LitPrepend (LiftPctxN ni pctx) dSrc)
+                       (LitPrepend (LiftPctxN no pctx) dDst))
+    imgDict = unsafeCoerce (Dict :: Dict (() :: Constraint))
+
 -- | Predicate mirror: is the set labelled by @d@ non-empty?  Used by
 -- the v6 'tile2D' transform to detect "tile factor too large" (the
 -- tiled domain has no integer points, so the recurrence never fires).
@@ -613,3 +699,36 @@ islNonEmpty _ =
                   Ur b <- query_ s RawS.isEmpty
                   Isl.pure (Ur b)
    in not isEmpty
+
+
+-- | Runtime check that the supplied parameter assignment satisfies the
+-- type-level parameter context @pctx@.  Used by @Alpha.Interpret@ —
+-- @IslNonEmpty ps 0 pctx@ guarantees the pctx is satisfiable by /some/
+-- assignment, but not by the concrete 'Map String Int' passed at
+-- interpret time.
+checkParamCtx
+  :: forall ps pctx.
+     ( KnownSymbols ps
+     , KnownConstraints ps 0 pctx
+     )
+  => Data.Map.Strict.Map String Int
+  -> Either String ()
+checkParamCtx params =
+  let paramNames = symbolVals @ps
+      pctxCs     = reifySTConstraintsSet (knownConstraints @ps @0 @pctx)
+      -- Equality constraints @P_i = v_i@ for every param in the map.
+      paramEqs =
+        [ C.EqualityConstraint
+            (C.Add (C.Ix (C.SetParam i)) (C.Constant (fromIntegral (negate v))))
+        | (i, n) <- zip [0..] paramNames
+        , Just v <- [Data.Map.Strict.lookup n params]
+        ]
+      conj   = Conjunction (pctxCs ++ paramEqs)
+      empty' = unsafePerformIO $ runIslT $ Isl.do
+        bs <- C.buildBasicSet paramNames 0 conj
+        s0 <- RawS.fromBasicSet bs
+        Ur b <- query_ s0 RawS.isEmpty
+        Isl.pure (Ur b)
+  in if empty'
+       then Left ("params = " ++ show (Data.Map.Strict.toAscList params))
+       else Right ()

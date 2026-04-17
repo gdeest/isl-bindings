@@ -169,7 +169,7 @@ instance ( AlphaScalar (DeclType d), KnownSymbol (DeclName d)
 
 collectAllDescs
   :: (CollectDescs inputs, CollectDescs outputs, CollectDescs locals)
-  => System ps inputs outputs locals -> Map String ScalarDesc
+  => System ps pctx inputs outputs locals -> Map String ScalarDesc
 collectAllDescs (System decls _) =
   Map.unions
     [ collectDescsFromList (dInputs decls)
@@ -203,12 +203,12 @@ runKernel (TypedKernel ck) params =
 -- ═══════════════════════════════════════════════════════════════════════
 
 withCompiledKernel
-  :: forall ps inputs outputs locals r.
+  :: forall ps pctx inputs outputs locals r.
      ( KnownSymbols ps
      , AllScalar inputs, AllScalar outputs, AllScalar locals
      , CollectDescs inputs, CollectDescs outputs, CollectDescs locals
      )
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> Schedule -> Allocation -> CFunctionMapping
   -> (TypedKernel ps inputs outputs -> IO r) -> IO r
 withCompiledKernel sys sched alloc fmap' k = do

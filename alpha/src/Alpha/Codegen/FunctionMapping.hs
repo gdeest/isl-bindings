@@ -55,7 +55,7 @@ data CFunctionMapping = CFunctionMapping
 -- locals are 'LocallyManaged'.
 defaultMapping
   :: String
-  -> System ps inputs outputs locals
+  -> System ps pctx inputs outputs locals
   -> CFunctionMapping
 defaultMapping name (System decls _eqs) =
   let inputNames  = declListNames (dInputs decls)

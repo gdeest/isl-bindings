@@ -43,9 +43,9 @@ import qualified Isl.Types as IT
 import Isl.Monad (IslT, runIslT, Ur(..))
 import Isl.Linear (query_)
 import qualified Isl.Linear as Isl
-import Isl.TypeLevel.Reflection (DomTag, EffectiveDomTag, KnownDom, domToSet)
+import Isl.TypeLevel.Reflection (DomTag, EffectiveDomTag, KnownDom, domToSet, checkParamCtx)
 import Isl.TypeLevel.Sing
-  ( knownConstraints, reifySTConstraintsSet )
+  ( KnownConstraints, knownConstraints, reifySTConstraintsSet )
 
 import Alpha.Core
 import Alpha.Scalar
@@ -59,9 +59,10 @@ import Alpha.Scalar
 
 -- | Interpret a system at concrete parameter values.
 interpret
-  :: forall a ps inputs outputs locals.
-     ( AlphaScalar a, KnownSymbols ps )
-  => System ps inputs outputs locals
+  :: forall a ps pctx inputs outputs locals.
+     ( AlphaScalar a, KnownSymbols ps
+     , KnownConstraints ps 0 pctx )
+  => System ps pctx inputs outputs locals
   -> Map String Int                -- ^ parameter name → concrete value
   -> Map String ([Int] -> a)       -- ^ input variable name → point accessor
   -> IO (String -> [Int] -> IO a)
@@ -71,6 +72,9 @@ interpret (System decls eqs) params inputFns = do
     Nothing -> error $ "Alpha.Interpret: missing parameter " ++ show p
     Just _  -> pure ()
     ) paramNames
+  case checkParamCtx @ps @pctx params of
+    Left msg -> error $ "Alpha.Interpret: parameter context violated: " ++ msg
+    Right () -> pure ()
   let inputNames = declListNames (dInputs decls)
   mapM_ (\n -> case Map.lookup n inputFns of
     Nothing -> error $ "Alpha.Interpret: missing input " ++ show n
@@ -146,10 +150,10 @@ lookupCached env varName point = do
       pure v
 
 evalEquation
-  :: forall ps decls defined.
+  :: forall ps pctx decls defined.
      KnownSymbols ps
   => Env
-  -> EqList ps decls defined
+  -> EqList ps pctx decls defined
   -> String -> [Int] -> IO Carrier
 evalEquation _   EqNil target _ =
   error $ "Alpha.Interpret: no equation for variable " ++ show target
@@ -168,9 +172,9 @@ evalEquation env (Defines (Proxy :: Proxy name) body :& rest) target point
 -- ═══════════════════════════════════════════════════════════════════════
 
 evalExpr
-  :: forall ps decls n (d :: DomTag ps n) a.
+  :: forall ps pctx decls n (d :: DomTag ps n) a.
      KnownSymbols ps
-  => ScalarDesc -> Env -> Expr ps decls n d a -> [Int] -> IO a
+  => ScalarDesc -> Env -> Expr ps pctx decls n d a -> [Int] -> IO a
 
 evalExpr _desc env (Var (Proxy :: Proxy name)) point = do
   let varName = symbolVal (Proxy @name)
@@ -197,14 +201,14 @@ evalExpr desc env (PMap op e) point = do
     _ -> error "Alpha.Interpret: no HsInterp for this scalar type"
 
 evalExpr desc env (Dep (Proxy :: Proxy mapCs)
-                  (inner :: Expr ps decls no dInner a)) point = do
+                  (inner :: Expr ps pctx decls no dInner a)) point = do
   let niVal = fromIntegral (natVal (Proxy @n)) :: Int
       cs = reifySTConstraintsSet (knownConstraints @ps @(n + no) @mapCs)
       innerPoint = applyAffineMap niVal (envParams env) (envParamVec env) cs point
   evalExpr desc env inner innerPoint
 
 evalExpr desc env (Reduce reduceOp (Proxy :: Proxy projCs)
-                     (body :: Expr ps decls nBody dBody a)) point = do
+                     (body :: Expr ps pctx decls nBody dBody a)) point = do
   let nVal     = fromIntegral (natVal (Proxy @n)) :: Int
       nBodyVal = fromIntegral (natVal (Proxy @nBody)) :: Int
       nRed  = nBodyVal - nVal
@@ -238,10 +242,10 @@ evalExpr desc env (Case branches) point =
 -- ═══════════════════════════════════════════════════════════════════════
 
 evalBranches
-  :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
+  :: forall ps pctx decls n (amb :: DomTag ps n) branchDoms a.
      (KnownSymbols ps, KnownNat n)
   => ScalarDesc -> Env
-  -> Branches ps decls n amb branchDoms a
+  -> Branches ps pctx decls n amb branchDoms a
   -> [Int] -> IO a
 evalBranches _ _ BNil point =
   error $ "Alpha.Interpret: no branch matches point " ++ show point

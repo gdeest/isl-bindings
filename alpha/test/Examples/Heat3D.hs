@@ -262,7 +262,12 @@ interiorDom =
 -- The Heat3D system (v7 surface form)
 -- ═══════════════════════════════════════════════════════════════════════
 
-heat3D :: System '["N","T"] _ _ _
+type Heat3DPctx =
+  '[ 'TParam (P "N") >=. 'TConst ('Pos 2)
+   , 'TParam (P "T") >=. 'TConst ('Pos 1)
+   ] :: [TConstraint '["N","T"] 0]
+
+heat3D :: System '["N","T"] Heat3DPctx _ _ _
 heat3D = system
   ( Decls
       { dInputs  = input @"u0" spaceBox (Proxy @Double)

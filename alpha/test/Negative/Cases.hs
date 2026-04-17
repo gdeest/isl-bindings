@@ -38,7 +38,7 @@ module Negative.Cases
   , forceBadBrokenCausalInCases
   , forceBadCholeskyCoverageGap
   , forceBadCholeskyBranchOutOfBounds
-  , forceBadParamCtxMissing
+  , forceBadContradictoryPctx
   , forceBadLUDiagonalRead
   , forceBadHeat3DOutOfBoundsNeighbor
   , forceBadCasePartitionsCoverageGap
@@ -74,10 +74,6 @@ import Examples.Cholesky
   , LowerTri
   , StrictLowerN
   )
-import Examples.FloydWarshall
-  ( NeedsNGeOneSrc
-  , NeedsNGeOneDst
-  )
 import Examples.LU
   ( LStrict
   , UBody3D
@@ -90,6 +86,7 @@ import Isl.TypeLevel.Constraint
   ( IslCovers(..)
   , IslImageSubset(..)
   , IslMultiAffToMap
+  , IslNonEmpty(..)
   , IslPartitions(..)
   , IslSubset(..)
   , TConstraint
@@ -293,37 +290,32 @@ forceBadCholeskyBranchOutOfBounds () = do
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- Negative #8: HasParamCtx missing — IslSubset fails without precondition
+-- Negative #8b: contradictory pctx — IslNonEmpty fails on System
+-- construction
 -- ═══════════════════════════════════════════════════════════════════════
 --
--- The v3 plugin extension reads 'HasParamCtx' givens from GHC's
--- solver context and uses them as assumptions when discharging ISL
--- obligations.  The paired positive demo in
--- 'Examples.FloydWarshall.hasParamCtxDemoPositive' shows that
--- @IslSubset '["N"] 1 NeedsNGeOneSrc NeedsNGeOneDst@ discharges
--- cleanly under @HasParamCtx [N >= 1]@.  This negative test shows
--- the inverse: without any 'HasParamCtx' given in scope, the same
--- obligation fails because the source @{[k] : k == N-1}@ is the
--- singleton @{[-1]}@ at @N = 0@, while the target @{[k] : 0 <= k <= N-1}@
--- is empty — so the subset is rejected.
---
--- Uses the D15 force-method pattern: the proof binding carries the
--- 'IslSubset' obligation as a class context; evaluating the top-level
--- '_useBadParamCtxMissing' forces the class dictionary through the
--- 'islSubsetEv' selector, which triggers the deferred typeError
--- trap the plugin armed when it rejected the obligation.
+-- With strict pctx semantics, the System constructor's superclass
+-- @IslNonEmpty ps 0 pctx@ forces the plugin to prove that some
+-- parameter assignment satisfies pctx.  Declaring
+-- @'[ N >= 1, N <= 0 ]@ is a contradiction; the plugin rejects
+-- the obligation, and the deferred trap fires when we force the proof.
 
-proofBadParamCtxMissing
-  :: IslSubset '["N"] 1 NeedsNGeOneSrc NeedsNGeOneDst => ()
-proofBadParamCtxMissing =
-  islSubsetEv @'["N"] @1 @NeedsNGeOneSrc @NeedsNGeOneDst
+type BadPctx =
+  '[ 'TParam (P "N") >=. 'TConst ('Pos 1)
+   , 'TParam (P "N") <=. 'TConst ('Pos 0)
+   ] :: [TConstraint '["N"] 0]
 
-_useBadParamCtxMissing :: ()
-_useBadParamCtxMissing = proofBadParamCtxMissing
+proofBadContradictoryPctx
+  :: IslNonEmpty '["N"] 0 BadPctx => ()
+proofBadContradictoryPctx =
+  islNonEmptyEv @'["N"] @0 @BadPctx
 
-forceBadParamCtxMissing :: () -> IO ()
-forceBadParamCtxMissing () = do
-  _ <- evaluate _useBadParamCtxMissing
+_useBadContradictoryPctx :: ()
+_useBadContradictoryPctx = proofBadContradictoryPctx
+
+forceBadContradictoryPctx :: () -> IO ()
+forceBadContradictoryPctx () = do
+  _ <- evaluate _useBadContradictoryPctx
   return ()
 
 

@@ -15,6 +15,7 @@ library
                    , Isl.TypeLevel.Sing
                    , Isl.TypeLevel.Reflection
   build-depends:     base >= 4.20 && < 5
+                   , containers
                    , isl-bindings
                    , reflection
   hs-source-dirs:    src

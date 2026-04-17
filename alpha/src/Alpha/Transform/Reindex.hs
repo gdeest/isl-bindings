@@ -37,13 +37,13 @@ import Alpha.Transform.Types
 import Alpha.Transform.Walk (composeAccess)
 import Isl.Typed.Params (KnownSymbols(..), Length)
 import Isl.TypeLevel.Constraint
-  ( IslPreimageMultiAff, TConstraint )
+  ( IslPreimageMultiAff, TConstraint, IslNonEmpty )
 import Isl.TypeLevel.Expr (TExpr)
 import Isl.TypeLevel.Reflection
   ( DomTag(..)
   , KnownDom
   , domToString
-  , islImageSubsetCheckS
+  , islImageSubsetCheckSPctx
   )
 import Isl.TypeLevel.Sing
   ( KnownExprs(..)
@@ -70,6 +70,7 @@ import Isl.TypeLevel.Sing
 -- and the image-subset obligation is re-verified.
 walkExprNonTarget
   :: forall (target :: Symbol) (ps :: [Symbol])
+            (pctx :: [TConstraint ps 0])
             (decls :: [VarDecl ps]) (nv :: VarDecl ps)
             (mapExprs :: [TExpr ps (DeclDims nv)])
             n (d :: DomTag ps n) a.
@@ -80,15 +81,15 @@ walkExprNonTarget
      , DeclType nv ~ DeclType (Lookup target decls)
      , KnownSymbols ps, KnownNat (Length ps)
      )
-  => Expr ps decls n d a
-  -> Proof (Expr ps (ReplaceDecl target nv decls) n d a)
+  => Expr ps pctx decls n d a
+  -> Proof (Expr ps pctx (ReplaceDecl target nv decls) n d a)
 walkExprNonTarget = go
   where
     targetName = symbolVal (Proxy @target)
 
     go :: forall n' (d' :: DomTag ps n') a'.
-          Expr ps decls n' d' a'
-       -> Proof (Expr ps (ReplaceDecl target nv decls) n' d' a')
+          Expr ps pctx decls n' d' a'
+       -> Proof (Expr ps pctx (ReplaceDecl target nv decls) n' d' a')
 
     go (Const k)   = Right (Const k)
     go (Pw op a b) = Pw op <$> go a <*> go b
@@ -108,7 +109,7 @@ walkExprNonTarget = go
     -- type-level constraints, verified by ISL.  No unsafeCoerce in user code —
     -- all trust lives in Sing.hs (withKnownConstraints) and Reflection.hs
     -- (islImageSubsetCheckS).
-    go (Dep @_ @_ @ni @no @mapCs @dOuter @_dInner @_ _mapP (Var @name @_ @_ @_ pn))
+    go (Dep @_ @_ @_ @ni @no @mapCs @dOuter @_dInner @_ _mapP (Var @name @_ @_ @_ @_ pn))
       | symbolVal pn == targetName = do
           let ni_val = fromIntegral (natVal (Proxy @ni))
               srcStr = domToString @ps @ni @dOuter
@@ -127,12 +128,19 @@ walkExprNonTarget = go
                          ni_val mapConstrs
           withKnownConstraints someCs $ \(composedProxy :: Proxy composedCs) ->
             -- 3. Fabricate IslImageSubsetD evidence via runtime ISL check.
+            --    Check at the pctx-fused shape so the 'Dict' matches
+            --    'Dep's new obligation (the lifted pctx prefix and
+            --    'LitPrepend' wrappers are ISL-equivalent to the bare
+            --    check under any valid parameter assignment).
             requireC
               (ImageOutOfBounds
                  "reindex: image-subset re-check failed (internal)"
                  srcStr dstStr)
-              (islImageSubsetCheckS @ps @ni @(DeclDims nv) @composedCs
-                 mapStr (Proxy @dOuter) (Proxy @(DeclDomTag nv)))
+              (islImageSubsetCheckSPctx @ps @pctx @ni @(DeclDims nv)
+                 @composedCs
+                 @dOuter
+                 @(DeclDomTag nv)
+                 mapStr Proxy Proxy Proxy)
               $
               -- 4. Get Lookup evidence for Var in the new decl list.
               withReplaceDecl @ps @target @name @nv @decls
@@ -145,8 +153,8 @@ walkExprNonTarget = go
     go (Case branches)     = Case <$> goBranches branches
 
     goBranches :: forall n' (amb :: DomTag ps n') (bdoms :: [DomTag ps n']) a'.
-                  Branches ps decls n' amb bdoms a'
-               -> Proof (Branches ps (ReplaceDecl target nv decls) n' amb bdoms a')
+                  Branches ps pctx decls n' amb bdoms a'
+               -> Proof (Branches ps pctx (ReplaceDecl target nv decls) n' amb bdoms a')
     goBranches BNil = Right BNil
     goBranches (BCons pd body rest) =
       BCons pd <$> go body <*> goBranches rest
@@ -161,20 +169,21 @@ walkExprNonTarget = go
 -- dims\/domain change.  Phase 2: only 'Const'/'Pw'/'PMap' supported.
 walkExprTarget
   :: forall (target :: Symbol) (ps :: [Symbol])
+            (pctx :: [TConstraint ps 0])
             (decls :: [VarDecl ps]) (nv :: VarDecl ps)
             oldN (oldD :: DomTag ps oldN)
             newN (newD :: DomTag ps newN)
             a.
      KnownSymbol target
-  => Expr ps decls oldN oldD a
-  -> Either TransformError (Expr ps (ReplaceDecl target nv decls) newN newD a)
+  => Expr ps pctx decls oldN oldD a
+  -> Either TransformError (Expr ps pctx (ReplaceDecl target nv decls) newN newD a)
 walkExprTarget = go
   where
     targetName = symbolVal (Proxy @target)
 
     go :: forall oN (oD :: DomTag ps oN) nN (nD :: DomTag ps nN) a'.
-          Expr ps decls oN oD a'
-       -> Either TransformError (Expr ps (ReplaceDecl target nv decls) nN nD a')
+          Expr ps pctx decls oN oD a'
+       -> Either TransformError (Expr ps pctx (ReplaceDecl target nv decls) nN nD a')
     go (Const k)   = Right (Const k)
     go (Pw op a b) = Pw op <$> go a <*> go b
     go (PMap op a) = PMap op <$> go a
@@ -190,6 +199,7 @@ walkExprTarget = go
 
 walkEqList
   :: forall (target :: Symbol) (ps :: [Symbol])
+            (pctx :: [TConstraint ps 0])
             (decls :: [VarDecl ps]) (nv :: VarDecl ps)
             (mapExprs :: [TExpr ps (DeclDims nv)])
             defined.
@@ -200,15 +210,16 @@ walkEqList
      , DeclType nv ~ DeclType (Lookup target decls)
      , KnownSymbols ps, KnownNat (Length ps)
      )
-  => EqList ps decls defined
-  -> Either TransformError (EqList ps (ReplaceDecl target nv decls) defined)
+  => EqList ps pctx decls defined
+  -> Either TransformError (EqList ps pctx (ReplaceDecl target nv decls) defined)
 walkEqList EqNil = Right EqNil
 walkEqList (eq :& rest) =
-  (:&) <$> walkEq @target @ps @decls @nv @mapExprs eq
-       <*> walkEqList @target @ps @decls @nv @mapExprs rest
+  (:&) <$> walkEq @target @ps @pctx @decls @nv @mapExprs eq
+       <*> walkEqList @target @ps @pctx @decls @nv @mapExprs rest
 
 walkEq
   :: forall (target :: Symbol) (ps :: [Symbol])
+            (pctx :: [TConstraint ps 0])
             (decls :: [VarDecl ps]) (nv :: VarDecl ps)
             (mapExprs :: [TExpr ps (DeclDims nv)])
             (name :: Symbol).
@@ -219,15 +230,15 @@ walkEq
      , DeclType nv ~ DeclType (Lookup target decls)
      , KnownSymbols ps, KnownNat (Length ps)
      )
-  => Equation ps decls name
-  -> Either TransformError (Equation ps (ReplaceDecl target nv decls) name)
+  => Equation ps pctx decls name
+  -> Either TransformError (Equation ps pctx (ReplaceDecl target nv decls) name)
 walkEq (Defines pn body) =
   withReplaceDecl @ps @target @name @nv @decls
     (Proxy @target) pn
-    (Defines pn <$> walkExprNonTarget @target @ps @decls @nv @mapExprs body)
+    (Defines pn <$> walkExprNonTarget @target @ps @pctx @decls @nv @mapExprs body)
     (Defines pn <$>
-       (walkExprTarget @target @ps @decls @nv body
-         :: Proof (Expr ps (ReplaceDecl target nv decls)
+       (walkExprTarget @target @ps @pctx @decls @nv body
+         :: Proof (Expr ps pctx (ReplaceDecl target nv decls)
                        (DeclDims nv) (DeclDomTag nv) (DeclType nv))))
 
 
@@ -246,7 +257,7 @@ reindex
      forall (newN :: Nat) ->
      forall ps.
      forall (mapExprs :: [TExpr ps newN]) ->
-     forall inputs outputs locals
+     forall pctx inputs outputs locals
             (oldN :: Nat) (oldDomCs :: [TConstraint ps oldN])
             (a :: Type)
             (newDomCs :: [TConstraint ps newN]).
@@ -260,19 +271,19 @@ reindex
      , KnownDom ps newN ('Literal newDomCs)
      , KnownExprs ps newN mapExprs
      )
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> Either TransformError
-            (System ps inputs
+            (System ps pctx inputs
                (ReplaceDecl target (ReindexedVarDecl ps target newN newDomCs a) outputs)
                (ReplaceDecl target (ReindexedVarDecl ps target newN newDomCs a) locals))
 reindex (type target) (type newN) (type mapExprs) sys =
   case sys of
-    System @_ @_ @_ @_ @defined decls eqs ->
-      reindexImpl @target @newN @_ @_ @_ @_ @defined @_ @_ @_ @mapExprs @_ decls eqs
+    System @_ @_ @_ @_ @_ @defined decls eqs ->
+      reindexImpl @target @newN @_ @_ @_ @_ @_ @defined @_ @_ @_ @mapExprs @_ decls eqs
 
 reindexImpl
   :: forall (target :: Symbol) (newN :: Nat)
-            ps inputs outputs locals (defined :: [Symbol])
+            ps pctx inputs outputs locals (defined :: [Symbol])
             (oldN :: Nat) (oldDomCs :: [TConstraint ps oldN])
             (a :: Type)
             (mapExprs :: [TExpr ps newN])
@@ -287,11 +298,12 @@ reindexImpl
      , KnownDom ps newN ('Literal newDomCs)
      , KnownExprs ps newN mapExprs
      , DefinesAllExactlyOnce (outputs ++ locals) defined
+     , IslNonEmpty ps 0 pctx
      )
   => Decls ps inputs outputs locals
-  -> EqList ps (inputs ++ (outputs ++ locals)) defined
+  -> EqList ps pctx (inputs ++ (outputs ++ locals)) defined
   -> Either TransformError
-            (System ps inputs
+            (System ps pctx inputs
                (ReplaceDecl target (ReindexedVarDecl ps target newN newDomCs a) outputs)
                (ReplaceDecl target (ReindexedVarDecl ps target newN newDomCs a) locals))
 reindexImpl decls eqs =
@@ -309,7 +321,7 @@ reindexImpl decls eqs =
                      @locals (dLocals decls)
       newDecls   = Decls (dInputs decls) newOutputs newLocals
   in System newDecls
-       <$> walkEqList @target @ps
+       <$> walkEqList @target @ps @pctx
              @(inputs ++ (outputs ++ locals))
              @(ReindexedVarDecl ps target newN newDomCs a)
              @mapExprs eqs

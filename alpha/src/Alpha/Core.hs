@@ -118,13 +118,16 @@ import GHC.TypeLits
   , TypeError, symbolVal, type (+) )
 
 import Isl.Typed.Params (KnownSymbols)
-import Isl.TypeLevel.Constraint (TConstraint)
+import Isl.TypeLevel.Constraint (TConstraint, IslNonEmpty, LiftPctxN)
 import Isl.TypeLevel.Reflection
-  ( DomTag(..)
+  ( Append
+  , DomTag(..)
   , EffectiveDomTag
   , IslImageSubsetD
   , IslPartitionsD
   , KnownDom
+  , LitPrepend
+  , MapLitPrepend
   )
 import Isl.TypeLevel.Sing (KnownConstraints)
 import Alpha.Codegen.COp (BinOp(..), UnaryOp(..), ReduceOp(..))
@@ -144,15 +147,17 @@ import Alpha.Scalar (AlphaScalar)
 -- exactly once, in any order.
 type System
   :: forall (ps :: [Symbol])
+  -> [TConstraint ps 0]
   -> [VarDecl ps] -> [VarDecl ps] -> [VarDecl ps] -> Type
-data System ps inputs outputs locals where
+data System ps pctx inputs outputs locals where
   System
-    :: forall ps inputs outputs locals defined.
+    :: forall ps pctx inputs outputs locals defined.
        ( KnownSymbols ps
+       , IslNonEmpty ps 0 pctx
        , DefinesAllExactlyOnce (outputs ++ locals) defined )
     => Decls  ps inputs outputs locals
-    -> EqList ps (inputs ++ outputs ++ locals) defined
-    -> System ps inputs outputs locals
+    -> EqList ps pctx (inputs ++ outputs ++ locals) defined
+    -> System ps pctx inputs outputs locals
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -170,30 +175,32 @@ data System ps inputs outputs locals where
 -- attempt to define a variable with a body of the wrong shape is a
 -- Haskell type error before the plugin even runs.
 type Equation
-  :: forall (ps :: [Symbol]) -> [VarDecl ps] -> Symbol -> Type
-data Equation ps decls name where
-  Defines :: forall name ps decls (decl :: VarDecl ps).
+  :: forall (ps :: [Symbol])
+  -> [TConstraint ps 0] -> [VarDecl ps] -> Symbol -> Type
+data Equation ps pctx decls name where
+  Defines :: forall name ps pctx decls (decl :: VarDecl ps).
              ( decl ~ Lookup name decls
              , KnownSymbol name
              , KnownNat (DeclDims decl)
              , KnownDom ps (DeclDims decl) (DeclDomTag decl) )
           => Proxy name
-          -> Expr ps decls (DeclDims decl) (DeclDomTag decl) (DeclType decl)
-          -> Equation ps decls name
+          -> Expr ps pctx decls (DeclDims decl) (DeclDomTag decl) (DeclType decl)
+          -> Equation ps pctx decls name
 
 -- | A typed snoc-list of equations.  The @defined@ parameter is the
 -- type-level list of names defined by this list, in order of insertion.
 -- The ':&' constructor extends the list with the equation's name,
 -- which is carried in the equation's type so that the extension is
 -- structurally forced.
-type EqList :: forall (ps :: [Symbol]) -> [VarDecl ps] -> [Symbol] -> Type
-data EqList ps decls defined where
-  EqNil :: EqList ps decls '[]
+type EqList :: forall (ps :: [Symbol])
+            -> [TConstraint ps 0] -> [VarDecl ps] -> [Symbol] -> Type
+data EqList ps pctx decls defined where
+  EqNil :: EqList ps pctx decls '[]
   (:&)
     :: KnownSymbol name
-    => Equation ps decls name
-    -> EqList ps decls rest
-    -> EqList ps decls (name ': rest)
+    => Equation ps pctx decls name
+    -> EqList ps pctx decls rest
+    -> EqList ps pctx decls (name ': rest)
 infixr 5 :&
 
 -- | Extract the names of all equations in an 'EqList', in declaration
@@ -201,7 +208,7 @@ infixr 5 :&
 -- constructor via @Proxy name@; this helper materialises them as a
 -- plain @[String]@ for use by downstream passes (codegen, compile,
 -- interpret) that walk the equation list.
-eqListNames :: forall ps decls defined. EqList ps decls defined -> [String]
+eqListNames :: forall ps pctx decls defined. EqList ps pctx decls defined -> [String]
 eqListNames EqNil = []
 eqListNames (Defines (Proxy :: Proxy name) _ :& rest) =
   symbolVal (Proxy @name) : eqListNames rest
@@ -271,9 +278,11 @@ data Decl ps d where
 --
 -- See @doc/alpha-design.md@ §2.1 for the rationale of each constructor
 -- and @doc/alpha-implementation.md@ for any in-progress deviations.
-type Expr :: forall (ps :: [Symbol]) -> [VarDecl ps] -> forall (n :: Nat)
+type Expr :: forall (ps :: [Symbol])
+         -> [TConstraint ps 0]
+         -> [VarDecl ps] -> forall (n :: Nat)
          -> DomTag ps n -> Type -> Type
-data Expr ps decls n d a where
+data Expr ps pctx decls n d a where
 
   -- | Variable reference.  Looks up the named variable in @decls@ and
   -- produces an expression on the variable's *declared domain*.  The
@@ -283,12 +292,13 @@ data Expr ps decls n d a where
   --
   -- See deviation D12 in doc/alpha-implementation.md.
   Var :: forall (name :: Symbol) (ps :: [Symbol])
+                (pctx :: [TConstraint ps 0])
                 (decls :: [VarDecl ps]) (decl :: VarDecl ps).
          ( decl ~ Lookup name decls
          , KnownDom ps (DeclDims decl) (DeclDomTag decl)
          , KnownSymbol name )
       => Proxy name
-      -> Expr ps decls (DeclDims decl) (DeclDomTag decl) (DeclType decl)
+      -> Expr ps pctx decls (DeclDims decl) (DeclDomTag decl) (DeclType decl)
 
   -- | Domain-polymorphic literal.  GHC unifies @d@ with the checking
   -- context — the HM-for-domains story from §1.3 of the design doc.
@@ -298,7 +308,7 @@ data Expr ps decls n d a where
   -- 'Const' in a renderer brings the dictionary back into scope, so the
   -- C rendering does not need to consult a separate 'ScalarDesc' map
   -- via a typed hatch — see issue #1 in @doc/codegen-fixes.md@.
-  Const :: AlphaScalar a => a -> Expr ps decls n d a
+  Const :: AlphaScalar a => a -> Expr ps pctx decls n d a
 
   -- | Pointwise binary operation.  Both operands and the result share
   -- the same domain @d@ and the same value type @a@.  Domain matching
@@ -307,42 +317,46 @@ data Expr ps decls n d a where
   -- The 'BinOp' tag makes the operation renderable to C; the
   -- interpreter evaluates it at 'Double' via 'evalBinOp'.
   Pw :: BinOp
-     -> Expr ps decls n d a
-     -> Expr ps decls n d a
-     -> Expr ps decls n d a
+     -> Expr ps pctx decls n d a
+     -> Expr ps pctx decls n d a
+     -> Expr ps pctx decls n d a
 
   -- | Pointwise unary operation (sqrt, negate, abs, …).
   --
   -- The 'UnaryOp' tag makes the operation renderable to C; the
   -- interpreter evaluates it at 'Double' via 'evalUnaryOp'.
   PMap :: UnaryOp
-       -> Expr ps decls n d a
-       -> Expr ps decls n d a
+       -> Expr ps pctx decls n d a
+       -> Expr ps pctx decls n d a
 
   -- | Dependence: apply an affine map to reindex from an inner
   -- variable space (@no@-dim) into an outer body space (@ni@-dim).
   --
-  -- Given an affine map encoded as the constraint list @mapCs@ over
-  -- the @ni + no@ joined space, an expression living on the inner
-  -- variable's declared domain @dInner@ becomes an expression on the
-  -- outer body's domain @dOuter@, provided that the *image* of
-  -- @dOuter@ under the map is contained in @dInner@.  This is the
-  -- array-access bounds check: the body's current domain, transformed
-  -- through the access pattern, must land inside the target variable's
-  -- declared domain.
+  -- The constructor fuses the System's @pctx@ into every sub-obligation
+  -- by lifting it to the relevant dimension count: the map-space
+  -- constraint list is prefixed with @LiftPctxN (ni+no) pctx@, and
+  -- the two Literal-shaped DomTag phantoms are wrapped via 'LitPrepend'
+  -- with the corresponding @LiftPctxN ni pctx@ / @LiftPctxN no pctx@.
+  -- This replaces the plugin's previous @HasParamCtx@-via-givens
+  -- machinery: the plugin sees pctx as part of the constraint list.
   --
   -- See deviations D9, D1 in doc/alpha-implementation.md.
-  Dep :: forall ps decls (ni :: Nat) (no :: Nat)
+  Dep :: forall ps pctx decls (ni :: Nat) (no :: Nat)
               (mapCs :: [TConstraint ps (ni + no)])
               (dOuter :: DomTag ps ni) (dInner :: DomTag ps no) a.
          ( KnownNat ni, KnownNat no
          , KnownDom ps ni dOuter
          , KnownDom ps no dInner
+         -- Bare mapCs dict (for the interpreter's affine evaluation;
+         -- the plugin-obligation variant below lifts pctx in).
          , KnownConstraints ps (ni + no) mapCs
-         , IslImageSubsetD ps ni no mapCs dOuter dInner )
+         , IslImageSubsetD ps ni no
+             (Append (LiftPctxN (ni + no) pctx) mapCs)
+             (LitPrepend (LiftPctxN ni pctx) dOuter)
+             (LitPrepend (LiftPctxN no pctx) dInner) )
       => Proxy mapCs
-      -> Expr ps decls no dInner a
-      -> Expr ps decls ni dOuter a
+      -> Expr ps pctx decls no dInner a
+      -> Expr ps pctx decls ni dOuter a
 
   -- | Reduction: project out one or more dimensions via an
   -- associative operation.
@@ -373,18 +387,21 @@ data Expr ps decls n d a where
   -- (weaker source → smaller image), and the identity-map obligation
   -- @dOuter ⊆ dInner@ is structurally trivial when @dOuter@ is any
   -- narrowing of @dInner@.  See 'Alpha.Transform.Weaken.weakenExpr'.
-  Reduce :: forall ps decls (n :: Nat) (nBody :: Nat)
+  Reduce :: forall ps pctx decls (n :: Nat) (nBody :: Nat)
                   (projCs :: [TConstraint ps (nBody + n)])
                   (d :: DomTag ps n) (dBody :: DomTag ps nBody) a.
             ( KnownNat n, KnownNat nBody
             , KnownDom ps n d
             , KnownDom ps nBody dBody
             , KnownConstraints ps (nBody + n) projCs
-            , IslImageSubsetD ps nBody n projCs dBody d )
+            , IslImageSubsetD ps nBody n
+                (Append (LiftPctxN (nBody + n) pctx) projCs)
+                (LitPrepend (LiftPctxN nBody pctx) dBody)
+                (LitPrepend (LiftPctxN n pctx) d) )
          => ReduceOp
          -> Proxy projCs
-         -> Expr ps decls nBody dBody a
-         -> Expr ps decls n     d     a
+         -> Expr ps pctx decls nBody dBody a
+         -> Expr ps pctx decls n     d     a
 
   -- | Case: a list of branches whose domains cover @d@ and are
   -- pairwise disjoint within @d@.  Each point in the ambient is
@@ -430,11 +447,15 @@ data Expr ps decls n d a where
   -- for 'Alpha.Transform.NormalizeCases'; nested Cases render via the
   -- existing ternary path in 'Alpha.Codegen.ExprRender' — correct,
   -- just not optimally loop-nested.
-  Case :: ( KnownNat n
+  Case :: forall ps pctx decls (n :: Nat) (d :: DomTag ps n)
+                 (branchDoms :: [DomTag ps n]) a.
+          ( KnownNat n
           , KnownDom ps n d
-          , IslPartitionsD ps n d branchDoms )
-       => Branches ps decls n d branchDoms a
-       -> Expr ps decls n d a
+          , IslPartitionsD ps n
+              (LitPrepend (LiftPctxN n pctx) d)
+              (MapLitPrepend (LiftPctxN n pctx) branchDoms) )
+       => Branches ps pctx decls n d branchDoms a
+       -> Expr ps pctx decls n d a
 
 
 -- | A list of case branches.  Each entry carries its own declared
@@ -450,16 +471,18 @@ data Expr ps decls n d a where
 -- The list is a snoc-list at the type level via the @branchDoms@
 -- parameter so that 'IslPartitionsD' (on the enclosing 'Case') can
 -- read the collection of all branch domains.
-type Branches :: forall (ps :: [Symbol]) -> [VarDecl ps] -> forall (n :: Nat)
+type Branches :: forall (ps :: [Symbol])
+             -> [TConstraint ps 0]
+             -> [VarDecl ps] -> forall (n :: Nat)
              -> DomTag ps n -> [DomTag ps n] -> Type -> Type
-data Branches ps decls n amb branchDoms a where
-  BNil :: Branches ps decls n amb '[] a
+data Branches ps pctx decls n amb branchDoms a where
+  BNil :: Branches ps pctx decls n amb '[] a
   BCons :: ( KnownDom ps n d
            , KnownDom ps n (EffectiveDomTag d amb) )
         => Proxy d
-        -> Expr ps decls n (EffectiveDomTag d amb) a
-        -> Branches ps decls n amb ds a
-        -> Branches ps decls n amb (d ': ds) a
+        -> Expr ps pctx decls n (EffectiveDomTag d amb) a
+        -> Branches ps pctx decls n amb ds a
+        -> Branches ps pctx decls n amb (d ': ds) a
 
 
 -- ═══════════════════════════════════════════════════════════════════════

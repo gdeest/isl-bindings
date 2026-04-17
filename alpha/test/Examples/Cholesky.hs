@@ -150,7 +150,7 @@ strictLowerBodyN =
 -- The Cholesky system (v7 surface form)
 -- ═══════════════════════════════════════════════════════════════════════
 
-cholesky :: System '["N"] _ _ _
+cholesky :: System '["N"] '[ 'TParam (P "N") >=. 'TConst ('Pos 1) ] _ _ _
 cholesky = system
   ( Decls
       { dInputs  = input @"A" squareN (Proxy @Double)

@@ -45,7 +45,7 @@ squareN :: DomExpr '["i", "j"] _
 squareN = range0 @"N" #i /\ range0 @"N" #j
 
 -- | A[i,j] = 0.0, B[i,j] = A[i,j]
-depSystem :: System '["N"] _ _ _
+depSystem :: System '["N"] '[] _ _ _
 depSystem = system
   ( Decls
       { dInputs  = Nil

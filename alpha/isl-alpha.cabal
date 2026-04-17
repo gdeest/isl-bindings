@@ -84,6 +84,7 @@ test-suite alpha-test
                    , Examples.OverWideCholesky
                    , Examples.MatmulNormalize
                    , Examples.MatmulTransposed
+                   , Examples.NeedsPctx
                    , Examples.IntRowMax
                    , Examples.SumIndex2D
                    , Examples.SumIndex2DSquare

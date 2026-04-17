@@ -34,7 +34,7 @@ triN = (#i .>=. lit @0)
 lineN :: DomExpr '["k"] _
 lineN = range0 @"N" #k
 
-sumIndex2D :: System '["N"] _ _ _
+sumIndex2D :: System '["N"] '[] _ _ _
 sumIndex2D = system
   ( Decls
       { dInputs  = input @"B" lineN (Proxy @Double) :> Nil

@@ -76,7 +76,7 @@ leftPt = #i .==. lit @0
 midDom :: DomExpr '["i"] _
 midDom = between (lit @1) (par @"N" -. lit @2) #i
 
-heat3DElsewhere :: System '["N"] _ _ _
+heat3DElsewhere :: System '["N"] '[] _ _ _
 heat3DElsewhere = system
   ( Decls
       { dInputs  = Nil

@@ -75,7 +75,7 @@ type TiledVarDecl
 -- 'IslPreimageMultiAff'.
 tile
   :: forall (target :: Symbol) -> forall (factors :: [Maybe Nat]) ->
-     forall ps inputs outputs locals
+     forall ps pctx inputs outputs locals
             (oldDomCs :: [TConstraint ps (Length factors)]) (a :: Type)
             (newDomCs :: [TConstraint ps (Length factors + CountJust factors)]).
      ( KnownSymbol target
@@ -96,9 +96,9 @@ tile
      , KnownDom ps (Length factors + CountJust factors) ('Literal newDomCs)
      , KnownExprs ps (Length factors + CountJust factors) (TileMapExprs factors)
      )
-  => System ps inputs outputs locals
+  => System ps pctx inputs outputs locals
   -> Either TransformError
-            (System ps inputs
+            (System ps pctx inputs
                (ReplaceDecl target (TiledVarDecl ps target factors oldDomCs a) outputs)
                (ReplaceDecl target (TiledVarDecl ps target factors oldDomCs a) locals))
 tile (type target) (type factors) sys =

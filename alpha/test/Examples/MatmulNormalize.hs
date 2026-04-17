@@ -96,7 +96,7 @@ type IdentityAccess =
   '[ 'TDim (D 0), 'TDim (D 1) ] :: [TExpr '["N"] 2]
 
 
-matmulNormalize :: System '["N"] MNInputs MNOutputs MNLocals
+matmulNormalize :: System '["N"] '[] MNInputs MNOutputs MNLocals
 matmulNormalize = System
   ( Decls
       { dInputs  = MkDecl :> MkDecl :> Nil
@@ -109,13 +109,13 @@ matmulNormalize = System
   :&  EqNil
   )
 
-cBody :: Expr '["N"] MNDecls 2 ('Literal MNSquareN) Double
+cBody :: Expr '["N"] '[] MNDecls 2 ('Literal MNSquareN) Double
 cBody =
   Reduce ReduceSum
     (Proxy :: Proxy (IslMultiAffToMap '["N"] 3 2 ProjectK))
     reductionBody
 
-reductionBody :: Expr '["N"] MNDecls 3 ('Literal MNCubeN) Double
+reductionBody :: Expr '["N"] '[] MNDecls 3 ('Literal MNCubeN) Double
 reductionBody =
   Pw OpMul
     (Dep
@@ -125,7 +125,7 @@ reductionBody =
       (Proxy :: Proxy (IslMultiAffToMap '["N"] 3 2 AccessB))
       (Var (Proxy @"B")))
 
-dBody :: Expr '["N"] MNDecls 2 ('Literal MNSquareN) Double
+dBody :: Expr '["N"] '[] MNDecls 2 ('Literal MNSquareN) Double
 dBody =
   Dep
     (Proxy :: Proxy (IslMultiAffToMap '["N"] 2 2 IdentityAccess))
