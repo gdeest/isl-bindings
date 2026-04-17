@@ -263,6 +263,22 @@ data Expr ps decls n d a where
   -- (identity 1), etc.  The interpreter and codegen use this directly.
   --
   -- See deviation D13 in doc/alpha-implementation.md.
+  --
+  -- === Transform polarity (IMPORTANT for 'Alpha.Transform.*' authors)
+  --
+  -- @d@ here is the /result/ domain: the image of @dBody@ under
+  -- @projCs@ must be ⊆ @d@.  A transform that narrows @d@ (e.g. from
+  -- @amb@ to @d' = d_i ∩ amb@) /tightens/ the obligation — generally
+  -- false, because a reduction's projection image typically covers all
+  -- of the ambient result domain.  Therefore a transform must NOT
+  -- attempt to rewrite a 'Reduce' node's result-domain phantom by
+  -- constructor-dispatched recursion.
+  --
+  -- The sound move is to /wrap/ the entire expression in a @'Dep'
+  -- \@identityMap@ — @Dep@'s obligation has the opposite polarity
+  -- (weaker source → smaller image), and the identity-map obligation
+  -- @dOuter ⊆ dInner@ is structurally trivial when @dOuter@ is any
+  -- narrowing of @dInner@.  See 'Alpha.Transform.Weaken.weakenExpr'.
   Reduce :: forall ps decls (n :: Nat) (nBody :: Nat)
                   (projCs :: [TConstraint ps (nBody + n)])
                   (d :: DomTag ps n) (dBody :: DomTag ps nBody) a.
@@ -283,7 +299,45 @@ data Expr ps decls n d a where
   -- to the same point.  Enforced at compile time by 'IslPartitionsD'
   -- (see deviation v5.2 / retired D22 in
   -- @doc/alpha-implementation.md@).
-  Case :: ( KnownDom ps n d
+  --
+  -- === Lowering strategy (fan-out to polyhedral statements)
+  --
+  -- A top-level @Case branches@ on an equation's RHS is fanned out by
+  -- 'Alpha.Transform.NormalizeCases' + 'Alpha.Lower' into /N polyhedral
+  -- statements/ — one per branch, each with domain @d_i ∩ amb@ — all
+  -- writing to the same logical array.  ISL's scanner then emits
+  -- peeled/split loop nests automatically, rather than the previous
+  -- chain of per-iteration C ternaries.  The partition witness
+  -- @'IslPartitionsD' ps n d branchDoms@ is what makes the fan-out
+  -- sound: disjoint write-map ranges, covering union of domains.
+  --
+  -- Per-statement 'Alpha.Codegen.ReduceInfo' means branches may freely
+  -- mix reduction shapes (including a non-reducing branch next to a
+  -- reducing one, or two branches reducing over different dims).
+  --
+  -- === Transform polarity (IMPORTANT for 'Alpha.Transform.*' authors)
+  --
+  -- A 'Case' partitions its ambient @d@.  A transform that narrows @d@
+  -- to @d'@ cannot in general re-partition the branches: the witnesses
+  -- @branchDoms@ are fixed, and their intersection with @d'@ may no
+  -- longer cover @d'@ (coverage is a property of @d@, not @d'@).
+  -- As with 'Reduce', a constructor-dispatched phantom rewrite is
+  -- unsound; the universal move is to wrap via @'Dep' \@identityMap@.
+  -- See 'Alpha.Transform.Weaken.weakenExpr'.
+  --
+  -- === Nested Case (inside 'Reduce' body or 'Dep' target)
+  --
+  -- Only a /top-level/ 'Case' fans out to separate statements.  A
+  -- 'Case' inside a 'Reduce' body lives in @nBody@, not @n@ — and
+  -- lifting it out would require introducing auxiliary equations for
+  -- per-branch partial reductions combined by an outer fold (the
+  -- sub-reduction images overlap in the result domain, which is
+  -- exactly what reduction /is/).  That distribution is out of scope
+  -- for 'Alpha.Transform.NormalizeCases'; nested Cases render via the
+  -- existing ternary path in 'Alpha.Codegen.ExprRender' — correct,
+  -- just not optimally loop-nested.
+  Case :: ( KnownNat n
+          , KnownDom ps n d
           , IslPartitionsD ps n d branchDoms )
        => Branches ps decls n d branchDoms a
        -> Expr ps decls n d a
@@ -382,7 +436,9 @@ type Equation
 data Equation ps decls name where
   Defines :: forall name ps decls (decl :: VarDecl ps).
              ( decl ~ Lookup name decls
-             , KnownSymbol name )
+             , KnownSymbol name
+             , KnownNat (DeclDims decl)
+             , KnownDom ps (DeclDims decl) (DeclDomTag decl) )
           => Proxy name
           -> Expr ps decls (DeclDims decl) (DeclDomTag decl) (DeclType decl)
           -> Equation ps decls name

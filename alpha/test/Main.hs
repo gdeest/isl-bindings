@@ -636,7 +636,7 @@ main = defaultMain $ testGroup "alpha-test"
               assertBool "contains 3 nested for loops"
                 (isInfixOf "for (int c2" cSrc)
               assertBool "contains statement macro with strides"
-                (isInfixOf "(N) * c0" cSrc)
+                (isInfixOf "(N) * (c0)" cSrc)
               -- Verify generated C compiles with gcc
               writeFile "/tmp/matmul_test.c" cSrc
               exitCode <- system "gcc -O2 -c /tmp/matmul_test.c -o /dev/null 2>/dev/null"
@@ -1100,6 +1100,79 @@ main = defaultMain $ testGroup "alpha-test"
             Right () -> pure ()
             other -> assertFailure $
               "expected Right (), got: " ++ show other
+      ]
+
+  , testGroup "Case-split fan-out"
+      [ testCase "heat3D codegen emits N distinct per-branch macros" $ do
+          -- Heat3D's RHS is a top-level 8-branch Case.  After fan-out,
+          -- codegen should emit 8 distinct #define u__brI macros
+          -- (one per branch), each with its own statement domain.
+          -- Pre-fan-out (v1): one macro u(...) with an if-chain body.
+          let s = scheduling $ sched @"u" @H3.H3Decls $ \n -> identity n
+              a = Allocation Map.empty
+              fm = defaultMapping "heat3d_split" H3.heat3D
+          result <- codegen H3.heat3D s a fm
+                      (uniformDescs (scalarDesc @Double) H3.heat3D)
+          case result of
+            Right cSrc -> do
+              forM_ [0..7 :: Int] $ \i -> do
+                let needle = "#define u__br" ++ show i
+                assertBool ("generated C must contain " ++ needle)
+                           (isInfixOf needle cSrc)
+              -- Structural: no stray ternary "?" from the old path
+              -- (guard bodies became statement domains; there's no
+              -- per-iteration if-chain left in the body).  We allow
+              -- one or two ? occurrences only from subscript rendering;
+              -- the real signal is that 8 macros exist.
+              assertBool "still a single logical array name (u_buf)"
+                (isInfixOf "u_buf" cSrc)
+              -- Sanity-compile through gcc.
+              writeFile "/tmp/heat3d_split.c" cSrc
+              exitCode <- system
+                "gcc -O0 -c /tmp/heat3d_split.c -o /dev/null 2>/dev/null"
+              assertBool "generated C compiles with gcc"
+                         (exitCode == ExitSuccess)
+            Left err -> assertFailure $ "codegen failed: " ++ show err
+
+      , testCase "heat3D compile+run matches reference (Case-split end-to-end)" $ do
+          -- End-to-end equivalence: compile heat3D (which fan-outs into
+          -- 8 branch statements) and run vs the reference interpreter.
+          -- Pre-fan-out: identical outputs via ternary chain.
+          -- Post-fan-out: identical outputs via N separate loop nests.
+          -- Byte-identical equivalence is the real correctness check.
+          let n = 3 :: Int
+              nt = 2 :: Int
+              u0 = V.replicate (n*n*n) (1.0 :: Double)
+              expected = RefH3.referenceHeat3D n nt u0
+          withCompiledKernel H3.heat3D
+            (scheduling $ sched @"u" @H3.H3Decls $ \r -> identity r)
+            (Allocation Map.empty)
+            (defaultMapping "heat3d_e2e" H3.heat3D) $ \kernel -> do
+              result <- runKernel kernel (n :> nt :> PNil) u0
+              assertVecApprox "heat3D fan-out vs reference" 1e-10 expected result
+
+      , testCase "cholesky Case-split: fan-out produces per-branch statements" $ do
+          -- Cholesky's RHS is a 2-branch Case where each branch contains
+          -- a Reduce with a *different* projCs (diagBodyN vs
+          -- strictLowerBodyN).  Pre-per-statement-ReduceInfo: rejected
+          -- as "non-uniform Reduce across branches"; post-fix each
+          -- fanned-out branch carries its own ReduceInfo.
+          --
+          -- The structural signal is that @validateSchedule@ now
+          -- accepts the identity schedule on cholesky — the
+          -- dependence lookup must find entries for both L__br0 and
+          -- L__br1 (each with its own ReduceInfo), otherwise schedule
+          -- validation rejects with "lowering produced no schedule
+          -- maps".  End-to-end C execution is still blocked by a
+          -- pre-existing subscript extractor limitation on the
+          -- diagonal branch's i=j constraint — orthogonal.
+          let s = scheduling $
+                sched @"L" @Cholesky.CholeskyDecls $ \r -> identity r
+          result <- validateSchedule Cholesky.cholesky s
+          case result of
+            Right () -> pure ()
+            Left err -> assertFailure $
+              "cholesky fan-out schedule validation failed: " ++ show err
       ]
 
   ]

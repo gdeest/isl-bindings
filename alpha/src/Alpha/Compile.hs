@@ -22,8 +22,10 @@ import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
-import Isl.Typed.Constraints (NamedMap(..), NamedSet(..), buildUnionMapFromNamed)
-import Isl.Typed.Params (KnownSymbols, symbolVals)
+import GHC.TypeLits (KnownNat)
+
+import Isl.Typed.Constraints (NamedMap(..), buildUnionMapFromNamed)
+import Isl.Typed.Params (KnownSymbols, Length, symbolVals)
 import qualified Isl.Types as Isl
 import qualified Isl.Map as RawM
 import qualified Isl.UnionMap as UM
@@ -38,6 +40,8 @@ import Alpha.Allocation (Allocation(..), EqStorage(..))
 import Alpha.Polyhedral.Contraction (storageToNamedMap', contractionOutputDeps)
 import Alpha.Polyhedral.Dependence
   ( lowerScheduleMaps, projectBodyReads, computeAllDeps )
+import Alpha.Transform.NormalizeCases (normalizeCases)
+import Alpha.Transform.Types (TransformError)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -55,6 +59,10 @@ data CompileError
     -- ^ Post-contraction WAW: two aliasing writes land on the same
     -- schedule point.  The payload names the contracted equation
     -- whose storage map produced the collision.
+  | TransformFailed !TransformError
+    -- ^ A pre-lowering transform (e.g., 'normalizeCases') reported an
+    -- error.  Structural transforms never fail at runtime, so this
+    -- signals an internal bug.
   deriving (Show, Eq)
 
 instance NFData CompileError where
@@ -63,6 +71,7 @@ instance NFData CompileError where
   rnf (ScheduleIncomplete xs)   = rnf xs
   rnf (ScheduleOverspecified xs) = rnf xs
   rnf (OutputDependenceViolated s) = rnf s
+  rnf (TransformFailed e)       = e `seq` ()
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -71,12 +80,12 @@ instance NFData CompileError where
 
 compile
   :: forall ps inputs outputs locals.
-     KnownSymbols ps
+     (KnownSymbols ps, KnownNat (Length ps))
   => System ps inputs outputs locals
   -> Schedule
   -> Allocation
   -> IO (Either CompileError ())
-compile sys@(System _decls eqs) sched alloc =
+compile sys0@(System _decls eqs) sched alloc =
   let eqNames    = Set.fromList (eqListNames eqs)
       schedNames = Set.fromList (Map.keys (schedEntries sched))
       missing    = Set.toAscList (eqNames `Set.difference` schedNames)
@@ -85,21 +94,29 @@ compile sys@(System _decls eqs) sched alloc =
     (True, _, _)    -> pure (Right ())
     (_, _:_, _)     -> pure (Left (ScheduleIncomplete missing))
     (_, _, _:_)     -> pure (Left (ScheduleOverspecified extra))
-    (_, [], [])     -> runIslT $ Isl.do
-      let (domains, writes, reads_, projections) = lowerSystem sys
-          schedMaps = lowerScheduleMaps sched domains
-          params    = symbolVals @ps
-          -- Contracted equations paired with their (domain, write-map,
-          -- storage map).  Empty list ⇒ no post-contraction aliasing
-          -- possible, WAW check skipped.
-          contracted = collectContracted alloc domains writes
-      Ur eqReads <- projectBodyReads reads_ projections
-      Ur flowDeps <- computeAllDeps eqReads writes
-      -- Flow-dep lex-positivity check.
-      Ur flowResult <- runFlowCheck flowDeps schedMaps
-      case flowResult of
-        Left err -> Isl.pure (Ur (Left err))
-        Right () -> runWawCheck params contracted schedMaps
+    (_, [], [])     ->
+      -- Phase A: hoist 'Case' nodes above 'Pw'/'PMap' so the lowering
+      -- fan-out can emit one polyhedral statement per branch.
+      case normalizeCases sys0 of
+        Left terr -> pure (Left (TransformFailed terr))
+        Right sys -> runIslT $ Isl.do
+          let (domains, writes, reads_, projections) = lowerSystem sys
+              schedMaps = lowerScheduleMaps sched domains
+              params    = symbolVals @ps
+              -- Contracted equations paired with their (list of
+              -- per-branch write maps, storage map).  After the Case
+              -- fan-out, a single contracted equation may be backed by
+              -- N write maps; the WAW check unions them before pushing
+              -- through storage composition.  Empty list ⇒ no
+              -- post-contraction aliasing possible, WAW check skipped.
+              contracted = collectContracted params alloc writes
+          Ur eqReads <- projectBodyReads reads_ projections
+          Ur flowDeps <- computeAllDeps eqReads writes
+          -- Flow-dep lex-positivity check.
+          Ur flowResult <- runFlowCheck flowDeps schedMaps
+          case flowResult of
+            Left err -> Isl.pure (Ur (Left err))
+            Right () -> runWawCheck params contracted schedMaps
 
 -- | Flow-dep lex-positivity check, factored out for composition with
 -- the post-contraction WAW check.
@@ -128,17 +145,22 @@ runFlowCheck flowDeps schedMaps = Isl.do
 -- cell, so no aliasing is possible.
 runWawCheck
   :: [String]
-  -> [(String, NamedMap, NamedMap)]
+  -> [(String, [NamedMap], NamedMap)]
   -> [NamedMap]
   -> IslT IO (Ur (Either CompileError ()))
 runWawCheck _params [] _schedMaps = Isl.pure (Ur (Right ()))
 runWawCheck _params (entry : rest) schedMaps =
-  let (eqName, writeNM, storageNM) = entry in Isl.do
+  let (eqName, writeNMs, storageNM) = entry in Isl.do
   -- Build writeUM (×2) and storageUM (×2) for 'contractionOutputDeps'.
-  -- 'NamedMap' is a pure Haskell value; the let-above pulls it out of
-  -- the linear pattern binding so we can reuse it without consuming.
-  writeUM1    <- buildUnionMapFromNamed writeNM
-  writeUM2    <- buildUnionMapFromNamed writeNM
+  -- For Case-split equations there are N per-branch write maps;
+  -- 'unionMapsFromNamed' unions them so 'contractionOutputDeps'
+  -- composes storage over the full logical write relation.  The
+  -- resulting WAW relation then includes cross-branch aliasing pairs
+  -- @(br_i[a], br_j[c])@ whenever @storage(a) = storage(c)@; the
+  -- diagonal-of-lex test in 'checkContractionRaceFree' correctly
+  -- demands cross-branch schedule disambiguation.
+  writeUM1    <- unionMapsFromNamed writeNMs
+  writeUM2    <- unionMapsFromNamed writeNMs
   storageUM1  <- buildUnionMapFromNamed storageNM
   storageUM2  <- buildUnionMapFromNamed storageNM
   waw         <- contractionOutputDeps writeUM1 writeUM2 storageUM1 storageUM2
@@ -160,7 +182,7 @@ runWawCheck _params (entry : rest) schedMaps =
 -- | Validate a schedule without an allocation (flow deps only).
 validateSchedule
   :: forall ps inputs outputs locals.
-     KnownSymbols ps
+     (KnownSymbols ps, KnownNat (Length ps))
   => System ps inputs outputs locals
   -> Schedule
   -> IO (Either CompileError ())
@@ -171,30 +193,53 @@ schedNOut :: [NamedMap] -> Int
 schedNOut (sm:_) = nmNOut sm
 schedNOut []     = 0
 
--- | Gather contracted equations paired with their write-access and
--- storage-map 'NamedMap's.  Pre-contraction (every equation
--- 'FullStorage') the list is empty and the WAW check is skipped —
--- virtual SARE semantics already guarantees no write aliasing.
+-- | Build one 'Isl.UnionMap' that is the union of all given
+-- 'NamedMap's.  Precondition: the input list is non-empty (callers
+-- that might have an empty list should short-circuit before calling
+-- this; 'collectContracted' already filters those out).
+unionMapsFromNamed :: [NamedMap] -> IslT IO Isl.UnionMap
+unionMapsFromNamed []     =
+  error "Alpha.Compile.unionMapsFromNamed: empty list (collectContracted invariant violated)"
+unionMapsFromNamed (nm:nms) = Isl.do
+  u0 <- buildUnionMapFromNamed nm
+  Isl.foldM
+    (\acc n -> Isl.do
+       u <- buildUnionMapFromNamed n
+       UM.union acc u)
+    u0 nms
+
+-- | Gather contracted equations paired with their write-access
+-- 'NamedMap's (one per lowered statement — N per Case-split equation,
+-- one otherwise) and storage-map 'NamedMap'.  Pre-contraction (every
+-- equation 'FullStorage') the list is empty and the WAW check is
+-- skipped — virtual SARE semantics already guarantees no write
+-- aliasing.
+--
+-- Keyed by 'allocEntries' (logical array name), not by iteration
+-- domains: after the Case-split fan-out the domain entries are named
+-- @eqName__brI@, so a by-domain iteration would silently drop
+-- contracted split equations.
 collectContracted
-  :: Allocation
-  -> [NamedSet]   -- ^ iteration domains (from lowerSystem)
-  -> [NamedMap]   -- ^ identity write maps (from lowerSystem)
-  -> [(String, NamedMap, NamedMap)]
-collectContracted alloc domains writes =
-  [ (eqName, writeNM, storageNM)
-  | NamedSet { nsName = Just eqName, nsNDims = nDims, nsParams = dParams } <- domains
-  , Just (Contracted stor) <- [Map.lookup eqName (allocEntries alloc)]
-  , Just writeNM <- [lookupWriteMap eqName writes]
-  , let storageNM = storageToNamedMap' eqName (eqName ++ "__buf") dParams stor nDims
+  :: [String]     -- ^ parameter names (shared across the system)
+  -> Allocation
+  -> [NamedMap]   -- ^ write maps (from lowerSystem); multiple per
+                  -- contracted Case-split equation
+  -> [(String, [NamedMap], NamedMap)]
+collectContracted params alloc writes =
+  [ (eqName, ws, storageNM)
+  | (eqName, Contracted stor) <- Map.toAscList (allocEntries alloc)
+  , ws@(w0:_) <- [lookupWriteMaps eqName writes]
+  -- All branches write to a space with the same rank as the equation;
+  -- pick any branch's nmNOut.
+  , let nDims     = nmNOut w0
+        storageNM = storageToNamedMap' eqName (eqName ++ "__buf") params stor nDims
   ]
 
-lookupWriteMap :: String -> [NamedMap] -> Maybe NamedMap
-lookupWriteMap name = go
-  where
-    go [] = Nothing
-    go (w:ws)
-      | nmDomainName w == Just name && nmRangeName w == Just name = Just w
-      | otherwise = go ws
+-- | All write maps targeting the given logical array (range) name.
+-- Returns N entries when @name@ has been Case-fanned out into N
+-- branch statements, exactly one entry otherwise.
+lookupWriteMaps :: String -> [NamedMap] -> [NamedMap]
+lookupWriteMaps name = filter (\w -> nmRangeName w == Just name)
 
 
 -- ═══════════════════════════════════════════════════════════════════════

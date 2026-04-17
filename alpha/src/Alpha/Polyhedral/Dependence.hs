@@ -30,6 +30,7 @@ import Isl.Monad (IslT, Ur(..))
 import Isl.Linear (freeM, dup, urWrap)
 import qualified Isl.Linear as Isl
 import qualified Alpha.Polyhedral.Schedule as S
+import Alpha.Lower (logicalName)
 import Alpha.Schedule (Schedule(..), EqSchedule(esDef))
 
 
@@ -37,14 +38,20 @@ import Alpha.Schedule (Schedule(..), EqSchedule(esDef))
 -- §1. Schedule lowering
 -- ═══════════════════════════════════════════════════════════════════════
 
+-- | Lower schedule maps for dependence analysis.
+--
+-- After the 'Alpha.Lower' Case fan-out, 'domains' carry statement
+-- names (@eqName__brI@ for Case branches); schedule entries remain
+-- keyed by logical equation name.  We look up the entry by
+-- 'logicalName' and emit one schedule map per statement, all sharing
+-- the same schedule payload — ISL then treats N statements at the
+-- same schedule point with disjoint domains as peeled/split loops.
 lowerScheduleMaps :: Schedule -> [NamedSet] -> [NamedMap]
 lowerScheduleMaps (Schedule entries) domains =
   [ S.schedToNamedMap' name dom (esDef eq)
-  | NamedSet { nsName = Just name } <- domains
-  , Just eq <- [Map.lookup name entries]
-  , dom:_ <- [[ d | d@(NamedSet { nsName = Just n }) <- domains, n == name ]]
+  | dom@(NamedSet { nsName = Just name }) <- domains
+  , Just eq <- [Map.lookup (logicalName name) entries]
   ]
-
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §2. Body-space read projection

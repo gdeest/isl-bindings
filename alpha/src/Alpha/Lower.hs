@@ -20,8 +20,11 @@
 -- into the equation space before computing dependences.
 module Alpha.Lower
   ( lowerSystem
+  , logicalName
   ) where
 
+import Data.Char (isDigit)
+import Data.List (isPrefixOf)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
@@ -76,6 +79,11 @@ lowerSystem (System (Decls ins outs locs) eqs) =
       projections = concatMap (\(_, _, _, ps') -> ps') quads
   in (domains, writes, reads_, projections)
 
+-- | Per-equation lowered result: one or more statements.  A plain RHS
+-- yields exactly one quad; a top-level 'Case' fans out to one quad per
+-- branch, all writing to the same logical array @eqName@ (range name).
+type LoweredQuad = (NamedSet, NamedMap, [NamedMap], [NamedMap])
+
 -- | Extract @(rank, domain-constraints)@ for every declared variable
 -- in a 'DeclList'.  Pattern-matching each 'MkDecl' brings the
 -- 'KnownNat' / 'KnownDom' dicts into scope so we can reflect them.
@@ -111,9 +119,10 @@ data ReadCtx = ReadCtx
 
 lowerEqList
   :: forall ps decls defined.
-     Map String (Int, [Constraint SetIx])
+     KnownSymbols ps
+  => Map String (Int, [Constraint SetIx])
   -> [String] -> Int -> EqList ps decls defined
-  -> ([(NamedSet, NamedMap, [NamedMap], [NamedMap])], Int)
+  -> ([LoweredQuad], Int)
 lowerEqList _ _ counter EqNil = ([], counter)
 lowerEqList declInfos params counter (Defines (Proxy :: Proxy name) body :& rest) =
   let eqName = symbolVal (Proxy @name)
@@ -122,16 +131,34 @@ lowerEqList declInfos params counter (Defines (Proxy :: Proxy name) body :& rest
         Nothing   -> error $
           "Alpha.Lower: equation '" ++ eqName ++
           "' has no matching declaration (DefinesAllExactlyOnce invariant violated)"
-      (quad, counter') = lowerOneEq params counter eqName nDims domCs body
-      (quads, counter'') = lowerEqList declInfos params counter' rest
-  in (quad : quads, counter'')
+      (quads, counter') = lowerOneEq params counter eqName nDims domCs body
+      (rest', counter'') = lowerEqList declInfos params counter' rest
+  in (quads ++ rest', counter'')
 
+-- | Lower one equation to one or more ISL statements.
+--
+-- Fan-out rule: if the top-level RHS is a 'Case', emit one statement
+-- per branch.  Each branch statement has:
+--
+--   * domain  — @eqName ++ "__brI"@ with @EffectiveDomTag d_i amb@
+--     constraints;
+--   * write   — domain = branch name, **range = eqName** (load-bearing:
+--     downstream storage/contraction composes by logical array name);
+--   * reads   — extracted from the branch body with the branch domain
+--     name and effective-domain constraints in scope.
+--
+-- Non-'Case' RHS (or 'Case' nested inside 'Reduce'/'Dep') takes the
+-- single-statement path; surviving 'Case' nodes fall through to the
+-- ternary renderer in 'Alpha.Codegen.ExprRender'.
 lowerOneEq
   :: forall ps decls n (d :: DomTag ps n) a.
-     [String] -> Int -> String
+     KnownSymbols ps
+  => [String] -> Int -> String
   -> Int -> [Constraint SetIx]  -- rank + domain constraints from decl
   -> Expr ps decls n d a
-  -> ((NamedSet, NamedMap, [NamedMap], [NamedMap]), Int)
+  -> ([LoweredQuad], Int)
+lowerOneEq params counter eqName nDims domCs (Case branches) =
+  lowerCaseBranches params counter eqName nDims branches 0
 lowerOneEq params counter eqName nDims domCs body =
   let domain  = NamedSet
         { nsName   = Just eqName
@@ -155,7 +182,72 @@ lowerOneEq params counter eqName nDims domCs body =
         , rcNDims   = nDims
         }
       (readMaps, projs, counter') = extractReads ctx0 counter body
-  in ((domain, writeMap, readMaps, projs), counter')
+  in ([(domain, writeMap, readMaps, projs)], counter')
+
+-- | Walk a 'Branches' list, emitting one quad per branch.  The
+-- branch index @i@ is threaded separately from the synthetic-name
+-- counter used inside 'extractReads' for 'Reduce' bodies.
+lowerCaseBranches
+  :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
+     KnownSymbols ps
+  => [String] -> Int -> String -> Int
+  -> Branches ps decls n amb branchDoms a
+  -> Int   -- branch index
+  -> ([LoweredQuad], Int)
+lowerCaseBranches _ counter _ _ BNil _ = ([], counter)
+lowerCaseBranches params counter eqName nDims
+                  (BCons (_ :: Proxy d_i) body rest) i =
+  let brName  = eqName ++ "__br" ++ show i
+      effDomCs = reflectDomConstraints @ps @n @(EffectiveDomTag d_i amb)
+      domain   = NamedSet
+        { nsName   = Just brName
+        , nsParams = params
+        , nsNDims  = nDims
+        , nsConjs  = [Conjunction effDomCs]
+        }
+      writeMap = NamedMap
+        { nmDomainName = Just brName
+        , nmRangeName  = Just eqName    -- logical array name, shared
+        , nmParams     = params
+        , nmNIn        = nDims
+        , nmNOut       = nDims
+        , nmConjs      = [Conjunction (identityCs nDims ++ mapDomToMap effDomCs)]
+        }
+      ctx = ReadCtx
+        { rcParams  = params
+        , rcEqName  = eqName
+        , rcDomCs   = effDomCs
+        , rcDomName = brName
+        , rcNDims   = nDims
+        }
+      (readMaps, projs, counter1) = extractReads ctx counter body
+      (restQuads, counter2) =
+        lowerCaseBranches params counter1 eqName nDims rest (i + 1)
+  in ((domain, writeMap, readMaps, projs) : restQuads, counter2)
+
+
+-- | Recover the equation name from a lowered statement name.
+--
+-- The @"__br"I@ suffix is coined in 'lowerCaseBranches' — this is the
+-- sole inverse, consumed by schedule/reduce lookup in 'Alpha.Codegen'
+-- and 'Alpha.Polyhedral.Dependence'.
+logicalName :: String -> String
+logicalName n
+  | "__br" `isPrefixOf` suffix
+  , let digits = drop 4 suffix
+  , not (null digits)
+  , all isDigit digits
+  = prefix
+  | otherwise
+  = n
+  where
+    (prefix, suffix) = splitAtLast "__br" n
+    splitAtLast needle hay = go (length hay - length needle)
+      where
+        go i
+          | i < 0                          = (hay, "")
+          | needle `isPrefixOf` drop i hay = (take i hay, drop i hay)
+          | otherwise                      = go (i - 1)
 
 
 -- ═══════════════════════════════════════════════════════════════════════

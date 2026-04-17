@@ -523,7 +523,8 @@ when_ = SBCons
 
 -- | Build a 'Case' expression from surface branches.
 caseB :: forall {ps} {decls} {scope :: [Symbol]} {amb} {doms} {a}.
-         ( KnownDom ps (Length scope) amb
+         ( KnownNat (Length scope)
+         , KnownDom ps (Length scope) amb
          , IslPartitionsD ps (Length scope) amb
              (DomsToLitList ps scope (Length scope) doms)
          )
@@ -576,6 +577,7 @@ type family ElsewhereDom (ps :: [Symbol]) (scope :: [Symbol]) (n :: Nat)
 caseWithElsewhere
   :: forall {ps} {decls} {scope :: [Symbol]} {amb} {doms} {a} {elseCss}.
      ( elseCss ~ ElsewhereDom ps scope (Length scope) amb doms
+     , KnownNat (Length scope)
      , KnownDom ps (Length scope) amb
      , KnownDom ps (Length scope) ('LiteralU elseCss)
      , KnownDom ps (Length scope) (EffectiveDomTag ('LiteralU elseCss) amb)
@@ -603,7 +605,8 @@ caseWithElsewhere (SBE elseBody bs) =
 -- | Build a 'Case' using 'IslPartitionsU' evidence directly.
 caseWithPartitionsU
   :: forall ps n d branchDoms a decls.
-     ( KnownDom ps n d
+     ( KnownNat n
+     , KnownDom ps n d
      , IslPartitionsU ps n (DomToUnion d) (LiteralBranchesU branchDoms) )
   => Branches ps decls n d branchDoms a
   -> Expr ps decls n d a
@@ -689,6 +692,8 @@ def :: forall (name :: Symbol) (scope :: [Symbol])
        ( decl ~ Lookup name decls
        , KnownSymbol name
        , Length scope ~ DeclDims decl
+       , KnownNat (DeclDims decl)
+       , KnownDom ps (DeclDims decl) (DeclDomTag decl)
        )
     => Body ps decls scope (DeclDims decl) (DeclDomTag decl) (DeclType decl)
     -> Equation ps decls name

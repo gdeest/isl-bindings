@@ -23,7 +23,7 @@ module Alpha.Codegen
   ) where
 
 import Control.DeepSeq (NFData(..))
-import Data.List (intercalate)
+import Data.List (intercalate, nub)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (natVal, symbolVal)
@@ -38,9 +38,9 @@ import qualified Isl.Linear as Isl
 import Isl.Types (AstNode(..), Ctx)
 import Isl.AstBuild (astBuildAlloc, astBuildNodeFromScheduleMap, CNode(..), walkAstNode, astNodeFree)
 
-import Isl.TypeLevel.Reflection (reflectDomConstraints)
+import Isl.TypeLevel.Reflection (DomTag, reflectDomConstraints)
 import Alpha.Core
-import Alpha.Lower (lowerSystem)
+import Alpha.Lower (lowerSystem, logicalName)
 import Alpha.Schedule (Schedule(..), EqSchedule(..), DimAnnotation(..))
 import Alpha.Allocation (Allocation(..), EqStorage(..))
 import qualified Alpha.Polyhedral.Schedule as S
@@ -177,29 +177,34 @@ mapRenderErr (RENonStandardMapConstraint v k) = NonStandardMapConstraint v k
 
 -- | Lower schedule maps for codegen.
 --
+-- After the Case fan-out, iteration 'domains' contain one 'NamedSet'
+-- per /statement/ — possibly multiple per equation.  We look up the
+-- schedule entry by 'logicalName' and reuse the same schedule payload
+-- for every branch statement of an equation.  ISL then sees N
+-- statements at the same schedule point with disjoint domains and
+-- generates split/peeled loops naturally.
+--
 -- For reduction equations, the schedule is extended to cover the body
 -- domain (which includes reduction dims).  The user-provided schedule
 -- covers the equation's output dims; we append identity dims for the
--- reduction variables so ISL generates the reduction loop.
---
--- The body domain constraints are constructed by extending the equation
--- domain with the reduction dimensions' constraints from the lower pass.
+-- reduction variables so ISL generates the reduction loop.  Per-branch
+-- reduction shape is supported: each branch statement gets its own
+-- 'ReduceInfo' entry (or none), so branches may mix reducing /
+-- non-reducing / differently-reducing shapes.
 lowerScheduleMaps :: Schedule -> [NamedSet] -> Map.Map String ReduceInfo -> [NamedMap]
 lowerScheduleMaps (Schedule entries) domains reduceMap =
   concatMap lowerOne domains
   where
-    lowerOne dom@(NamedSet { nsName = Just name }) =
-      case Map.lookup name entries of
+    lowerOne dom@(NamedSet { nsName = Just stmtName }) =
+      case Map.lookup (logicalName stmtName) entries of
         Just eq ->
-          case Map.lookup name reduceMap of
+          case Map.lookup stmtName reduceMap of
             Just ri ->
-              -- Reduction equation: schedule the body domain with reduction dims.
+              -- Reduction statement: schedule the body domain with reduction dims.
               let nEq = nsNDims dom
                   nRedDims = riRedDims ri
-                  -- Build body domain: equation dims + reduction dims,
-                  -- with the full body domain constraints.
                   bodyDom = NamedSet
-                    { nsName   = Just name
+                    { nsName   = Just stmtName
                     , nsParams = nsParams dom
                     , nsNDims  = nEq + nRedDims
                     , nsConjs  = riBodyConjs ri
@@ -208,9 +213,9 @@ lowerScheduleMaps (Schedule entries) domains reduceMap =
                   redExprs  = [ C.Ix (C.InDim (nEq + r))
                               | r <- [0 .. nRedDims - 1] ]
                   extDef = S.ScheduleDef (origExprs ++ redExprs)
-              in [S.schedToNamedMap' name bodyDom extDef]
+              in [S.schedToNamedMap' stmtName bodyDom extDef]
             Nothing ->
-              [S.schedToNamedMap' name dom (esDef eq)]
+              [S.schedToNamedMap' stmtName dom (esDef eq)]
         Nothing -> []
     lowerOne _ = []
 
@@ -255,16 +260,85 @@ generateFromEqList
   -> Either CodegenError [String]
 generateFromEqList EqNil _ _ _ _ _ _ = Right []
 generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap params domBounds stmtArgs descs =
-  let eqName = symbolVal (Proxy @name)
+  let eqName   = symbolVal (Proxy @name)
       nOutDims = case Map.lookup eqName (schedEntries sched) of
         Just es -> esNIter es
         Nothing -> 0
-  in case Map.lookup eqName stmtArgs of
+  in do
+    macros <- renderOneEq eqName nOutDims body sched storMap params domBounds stmtArgs descs
+    (macros ++) <$> generateFromEqList rest sched storMap params domBounds stmtArgs descs
+
+-- | Render one equation to a list of @#define@ lines.  A plain RHS
+-- emits a single macro @eqName(...)@; a top-level 'Case' fans out to
+-- @eqName__br0(...), eqName__br1(...), …@, each writing to the same
+-- logical array @eqName@.
+renderOneEq
+  :: forall ps decls n (d :: DomTag ps n) a.
+     KnownSymbols ps
+  => String
+  -> Int
+  -> Alpha.Core.Expr ps decls n d a
+  -> Schedule
+  -> Map.Map String EqStorage
+  -> [String]
+  -> Map.Map String [String]
+  -> Map.Map String [String]
+  -> Map.Map String ScalarDesc
+  -> Either CodegenError [String]
+renderOneEq eqName nOutDims (Case branches) _sched storMap params domBounds stmtArgs descs =
+  renderBranchList eqName nOutDims 0 branches storMap params domBounds stmtArgs descs
+renderOneEq eqName nOutDims body _sched storMap params domBounds stmtArgs descs =
+  case renderWithStmtName eqName eqName nOutDims body storMap params domBounds stmtArgs descs of
+    Left err    -> Left err
+    Right macro -> Right [macro]
+
+-- | Walk a 'Branches' list, rendering one macro per branch.  The
+-- branch index @i@ threads the statement name @eqName__brI@; the LHS
+-- of each macro is the logical array name @eqName@ (shared), so all N
+-- branches write to the same buffer under disjoint domains.
+renderBranchList
+  :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
+     KnownSymbols ps
+  => String -> Int -> Int
+  -> Branches ps decls n amb branchDoms a
+  -> Map.Map String EqStorage
+  -> [String]
+  -> Map.Map String [String]
+  -> Map.Map String [String]
+  -> Map.Map String ScalarDesc
+  -> Either CodegenError [String]
+renderBranchList _ _ _ BNil _ _ _ _ _ = Right []
+renderBranchList eqName nOutDims i
+                 (BCons _ body rest) storMap params domBounds stmtArgs descs = do
+  let stmtName = eqName ++ "__br" ++ show i
+  macro <- renderWithStmtName stmtName eqName nOutDims body
+             storMap params domBounds stmtArgs descs
+  (macro :) <$>
+    renderBranchList eqName nOutDims (i + 1) rest
+                     storMap params domBounds stmtArgs descs
+
+-- | Shared macro-emission tail: look up stmtArgs, scalar desc, render.
+renderWithStmtName
+  :: forall ps decls n (d :: DomTag ps n) a.
+     KnownSymbols ps
+  => String  -- macro / stmt name (key into stmtArgs)
+  -> String  -- logical array name (LHS of the write)
+  -> Int     -- output dims
+  -> Alpha.Core.Expr ps decls n d a
+  -> Map.Map String EqStorage
+  -> [String]
+  -> Map.Map String [String]
+  -> Map.Map String [String]
+  -> Map.Map String ScalarDesc
+  -> Either CodegenError String
+renderWithStmtName stmtName lhsName nOutDims body
+                   storMap params domBounds stmtArgs descs =
+  case Map.lookup stmtName stmtArgs of
     Nothing -> Left (CodegenInternalError
-      ("generateFromEqList: no CUser for equation " ++ show eqName
-       ++ " — walkAstNode didn't emit a call for a defined equation"))
-    Just iterVars -> case Map.lookup eqName descs of
-      Nothing -> Left (MissingScalarDesc eqName)
+      ("generateFromEqList: no CUser for statement " ++ show stmtName
+       ++ " — walkAstNode didn't emit a call for a lowered statement"))
+    Just iterVars -> case Map.lookup lhsName descs of
+      Nothing -> Left (MissingScalarDesc lhsName)
       Just desc ->
         let ctx = RenderCtx
               { rcParams    = params
@@ -273,38 +347,74 @@ generateFromEqList (Defines (Proxy :: Proxy name) body :& rest) sched storMap pa
               , rcDomBounds = domBounds
               , rcDesc      = desc
               }
-        in case renderEquationMacro eqName nOutDims body ctx of
+        in case renderEquationMacro stmtName lhsName nOutDims body ctx of
           Left rerr -> Left (mapRenderErr rerr)
-          Right macro ->
-            (macro :) <$>
-              generateFromEqList rest sched storMap params domBounds stmtArgs descs
+          Right m   -> Right m
 
--- | Extract reduction info from an equation body: number of reduction
--- dims and the body domain constraints (for ISL loop generation).
+-- | Extract reduction info from an equation (or branch) body: number
+-- of reduction dims and the body domain constraints (for ISL loop
+-- generation).
+--
+-- 'riLogicalArray' threads the equation name (not the statement name)
+-- through to the pragma/init paths so they aggregate reductions by
+-- buffer, not by statement: two Case branches both reducing into
+-- @C_buf@ collapse to one @reduction(+:C_buf[:size])@ clause and one
+-- identity-init loop.
 data ReduceInfo = ReduceInfo
-  { riOp       :: !ReduceOp
-  , riRedDims  :: !Int
-  , riBodyConjs :: ![C.Conjunction C.SetIx]
+  { riOp           :: !ReduceOp
+  , riRedDims      :: !Int
+  , riBodyConjs    :: ![C.Conjunction C.SetIx]
+  , riLogicalArray :: !String
   }
 
-extractReduceInfo :: forall ps decls n d a. Alpha.Core.Expr ps decls n d a -> Maybe ReduceInfo
-extractReduceInfo (Reduce op _ (inner :: Alpha.Core.Expr ps decls nBody dBody a)) =
+extractReduceInfo
+  :: forall ps decls n d a.
+     String  -- logical array name (equation name)
+  -> Alpha.Core.Expr ps decls n d a
+  -> Maybe ReduceInfo
+extractReduceInfo eqName (Reduce op _ (_inner :: Alpha.Core.Expr ps decls nBody dBody a)) =
   let nRed = fromIntegral (natVal (Proxy @nBody)) - fromIntegral (natVal (Proxy @n))
       bodyCs = reflectDomConstraints @ps @nBody @dBody
-  in Just (ReduceInfo op nRed [C.Conjunction bodyCs])
-extractReduceInfo _ = Nothing
+  in Just (ReduceInfo op nRed [C.Conjunction bodyCs] eqName)
+extractReduceInfo _ _ = Nothing
 
--- | Build a map from equation name → reduction info.
+-- | Build a map from /statement/ name → reduction info.
+--
+-- A plain reducing equation keys under @eqName@; a 'Case' equation
+-- where branch @i@ reduces keys under @eqName__brI@.  Branches that
+-- do not reduce have no entry.  This per-statement shape is what
+-- lifts the v1 "uniform Reduce across branches" restriction — each
+-- fanned-out statement carries its own independent reduction metadata.
 buildReduceMap
   :: forall ps decls defined.
      EqList ps decls defined -> Map.Map String ReduceInfo
 buildReduceMap EqNil = Map.empty
 buildReduceMap (Defines (Proxy :: Proxy name) body :& rest) =
   let eqName = symbolVal (Proxy @name)
-      m = buildReduceMap rest
-  in case extractReduceInfo body of
-    Just ri -> Map.insert eqName ri m
-    Nothing -> m
+      restMap = buildReduceMap rest
+  in case body of
+    Case branches -> addBranchReduces eqName 0 branches restMap
+    _             -> case extractReduceInfo eqName body of
+      Just ri -> Map.insert eqName ri restMap
+      Nothing -> restMap
+
+-- | Walk a 'Branches' list, inserting a 'ReduceInfo' entry per
+-- branch whose body is a 'Reduce'.  Branch index @i@ parallels
+-- 'renderBranchList' / 'lowerCaseBranches' so keys align with
+-- statement names everywhere.
+addBranchReduces
+  :: forall ps decls n (amb :: DomTag ps n) branchDoms a.
+     String -> Int
+  -> Branches ps decls n amb branchDoms a
+  -> Map.Map String ReduceInfo
+  -> Map.Map String ReduceInfo
+addBranchReduces _ _ BNil acc = acc
+addBranchReduces eqName i (BCons _ body rest) acc =
+  let stmtName = eqName ++ "__br" ++ show i
+      acc'     = addBranchReduces eqName (i + 1) rest acc
+  in case extractReduceInfo eqName body of
+    Just ri -> Map.insert stmtName ri acc'
+    Nothing -> acc'
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -348,7 +458,13 @@ buildPragmaMap (Schedule entries) redMap domBounds =
     mkPragma _    Vectorize =
       Right "#pragma omp simd"
     mkPragma name ReductionParallel =
-      case Map.lookup name redMap of
+      -- After the Case fan-out, 'redMap' is keyed by /statement/ name;
+      -- a reducing equation has entries under either @name@ (non-Case)
+      -- or @name__brI@ (Case-split branches).  The pragma text depends
+      -- only on the op and logical buffer, both of which are shared
+      -- across an equation's branches by construction, so any one
+      -- entry works.
+      case lookupByLogical name redMap of
         Nothing -> Left (CodegenInternalError $
           "ReductionParallel annotation on non-reduction equation " ++ name)
         Just ri ->
@@ -357,6 +473,13 @@ buildPragmaMap (Schedule entries) redMap domBounds =
           in Right ("#pragma omp parallel for reduction("
                    ++ op ++ ":" ++ name ++ "_buf[:" ++ sz
                    ++ "]) schedule(static)")
+
+-- | Find any 'ReduceInfo' entry whose logical array matches.  Used by
+-- the pragma path where the equation name — not the statement name —
+-- is in hand.
+lookupByLogical :: String -> Map.Map String ReduceInfo -> Maybe ReduceInfo
+lookupByLogical eqName =
+  fmap snd . Map.lookupMin . Map.filter (\ri -> riLogicalArray ri == eqName)
 
 -- | OpenMP reduction-clause identifier for an Alpha 'ReduceOp'.
 reduceOpOmp :: ReduceOp -> String
@@ -422,7 +545,19 @@ assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap = d
   -- explicit init loop makes the type→identity mapping the single source
   -- of truth.  On a missing 'sdReduceIdentity' or an unsupported op,
   -- surface 'MissingReduceIdentity' instead of silently falling through.
-  reductionInits <- traverse (reduceInitLine initLoop) (Map.toAscList reduceMap)
+  --
+  -- After the Case fan-out, a single logical array may have N
+  -- per-branch 'ReduceInfo' entries; we dedup by logical array name to
+  -- emit exactly one init loop per buffer.  Case branches within an
+  -- equation share an op by construction (they write to the same
+  -- buffer with the same reduction semantics), so picking any entry's
+  -- op is well-defined.
+  let uniqueReducers =
+        [ (arr, ri)
+        | arr <- nub (map riLogicalArray (Map.elems reduceMap))
+        , Just ri <- [lookupByLogical arr reduceMap]
+        ]
+  reductionInits <- traverse (reduceInitLine initLoop) uniqueReducers
 
   pure $ unlines $
     [ "#include <stdlib.h>"

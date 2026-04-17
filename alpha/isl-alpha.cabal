@@ -37,8 +37,10 @@ library
                    , Alpha.Transform.Domain
                    , Alpha.Transform.Reindex
                    , Alpha.Transform.Introduce
+                   , Alpha.Transform.NormalizeCases
                    , Alpha.Transform.Tile
                    , Alpha.Transform.Walk
+                   , Alpha.Transform.Weaken
                    , Alpha.Polyhedral.Dependence
                    , Alpha.Polyhedral.Schedule
                    , Alpha.Polyhedral.Contraction

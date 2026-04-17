@@ -90,16 +90,28 @@ descMathSuffix (MkScalarDesc { sdCNumType = ct }) = cMathSuffix ct
 renderEquationMacro
   :: forall ps decls n (d :: DomTag ps n) a.
      KnownSymbols ps
-  => String                -- equation name
+  => String                -- statement macro name (used for #define)
+  -> String                -- logical array name (used for LHS write)
   -> Int                   -- number of output dimensions
-  -> Alpha.Core.Expr ps decls n d a  -- equation body
+  -> Alpha.Core.Expr ps decls n d a  -- equation (or branch) body
   -> RenderCtx
   -> Either RenderErr String        -- complete #define line
-renderEquationMacro eqName nOutDims body ctx = do
-  let args    = intercalate "," (rcIterVars ctx)
-      -- Write LHS uses only the output dims (first n iter vars)
+renderEquationMacro macroName lhsName nOutDims body ctx = do
+  -- Formal parameter names for the #define must be fresh C identifiers:
+  -- after Case-split fan-out, rcIterVars may contain pinned constants
+  -- (e.g. "0" for a boundary t=0 branch, "N - 1" for a face) that ISL
+  -- substitutes at call sites.  Those belong inside the body (already
+  -- handled by renderExprToC reading rcIterVars), not in the signature
+  -- — so we use "_a<i>" placeholders for the macro's formal params and
+  -- let the body pick up real loop vars from the caller's scope.
+  let nArgs   = length (rcIterVars ctx)
+      formals = ["_a" ++ show i | i <- [0 .. nArgs - 1]]
+      args    = intercalate "," formals
+      -- Write LHS uses only the output dims (first n iter vars).
+      -- @lhsName@ ≠ @macroName@ for Case-split branches: the #define
+      -- is @eqName__brI@, the array it writes is @eqName@.
       writeVars = take nOutDims (rcIterVars ctx)
-      writeLhs = renderArrayAccess eqName writeVars ctx
+      writeLhs = renderArrayAccess lhsName writeVars ctx
   (accOp, bodyExpr) <- case body of
     Reduce rop _ inner -> do
       innerStr <- renderExprToC ctx inner
@@ -107,7 +119,7 @@ renderEquationMacro eqName nOutDims body ctx = do
     _ -> do
       bodyStr <- renderExprToC ctx body
       pure (" = ", bodyStr)
-  pure $ "#define " ++ eqName ++ "(" ++ args ++ ") do { "
+  pure $ "#define " ++ macroName ++ "(" ++ args ++ ") do { "
        ++ writeLhs ++ accOp ++ bodyExpr ++ "; } while(0)"
 
 -- | Lower a 'ReduceOp' to the pair @(accOp, bodyExpr)@ used to build
@@ -381,9 +393,13 @@ linearizeWithBounds subs bounds =
   let n = length subs
       strides = [ concatMap (\j -> "(" ++ bounds !! j ++ ")" ++ " * ") [i+1..n-1]
                 | i <- [0..n-1] ]
+      -- Parenthesize every sub: after Case-split fan-out, a pinned
+      -- branch dim can surface as "N - 1" or similar, and
+      -- "(N) * (N) * N - 1" parses as "((N*N*N) - 1)", not
+      -- "(N*N)*(N-1)".  Plain loop-var subs like "c0" are unaffected.
       terms = zipWith (\sub stride ->
         if null stride then sub
-        else stride ++ sub) subs strides
+        else stride ++ "(" ++ sub ++ ")") subs strides
   in intercalate " + " terms
 
 
