@@ -25,20 +25,52 @@
 
 -- | Positional core of the Alpha DSL.
 --
--- This module is the typed-AST target of @Alpha.Surface@'s elaboration
--- and the only thing the isl-plugin sees.  Users do not write this
--- directly; they write surface syntax that compiles down to it.
+-- This module is the typed-AST target of @Alpha.Surface@'s elaboration.
+-- Users do not write it directly; they write surface syntax that
+-- compiles down to it.  The isl-plugin never looks at the AST itself
+-- — it only discharges the type-level constraint obligations
+-- ('IslImageSubsetD', 'IslPartitionsD', …) that constructors in this
+-- module attach to their indices.
 --
 -- See @doc/alpha-design.md@ §2 for the full design and the
 -- @doc/alpha-implementation.md@ tracking log for in-progress notes.
 --
--- = Layout
+-- = Layering
 --
---   * §1: 'VarDecl' kind and the @Lookup@/@Decl…@ type families.
---   * §2: 'Expr' GADT and 'Branches' GADT.
---   * §3: 'Decl', 'DeclList', 'Decls' record (declaration list).
---   * §4: 'Equation', 'EqList', 'System' (equation list and the system).
---   * §5: 'DefinesAllExactlyOnce' and supporting type families.
+-- The module is organised top-down in the semantic stack: we start at
+-- the outermost user-visible shape (a closed system) and descend to
+-- the type-level plumbing that enforces well-formedness.  Each layer
+-- is built from the layers beneath it.
+--
+--   1. __'System'__ — the top-level closed program: a 'Decls' record
+--      (inputs / outputs / locals) paired with an 'EqList' of
+--      equations.  The 'DefinesAllExactlyOnce' obligation on the
+--      constructor pins down totality: every declared output\/local
+--      is defined by exactly one equation, and no equation names an
+--      undeclared variable.
+--   2. __Equations__ — 'Equation' binds a declared variable to an
+--      'Expr' on the variable's declared domain; 'EqList' is the
+--      typed snoc-list that threads the defined-names list into the
+--      type so that 'DefinesAllExactlyOnce' can read it.
+--   3. __Surface declarations__ — 'Decl', 'DeclList', and the
+--      'Decls' record that partitions declarations into the three
+--      roles (input\/output\/local).  These are value-level mirrors
+--      of the kind-level 'VarDecl's — no runtime payload, all shape
+--      information flows through the phantom types.
+--   4. __Expressions__ — 'Expr' (the core GADT) and 'Branches' (the
+--      snoc-list used by 'Case').  Every constructor's obligations
+--      are either structural Haskell equalities or plugin-discharged
+--      classes from "Isl.TypeLevel.Reflection" — 'IslImageSubsetD'
+--      (array-access bounds), 'IslPartitionsD' ('Case' totality),
+--      and friends.
+--   5. __Variable declarations__ — 'VarDecl' is the kind-level
+--      description of a declared variable (name + dims + domain tag
+--      + base type).  The projections 'DeclName' \/ 'DeclDims' \/
+--      'DeclDomTag' \/ 'DeclType', the 'Lookup' family, and the
+--      'ReplaceDecl' family all manipulate lists of these.
+--   6. __Type-level plumbing__ — list append, 'CountName',
+--      'RemoveName', and the 'DefinesAllExactlyOnce' class that
+--      implements the totality obligation used by 'System'.
 --
 -- = Trust base
 --
@@ -48,24 +80,25 @@
 -- All other obligations are discharged by GHC or by the isl-plugin
 -- via the @Isl.TypeLevel.Reflection@ wrapper classes.
 module Alpha.Core
-  ( -- * Variable declarations
-    VarDecl(..)
-  , DeclName, DeclDims, DeclDomTag, DeclType
-  , Lookup
-  , ReplaceDecl, ReplaceDeclStep
-    -- * Expressions
-  , Expr(..)
-    -- * Case branches
-  , Branches(..)
+  ( -- * Systems
+    System(System)
+    -- * Equations
+  , Equation(..)
+  , EqList(..)
+  , eqListNames
     -- * Surface-level declarations
   , Decl(..)
   , DeclList(..)
   , Decls(..)
-    -- * Equations and systems
-  , Equation(..)
-  , EqList(..)
-  , eqListNames
-  , System(System)
+    -- * Expressions
+  , Expr(..)
+    -- * Case branches
+  , Branches(..)
+    -- * Variable declarations
+  , VarDecl(..)
+  , DeclName, DeclDims, DeclDomTag, DeclType
+  , Lookup
+  , ReplaceDecl, ReplaceDeclStep
     -- * Type-level supporting families
   , type (++)
   , DefinesAllExactlyOnce(..)
@@ -99,70 +132,132 @@ import Alpha.Scalar (AlphaScalar)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §1. Variable declarations
+-- §1. Systems
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | A single variable declaration at the kind level.  All four fields
--- live entirely at the kind level — the constructor has no value-level
--- arguments.  This is necessary because the declared domain @d :: DomTag
--- ps n@ has a kind that depends on @n@; mixing value-level and
--- type-level fields confuses GHC's kind inference.  See deviation D6
--- in @doc/alpha-implementation.md@.
+-- | A complete Alpha system.
 --
--- Inhabitants of @[VarDecl ps]@ at the kind level are written using
--- explicit type applications:
---
--- @
--- '['VarDecl' \@ps \@\"A\" \@2 \@('Literal' aCs) \@Double, ...]
--- @
-type VarDecl :: forall (ps :: [Symbol]) -> Type
-data VarDecl ps where
-  VarDecl
-    :: forall (ps :: [Symbol]) (name :: Symbol) (n :: Nat)
-              (d :: DomTag ps n) (a :: Type).
-       VarDecl ps
-
--- | Look up a variable's declaration by name.  Stuck (with a friendly
--- 'TypeError') if the name is not present.
-type family Lookup (name :: Symbol) (decls :: [VarDecl ps]) :: VarDecl ps where
-  Lookup name ('VarDecl @ps @name @n @d @a ': _) = 'VarDecl @ps @name @n @d @a
-  Lookup name (_ ': rest)                        = Lookup name rest
-  Lookup name '[] =
-    TypeError ('Text "Alpha: unknown variable " ':<>: 'ShowType name)
-
--- | Projections out of a 'VarDecl'.  These pattern-match on the
--- type-application form of the promoted constructor.
-type family DeclName (d :: VarDecl ps) :: Symbol where
-  DeclName ('VarDecl @_ @name @_ @_ @_) = name
-
-type family DeclDims (d :: VarDecl ps) :: Nat where
-  DeclDims ('VarDecl @_ @_ @n @_ @_) = n
-
-type family DeclDomTag (d :: VarDecl ps) :: DomTag ps (DeclDims d) where
-  DeclDomTag ('VarDecl @_ @_ @_ @dt @_) = dt
-
-type family DeclType (d :: VarDecl ps) :: Type where
-  DeclType ('VarDecl @_ @_ @_ @_ @a) = a
-
-
--- | Substitute the 'VarDecl' named @name@ in @xs@ with @new@.
--- Preserves order and all other entries.
-type family ReplaceDecl (name :: Symbol) (new :: VarDecl ps)
-                        (xs :: [VarDecl ps]) :: [VarDecl ps] where
-  ReplaceDecl _    _   '[]         = '[]
-  ReplaceDecl name new (x ': rest) =
-    ReplaceDeclStep (CmpSymbol name (DeclName x)) name new x rest
-
--- | Step function for 'ReplaceDecl'.
-type family ReplaceDeclStep (cmp :: Ordering) (name :: Symbol)
-                            (new :: VarDecl ps) (x :: VarDecl ps)
-                            (rest :: [VarDecl ps]) :: [VarDecl ps] where
-  ReplaceDeclStep 'EQ _    new _ rest = new ': rest
-  ReplaceDeclStep _   name new x rest = x ': ReplaceDecl name new rest
+-- The 'System' constructor combines a 'Decls' record (declarations
+-- partitioned by role) with an 'EqList' (equations).  The
+-- 'DefinesAllExactlyOnce' constraint enforces that the equation list
+-- defines exactly the union of declared outputs and locals, each one
+-- exactly once, in any order.
+type System
+  :: forall (ps :: [Symbol])
+  -> [VarDecl ps] -> [VarDecl ps] -> [VarDecl ps] -> Type
+data System ps inputs outputs locals where
+  System
+    :: forall ps inputs outputs locals defined.
+       ( KnownSymbols ps
+       , DefinesAllExactlyOnce (outputs ++ locals) defined )
+    => Decls  ps inputs outputs locals
+    -> EqList ps (inputs ++ outputs ++ locals) defined
+    -> System ps inputs outputs locals
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §2. The Expr GADT
+-- §2. Equations
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | An equation binds a declared variable to an expression on the
+-- variable's declared domain.  The equation's name is carried in the
+-- *type* (the @name@ parameter) so that the snoc-list 'EqList' can
+-- thread it into the type-level @defined@ list at construction time.
+--
+-- The 'Defines' constructor's equality constraints force the body's
+-- type parameters to match the declared variable: dimension count,
+-- domain tag, and base type all come from @Lookup name decls@.  An
+-- attempt to define a variable with a body of the wrong shape is a
+-- Haskell type error before the plugin even runs.
+type Equation
+  :: forall (ps :: [Symbol]) -> [VarDecl ps] -> Symbol -> Type
+data Equation ps decls name where
+  Defines :: forall name ps decls (decl :: VarDecl ps).
+             ( decl ~ Lookup name decls
+             , KnownSymbol name
+             , KnownNat (DeclDims decl)
+             , KnownDom ps (DeclDims decl) (DeclDomTag decl) )
+          => Proxy name
+          -> Expr ps decls (DeclDims decl) (DeclDomTag decl) (DeclType decl)
+          -> Equation ps decls name
+
+-- | A typed snoc-list of equations.  The @defined@ parameter is the
+-- type-level list of names defined by this list, in order of insertion.
+-- The ':&' constructor extends the list with the equation's name,
+-- which is carried in the equation's type so that the extension is
+-- structurally forced.
+type EqList :: forall (ps :: [Symbol]) -> [VarDecl ps] -> [Symbol] -> Type
+data EqList ps decls defined where
+  EqNil :: EqList ps decls '[]
+  (:&)
+    :: KnownSymbol name
+    => Equation ps decls name
+    -> EqList ps decls rest
+    -> EqList ps decls (name ': rest)
+infixr 5 :&
+
+-- | Extract the names of all equations in an 'EqList', in declaration
+-- order.  The names are carried structurally in each 'Defines'
+-- constructor via @Proxy name@; this helper materialises them as a
+-- plain @[String]@ for use by downstream passes (codegen, compile,
+-- interpret) that walk the equation list.
+eqListNames :: forall ps decls defined. EqList ps decls defined -> [String]
+eqListNames EqNil = []
+eqListNames (Defines (Proxy :: Proxy name) _ :& rest) =
+  symbolVal (Proxy @name) : eqListNames rest
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §3. Surface declarations
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | A system's declarations partitioned into three roles.  Each field
+-- is a typed snoc-list; the role of a declaration is determined by
+-- which field it lives in (a 'Decl' value carries no role tag itself).
+--
+-- Constructed by record syntax in surface programs:
+--
+-- @
+-- 'Decls' { 'dInputs'  = input  \@\"A\" ... :> input \@\"B\" ... :> 'Nil'
+--        , 'dOutputs' = output \@\"C\" ... :> 'Nil'
+--        , 'dLocals'  = 'Nil'
+--        }
+-- @
+--
+-- See @doc/alpha-design.md@ §2.4 / §3.5 for the full discussion.
+type Decls
+  :: forall (ps :: [Symbol])
+  -> [VarDecl ps] -> [VarDecl ps] -> [VarDecl ps] -> Type
+data Decls ps inputs outputs locals where
+  Decls
+    :: { dInputs  :: DeclList ps inputs
+       , dOutputs :: DeclList ps outputs
+       , dLocals  :: DeclList ps locals
+       } -> Decls ps inputs outputs locals
+
+-- | A typed snoc-list of declarations.  The @decls@ parameter is the
+-- list of 'VarDecl' kinds in declaration order.  Built with ':>' and
+-- 'Nil'; consumed by 'Decls' below.
+type DeclList :: forall (ps :: [Symbol]) -> [VarDecl ps] -> Type
+data DeclList ps decls where
+  Nil  :: DeclList ps '[]
+  (:>) :: Decl ps d -> DeclList ps ds -> DeclList ps (d ': ds)
+infixr 5 :>
+
+-- | A single declaration at the value level.  The 'Decl' value carries
+-- the @VarDecl@ as a phantom type; there is no runtime payload because
+-- everything the system needs is in the type.  Constructed by
+-- 'Alpha.Surface.input' / 'output' / 'local'.
+type Decl :: forall (ps :: [Symbol]) -> VarDecl ps -> Type
+data Decl ps d where
+  MkDecl :: ( KnownSymbol (DeclName d)
+            , KnownNat (DeclDims d)
+            , KnownDom ps (DeclDims d) (DeclDomTag d)
+            ) => Decl ps d
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §4. Expressions
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | An Alpha expression living in parameter space @ps@, with declaration
@@ -368,127 +463,70 @@ data Branches ps decls n amb branchDoms a where
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §3. Surface declarations
+-- §5. Variable declarations
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | A single declaration at the value level.  The 'Decl' value carries
--- the @VarDecl@ as a phantom type; there is no runtime payload because
--- everything the system needs is in the type.  Constructed by
--- 'Alpha.Surface.input' / 'output' / 'local'.
-type Decl :: forall (ps :: [Symbol]) -> VarDecl ps -> Type
-data Decl ps d where
-  MkDecl :: ( KnownSymbol (DeclName d)
-            , KnownNat (DeclDims d)
-            , KnownDom ps (DeclDims d) (DeclDomTag d)
-            ) => Decl ps d
-
--- | A typed snoc-list of declarations.  The @decls@ parameter is the
--- list of 'VarDecl' kinds in declaration order.  Built with ':>' and
--- 'Nil'; consumed by 'Decls' below.
-type DeclList :: forall (ps :: [Symbol]) -> [VarDecl ps] -> Type
-data DeclList ps decls where
-  Nil  :: DeclList ps '[]
-  (:>) :: Decl ps d -> DeclList ps ds -> DeclList ps (d ': ds)
-infixr 5 :>
-
--- | A system's declarations partitioned into three roles.  Each field
--- is a typed snoc-list; the role of a declaration is determined by
--- which field it lives in (a 'Decl' value carries no role tag itself).
+-- | A single variable declaration at the kind level.  All four fields
+-- live entirely at the kind level — the constructor has no value-level
+-- arguments.  This is necessary because the declared domain @d :: DomTag
+-- ps n@ has a kind that depends on @n@; mixing value-level and
+-- type-level fields confuses GHC's kind inference.  See deviation D6
+-- in @doc/alpha-implementation.md@.
 --
--- Constructed by record syntax in surface programs:
+-- Inhabitants of @[VarDecl ps]@ at the kind level are written using
+-- explicit type applications:
 --
 -- @
--- 'Decls' { 'dInputs'  = input  \@\"A\" ... :> input \@\"B\" ... :> 'Nil'
---        , 'dOutputs' = output \@\"C\" ... :> 'Nil'
---        , 'dLocals'  = 'Nil'
---        }
+-- '['VarDecl' \@ps \@\"A\" \@2 \@('Literal' aCs) \@Double, ...]
 -- @
---
--- See @doc/alpha-design.md@ §2.4 / §3.5 for the full discussion.
-type Decls
-  :: forall (ps :: [Symbol])
-  -> [VarDecl ps] -> [VarDecl ps] -> [VarDecl ps] -> Type
-data Decls ps inputs outputs locals where
-  Decls
-    :: { dInputs  :: DeclList ps inputs
-       , dOutputs :: DeclList ps outputs
-       , dLocals  :: DeclList ps locals
-       } -> Decls ps inputs outputs locals
+type VarDecl :: forall (ps :: [Symbol]) -> Type
+data VarDecl ps where
+  VarDecl
+    :: forall (ps :: [Symbol]) (name :: Symbol) (n :: Nat)
+              (d :: DomTag ps n) (a :: Type).
+       VarDecl ps
+
+-- | Look up a variable's declaration by name.  Stuck (with a friendly
+-- 'TypeError') if the name is not present.
+type family Lookup (name :: Symbol) (decls :: [VarDecl ps]) :: VarDecl ps where
+  Lookup name ('VarDecl @ps @name @n @d @a ': _) = 'VarDecl @ps @name @n @d @a
+  Lookup name (_ ': rest)                        = Lookup name rest
+  Lookup name '[] =
+    TypeError ('Text "Alpha: unknown variable " ':<>: 'ShowType name)
+
+-- | Projections out of a 'VarDecl'.  These pattern-match on the
+-- type-application form of the promoted constructor.
+type family DeclName (d :: VarDecl ps) :: Symbol where
+  DeclName ('VarDecl @_ @name @_ @_ @_) = name
+
+type family DeclDims (d :: VarDecl ps) :: Nat where
+  DeclDims ('VarDecl @_ @_ @n @_ @_) = n
+
+type family DeclDomTag (d :: VarDecl ps) :: DomTag ps (DeclDims d) where
+  DeclDomTag ('VarDecl @_ @_ @_ @dt @_) = dt
+
+type family DeclType (d :: VarDecl ps) :: Type where
+  DeclType ('VarDecl @_ @_ @_ @_ @a) = a
+
+
+-- | Substitute the 'VarDecl' named @name@ in @xs@ with @new@.
+-- Preserves order and all other entries.
+type family ReplaceDecl (name :: Symbol) (new :: VarDecl ps)
+                        (xs :: [VarDecl ps]) :: [VarDecl ps] where
+  ReplaceDecl _    _   '[]         = '[]
+  ReplaceDecl name new (x ': rest) =
+    ReplaceDeclStep (CmpSymbol name (DeclName x)) name new x rest
+
+-- | Step function for 'ReplaceDecl'.
+type family ReplaceDeclStep (cmp :: Ordering) (name :: Symbol)
+                            (new :: VarDecl ps) (x :: VarDecl ps)
+                            (rest :: [VarDecl ps]) :: [VarDecl ps] where
+  ReplaceDeclStep 'EQ _    new _ rest = new ': rest
+  ReplaceDeclStep _   name new x rest = x ': ReplaceDecl name new rest
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §4. Equations and systems
--- ═══════════════════════════════════════════════════════════════════════
-
--- | An equation binds a declared variable to an expression on the
--- variable's declared domain.  The equation's name is carried in the
--- *type* (the @name@ parameter) so that the snoc-list 'EqList' can
--- thread it into the type-level @defined@ list at construction time.
---
--- The 'Defines' constructor's equality constraints force the body's
--- type parameters to match the declared variable: dimension count,
--- domain tag, and base type all come from @Lookup name decls@.  An
--- attempt to define a variable with a body of the wrong shape is a
--- Haskell type error before the plugin even runs.
-type Equation
-  :: forall (ps :: [Symbol]) -> [VarDecl ps] -> Symbol -> Type
-data Equation ps decls name where
-  Defines :: forall name ps decls (decl :: VarDecl ps).
-             ( decl ~ Lookup name decls
-             , KnownSymbol name
-             , KnownNat (DeclDims decl)
-             , KnownDom ps (DeclDims decl) (DeclDomTag decl) )
-          => Proxy name
-          -> Expr ps decls (DeclDims decl) (DeclDomTag decl) (DeclType decl)
-          -> Equation ps decls name
-
--- | A typed snoc-list of equations.  The @defined@ parameter is the
--- type-level list of names defined by this list, in order of insertion.
--- The ':&' constructor extends the list with the equation's name,
--- which is carried in the equation's type so that the extension is
--- structurally forced.
-type EqList :: forall (ps :: [Symbol]) -> [VarDecl ps] -> [Symbol] -> Type
-data EqList ps decls defined where
-  EqNil :: EqList ps decls '[]
-  (:&)
-    :: KnownSymbol name
-    => Equation ps decls name
-    -> EqList ps decls rest
-    -> EqList ps decls (name ': rest)
-infixr 5 :&
-
--- | Extract the names of all equations in an 'EqList', in declaration
--- order.  The names are carried structurally in each 'Defines'
--- constructor via @Proxy name@; this helper materialises them as a
--- plain @[String]@ for use by downstream passes (codegen, compile,
--- interpret) that walk the equation list.
-eqListNames :: forall ps decls defined. EqList ps decls defined -> [String]
-eqListNames EqNil = []
-eqListNames (Defines (Proxy :: Proxy name) _ :& rest) =
-  symbolVal (Proxy @name) : eqListNames rest
-
--- | A complete Alpha system.
---
--- The 'System' constructor combines a 'Decls' record (declarations
--- partitioned by role) with an 'EqList' (equations).  The
--- 'DefinesAllExactlyOnce' constraint enforces that the equation list
--- defines exactly the union of declared outputs and locals, each one
--- exactly once, in any order.
-type System
-  :: forall (ps :: [Symbol])
-  -> [VarDecl ps] -> [VarDecl ps] -> [VarDecl ps] -> Type
-data System ps inputs outputs locals where
-  System
-    :: forall ps inputs outputs locals defined.
-       ( KnownSymbols ps
-       , DefinesAllExactlyOnce (outputs ++ locals) defined )
-    => Decls  ps inputs outputs locals
-    -> EqList ps (inputs ++ outputs ++ locals) defined
-    -> System ps inputs outputs locals
-
-
--- ═══════════════════════════════════════════════════════════════════════
--- §5. Type-level supporting families
+-- §6. Type-level supporting families
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | Type-level list append.
