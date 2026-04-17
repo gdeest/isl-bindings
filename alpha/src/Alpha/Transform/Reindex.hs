@@ -26,30 +26,27 @@ module Alpha.Transform.Reindex
 
 import Data.Kind (Type)
 import Data.Proxy (Proxy(..))
-import Data.Type.Equality ((:~:)(Refl))
 import GHC.TypeLits
   ( KnownNat, KnownSymbol, Nat, Symbol, natVal, symbolVal, type (+) )
-import System.IO.Unsafe (unsafePerformIO)
 
 import Alpha.Core
 import Alpha.Core.Lemmas
-  (lookupReplaceDecl, replaceDeclList, definesAllReplace, replaceDeclConcat)
-import Alpha.Transform.Types (TransformError(..))
+  (withReplaceDecl, replaceDeclList, withDefinesAllReplace, withReplaceDeclConcat)
+import Alpha.Transform.Types
+  (TransformError(..), Proof, requireJust, requireC, internalError)
 import Alpha.Transform.Walk (composeAccess)
-import Isl.Typed.Constraints (MapIx, Constraint)
 import Isl.Typed.Params (KnownSymbols(..), Length)
 import Isl.TypeLevel.Constraint
   ( IslPreimageMultiAff, TConstraint )
 import Isl.TypeLevel.Expr (TExpr)
 import Isl.TypeLevel.Reflection
-  ( Dict(..)
-  , DomTag(..)
+  ( DomTag(..)
   , KnownDom
-  , reflectDomString
+  , domToString
   , islImageSubsetCheckS
   )
 import Isl.TypeLevel.Sing
-  ( KnownConstraints(..), KnownExprs(..)
+  ( KnownExprs(..)
   , liftConstraintsMap, withKnownConstraints
   )
 
@@ -84,27 +81,27 @@ walkExprNonTarget
      , KnownSymbols ps, KnownNat (Length ps)
      )
   => Expr ps decls n d a
-  -> Either TransformError (Expr ps (ReplaceDecl target nv decls) n d a)
+  -> Proof (Expr ps (ReplaceDecl target nv decls) n d a)
 walkExprNonTarget = go
   where
     targetName = symbolVal (Proxy @target)
 
     go :: forall n' (d' :: DomTag ps n') a'.
           Expr ps decls n' d' a'
-       -> Either TransformError (Expr ps (ReplaceDecl target nv decls) n' d' a')
+       -> Proof (Expr ps (ReplaceDecl target nv decls) n' d' a')
 
     go (Const k)   = Right (Const k)
     go (Pw op a b) = Pw op <$> go a <*> go b
     go (PMap op a) = PMap op <$> go a
 
     go (Var @name pn) =
-      case lookupReplaceDecl @ps @target @name @nv @decls
-             (Proxy @target) pn of
-        Right Dict -> Right (Var pn)
-        Left _     -> Left (ImageOutOfBounds
+      withReplaceDecl @ps @target @name @nv @decls
+        (Proxy @target) pn
+        (Right (Var pn))                 -- name ≠ target: lookup unchanged
+        (Left (ImageOutOfBounds
           ("naked Var reference to reindexed variable " ++ targetName
            ++ " (must be wrapped in Dep)")
-          (symbolVal pn) targetName)
+          (symbolVal pn) targetName))    -- name ~ target: reject naked Var
 
     -- Dep targeting the reindexed variable: compose map + verify at runtime.
     -- Constructive: builds a fresh Dep(Var) with the composed map's
@@ -112,37 +109,36 @@ walkExprNonTarget = go
     -- all trust lives in Sing.hs (withKnownConstraints) and Reflection.hs
     -- (islImageSubsetCheckS).
     go (Dep @_ @_ @ni @no @mapCs @dOuter @_dInner @_ _mapP (Var @name @_ @_ @_ pn))
-      | symbolVal pn == targetName =
-          let srcStr = reflectDomString @ps @ni @dOuter
-              dstStr = reflectDomString @ps @(DeclDims nv) @(DeclDomTag nv)
-              ni_val = fromIntegral (natVal (Proxy @ni))
-          in case composeAccess @ps @ni @no @(DeclDims nv)
-                    @mapCs @mapExprs srcStr dstStr of
-               Nothing -> Left (ImageOutOfBounds
+      | symbolVal pn == targetName = do
+          let ni_val = fromIntegral (natVal (Proxy @ni))
+              srcStr = domToString @ps @ni @dOuter
+              dstStr = domToString @ps @(DeclDims nv) @(DeclDomTag nv)
+          -- 1. Compose old dep map with reverse of reindex map.
+          (mapStr, mapConstrs) <-
+            requireJust
+              (ImageOutOfBounds
                  "reindex: dep access out of bounds after map composition"
                  srcStr dstStr)
-               Just (mapStr, mapConstrs) ->
-                 -- 1. Fabricate KnownConstraints for the composed map (CPS)
-                 let someCs = liftConstraintsMap @ps @(ni + DeclDims nv)
-                                ni_val mapConstrs
-                 in withKnownConstraints someCs $ \(composedProxy :: Proxy composedCs) ->
-                   -- 2. Fabricate IslImageSubsetD evidence via runtime ISL check
-                   case islImageSubsetCheckS @ps @ni @(DeclDims nv) @composedCs
-                          mapStr (Proxy @dOuter) (Proxy @(DeclDomTag nv)) of
-                     Nothing -> Left (ImageOutOfBounds
-                       "reindex: image-subset re-check failed (internal)"
-                       srcStr dstStr)
-                     Just Dict ->
-                       -- 3. Get Lookup evidence for Var in the new decl list
-                       case lookupReplaceDecl @ps @target @name @nv @decls
-                              (Proxy @target) pn of
-                         Left (Refl, Dict) ->
-                           -- name ~ target: build Dep with composed map + new Var
-                           Right (Dep composedProxy (Var pn))
-                         Right _ ->
-                           -- Impossible: symbolVal matched but sameSymbol didn't.
-                           -- (sameSymbol is consistent with symbolVal.)
-                           error "reindex: impossible — symbolVal/sameSymbol mismatch"
+              (composeAccess @ps @ni @no @(DeclDims nv)
+                 @mapCs @mapExprs @dOuter @(DeclDomTag nv)
+                 (Proxy @dOuter) (Proxy @(DeclDomTag nv)))
+          -- 2. Fabricate KnownConstraints for the composed map (CPS).
+          let someCs = liftConstraintsMap @ps @(ni + DeclDims nv)
+                         ni_val mapConstrs
+          withKnownConstraints someCs $ \(composedProxy :: Proxy composedCs) ->
+            -- 3. Fabricate IslImageSubsetD evidence via runtime ISL check.
+            requireC
+              (ImageOutOfBounds
+                 "reindex: image-subset re-check failed (internal)"
+                 srcStr dstStr)
+              (islImageSubsetCheckS @ps @ni @(DeclDims nv) @composedCs
+                 mapStr (Proxy @dOuter) (Proxy @(DeclDomTag nv)))
+              $
+              -- 4. Get Lookup evidence for Var in the new decl list.
+              withReplaceDecl @ps @target @name @nv @decls
+                (Proxy @target) pn
+                (internalError "reindex: symbolVal/sameSymbol mismatch")
+                (Right (Dep composedProxy (Var pn)))
     go (Dep mapP inner) = Dep mapP <$> go inner
 
     go (Reduce rop projP body) = Reduce rop projP <$> go body
@@ -150,7 +146,7 @@ walkExprNonTarget = go
 
     goBranches :: forall n' (amb :: DomTag ps n') (bdoms :: [DomTag ps n']) a'.
                   Branches ps decls n' amb bdoms a'
-               -> Either TransformError (Branches ps (ReplaceDecl target nv decls) n' amb bdoms a')
+               -> Proof (Branches ps (ReplaceDecl target nv decls) n' amb bdoms a')
     goBranches BNil = Right BNil
     goBranches (BCons pd body rest) =
       BCons pd <$> go body <*> goBranches rest
@@ -226,16 +222,13 @@ walkEq
   => Equation ps decls name
   -> Either TransformError (Equation ps (ReplaceDecl target nv decls) name)
 walkEq (Defines pn body) =
-  case lookupReplaceDecl @ps @target @name @nv @decls
-         (Proxy @target) pn of
-    Left (Refl, Dict) ->
-      Defines pn <$>
-        (walkExprTarget @target @ps @decls @nv body
-          :: Either TransformError
-               (Expr ps (ReplaceDecl target nv decls)
-                    (DeclDims nv) (DeclDomTag nv) (DeclType nv)))
-    Right Dict ->
-      Defines pn <$> walkExprNonTarget @target @ps @decls @nv @mapExprs body
+  withReplaceDecl @ps @target @name @nv @decls
+    (Proxy @target) pn
+    (Defines pn <$> walkExprNonTarget @target @ps @decls @nv @mapExprs body)
+    (Defines pn <$>
+       (walkExprTarget @target @ps @decls @nv body
+         :: Proof (Expr ps (ReplaceDecl target nv decls)
+                       (DeclDims nv) (DeclDomTag nv) (DeclType nv))))
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -302,24 +295,21 @@ reindexImpl
                (ReplaceDecl target (ReindexedVarDecl ps target newN newDomCs a) outputs)
                (ReplaceDecl target (ReindexedVarDecl ps target newN newDomCs a) locals))
 reindexImpl decls eqs =
-  case definesAllReplace @target @ps
-         @(ReindexedVarDecl ps target newN newDomCs a)
-         @outputs @locals @defined of
-    Dict ->
-      case replaceDeclConcat @target @ps
+  withDefinesAllReplace @target @ps
+    @(ReindexedVarDecl ps target newN newDomCs a)
+    @outputs @locals @defined $
+  withReplaceDeclConcat @target @ps
+    @(ReindexedVarDecl ps target newN newDomCs a)
+    @inputs @outputs @locals $
+  let newOutputs = replaceDeclList @target @ps
+                     @(ReindexedVarDecl ps target newN newDomCs a)
+                     @outputs (dOutputs decls)
+      newLocals  = replaceDeclList @target @ps
+                     @(ReindexedVarDecl ps target newN newDomCs a)
+                     @locals (dLocals decls)
+      newDecls   = Decls (dInputs decls) newOutputs newLocals
+  in System newDecls
+       <$> walkEqList @target @ps
+             @(inputs ++ (outputs ++ locals))
              @(ReindexedVarDecl ps target newN newDomCs a)
-             @inputs @outputs @locals of
-        Refl ->
-          let newOutputs = replaceDeclList @target @ps
-                             @(ReindexedVarDecl ps target newN newDomCs a)
-                             @outputs (dOutputs decls)
-              newLocals  = replaceDeclList @target @ps
-                             @(ReindexedVarDecl ps target newN newDomCs a)
-                             @locals (dLocals decls)
-              newDecls   = Decls (dInputs decls) newOutputs newLocals
-          in case walkEqList @target @ps
-                    @(inputs ++ (outputs ++ locals))
-                    @(ReindexedVarDecl ps target newN newDomCs a)
-                    @mapExprs eqs of
-               Left err -> Left err
-               Right newEqs -> Right (System newDecls newEqs)
+             @mapExprs eqs

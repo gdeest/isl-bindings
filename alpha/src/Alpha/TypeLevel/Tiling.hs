@@ -10,12 +10,12 @@
 --     tiling (new coords → old coords), consumed by 'reindex'
 --   * 'Length', 'CountJust' — list helpers for computing the new rank
 --   * Re-exports of 'ReplaceDecl' from "Alpha.Core" and
---     'lookupReplaceDecl' from "Alpha.Core.Lemmas"
+--     'withReplaceDecl' from "Alpha.Core.Lemmas"
 module Alpha.TypeLevel.Tiling
   ( -- * Decls list substitution (re-exported)
     ReplaceDecl
   , ReplaceDeclStep
-  , lookupReplaceDecl
+  , withReplaceDecl
     -- * List helpers
   , Length
   , CountJust
@@ -27,7 +27,7 @@ module Alpha.TypeLevel.Tiling
 import GHC.TypeLits ( Nat, type (+) )
 
 import Alpha.Core (ReplaceDecl, ReplaceDeclStep)
-import Alpha.Core.Lemmas (lookupReplaceDecl)
+import Alpha.Core.Lemmas (withReplaceDecl)
 import Isl.TypeLevel.Expr (Idx(..), TExpr(..), Z(..))
 
 

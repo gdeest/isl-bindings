@@ -29,9 +29,19 @@
 -- source → smaller image), and under the identity map reduces to
 -- @dOuter ⊆ dInner@, which holds trivially for any narrowing.  See
 -- 'Alpha.Transform.Weaken.weakenExpr'.
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE RankNTypes #-}
 module Alpha.Transform.Types
   ( TransformError(..)
+    -- * Proof monad
+  , Proof
+  , requireJust
+  , requireC
+  , internalError
   ) where
+
+import Isl.TypeLevel.Reflection (Dict(..))
 
 -- | Structured error reported by Alpha transforms when a runtime
 -- obligation check fails.
@@ -64,3 +74,37 @@ data TransformError
     -- Shipped in v6 by @tile2D@.
     ImageOutOfBounds !String !String !String
   deriving (Show, Eq)
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Proof monad — Either TransformError with Maybe-bridge combinators
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | Walker result type: either a 'TransformError' or the rewritten value.
+-- Transform walkers chain ISL obligations via @do@-notation over 'Proof'.
+type Proof = Either TransformError
+
+-- | Promote a 'Maybe' into 'Proof', tagging 'Nothing' with a 'TransformError'.
+requireJust :: TransformError -> Maybe a -> Proof a
+requireJust err = maybe (Left err) Right
+
+-- | CPS-style: turn a @Maybe (Dict c)@ obligation into an implicit
+-- constraint scope.  On 'Just Dict', the continuation runs with @c@
+-- in scope; on 'Nothing', the walker short-circuits with the given
+-- 'TransformError'.
+--
+-- Prefer 'requireC' over @Dict <- ...@ in do-notation: the continuation
+-- is plainly @(c => Proof r)@, which makes the constraint-introduction
+-- intent visible without a stray 'Dict' binding in the walker body.
+requireC
+  :: TransformError
+  -> Maybe (Dict c)
+  -> (c => Proof r)
+  -> Proof r
+requireC _   (Just Dict) k = k
+requireC err Nothing     _ = Left err
+
+-- | A branch the type system cannot rule out but the walker invariant does.
+-- Reserved for impossibilities like symbolVal/sameSymbol disagreement.
+internalError :: String -> a
+internalError msg = error ("internal invariant: " ++ msg)

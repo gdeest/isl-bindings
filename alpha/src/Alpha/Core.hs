@@ -43,8 +43,8 @@
 -- = Trust base
 --
 -- Zero unsafe coercions in this module.  The replace\/lookup axioms
--- ('lookupReplaceDecl', 'replaceDeclList', 'definesAllReplace',
--- 'replaceDeclConcat') are isolated in "Alpha.Core.Lemmas".
+-- ('withReplaceDecl', 'replaceDeclList', 'withDefinesAllReplace',
+-- 'withReplaceDeclConcat') are isolated in "Alpha.Core.Lemmas".
 -- All other obligations are discharged by GHC or by the isl-plugin
 -- via the @Isl.TypeLevel.Reflection@ wrapper classes.
 module Alpha.Core

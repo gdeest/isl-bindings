@@ -26,24 +26,23 @@ import GHC.TypeLits
 
 import Alpha.Core
 import Alpha.Core.Lemmas
-  ( definesAllIntroduce, introduceDecls, introduceEqList
-  , lookupIntroduce, lookupIntroduceDecl )
-import Alpha.Transform.Types (TransformError(..))
+  ( withDefinesAllIntroduce, introduceDecls, introduceEqList
+  , withIntroduce, withIntroduceDecl )
+import Alpha.Transform.Types
+  (TransformError(..), requireJust, requireC, internalError)
 import Alpha.Transform.Walk (composeAccess)
-import Isl.Typed.Constraints (MapIx, Constraint)
 import Isl.Typed.Params (KnownSymbols, Length)
 import Isl.TypeLevel.Constraint (TConstraint, IslMultiAffToMap, IslPreimageMultiAff)
 import Isl.TypeLevel.Expr (TExpr)
 import Isl.TypeLevel.Reflection
-  ( Dict(..)
-  , DomTag(..)
+  ( DomTag(..)
   , IslImageSubsetD
   , KnownDom
-  , reflectDomString
+  , domToString
   , islImageSubsetCheckS
   )
 import Isl.TypeLevel.Sing
-  ( KnownConstraints(..), KnownExprs(..)
+  ( KnownExprs(..)
   , liftConstraintsMap, withKnownConstraints
   )
 
@@ -134,54 +133,48 @@ introduceImpl decls eqs
          ++ " collides with existing declaration")
         proxyName proxyName)
   | otherwise =
-  case definesAllIntroduce @ps
-         @(IntroducedVarDecl ps proxy newN newDomCs a)
-         @proxy @outputs @locals @defined of
-    Dict ->
-      case lookupIntroduceDecl @ps @proxy @source
-             @(IntroducedVarDecl ps proxy newN newDomCs a)
-             @(OldDecls ps inputs outputs locals)
-             @(NewDecls ps inputs outputs locals proxy newN newDomCs a)
-             (Proxy @proxy) (Proxy @source) of
-        Right Dict ->
-          case lookupIntroduce @ps @proxy
-                 @(IntroducedVarDecl ps proxy newN newDomCs a)
-                 @inputs @outputs @locals of
-            Dict ->
-              let proxyDecl = MkDecl
-                    :: Decl ps (IntroducedVarDecl ps proxy newN newDomCs a)
-                  newDecls = introduceDecls proxyDecl decls
+      withDefinesAllIntroduce @ps
+        @(IntroducedVarDecl ps proxy newN newDomCs a)
+        @proxy @outputs @locals @defined $
+      withIntroduceDecl @ps @proxy @source
+        @(IntroducedVarDecl ps proxy newN newDomCs a)
+        @(OldDecls ps inputs outputs locals)
+        @(NewDecls ps inputs outputs locals proxy newN newDomCs a)
+        (Proxy @proxy) (Proxy @source)
+        (withIntroduce @ps @proxy
+           @(IntroducedVarDecl ps proxy newN newDomCs a)
+           @inputs @outputs @locals
+           (let proxyDecl = MkDecl
+                  :: Decl ps (IntroducedVarDecl ps proxy newN newDomCs a)
+                newDecls = introduceDecls proxyDecl decls
 
-                  sourceVar :: Expr ps (NewDecls ps inputs outputs locals proxy newN newDomCs a)
-                                   sourceN ('Literal sourceDomCs) a
-                  sourceVar = Var (Proxy @source)
+                sourceVar :: Expr ps (NewDecls ps inputs outputs locals proxy newN newDomCs a)
+                                 sourceN ('Literal sourceDomCs) a
+                sourceVar = Var (Proxy @source)
 
-                  copyBody :: Expr ps (NewDecls ps inputs outputs locals proxy newN newDomCs a)
-                                  newN ('Literal newDomCs) a
-                  copyBody = Dep (Proxy @(IslMultiAffToMap ps newN sourceN mapExprs))
-                                 sourceVar
+                copyBody :: Expr ps (NewDecls ps inputs outputs locals proxy newN newDomCs a)
+                                newN ('Literal newDomCs) a
+                copyBody = Dep (Proxy @(IslMultiAffToMap ps newN sourceN mapExprs))
+                               sourceVar
 
-                  copyEq :: Equation ps (NewDecls ps inputs outputs locals proxy newN newDomCs a) proxy
-                  copyEq = Defines (Proxy @proxy) copyBody
+                copyEq :: Equation ps (NewDecls ps inputs outputs locals proxy newN newDomCs a) proxy
+                copyEq = Defines (Proxy @proxy) copyBody
 
-                  transportedEqs = introduceEqList @ps
-                    @(IntroducedVarDecl ps proxy newN newDomCs a)
-                    @inputs @outputs @locals eqs
+                transportedEqs = introduceEqList @ps
+                  @(IntroducedVarDecl ps proxy newN newDomCs a)
+                  @inputs @outputs @locals eqs
 
-              in case walkEqListIntroduce
-                       @source @proxy @ps
-                       @(OldDecls ps inputs outputs locals)
-                       @(NewDecls ps inputs outputs locals proxy newN newDomCs a)
-                       @(IntroducedVarDecl ps proxy newN newDomCs a)
-                       @newN @newDomCs @mapExprs
-                       transportedEqs of
-                   Left err -> Left err
-                   Right rewrittenEqs ->
-                     Right (System newDecls (copyEq :& rewrittenEqs))
-
-        Left _ -> Left (ImageOutOfBounds
+            in (\rewrittenEqs -> System newDecls (copyEq :& rewrittenEqs))
+               <$> walkEqListIntroduce
+                     @source @proxy @ps
+                     @(OldDecls ps inputs outputs locals)
+                     @(NewDecls ps inputs outputs locals proxy newN newDomCs a)
+                     @(IntroducedVarDecl ps proxy newN newDomCs a)
+                     @newN @newDomCs @mapExprs
+                     transportedEqs))
+        (Left (ImageOutOfBounds
           "introduce: source == proxy (names must differ)"
-          proxyName proxyName)
+          proxyName proxyName))
   where
     proxyName = symbolVal (Proxy @proxy)
     allNames = declListNames (dInputs decls)
@@ -218,7 +211,6 @@ walkExprIntroduce
 walkExprIntroduce = go
   where
     sourceName = symbolVal (Proxy @source)
-    dstStr = reflectDomString @ps @newNo @('Literal newDomCs)
 
     go :: forall n' (d' :: DomTag ps n') a'.
           Expr ps newDecls n' d' a'
@@ -241,41 +233,43 @@ walkExprIntroduce = go
            (Var @name @_ @_ @_ pn))
       | symbolVal pn == sourceName =
           case sameSymbol (Proxy @name) (Proxy @source) of
-            Nothing -> error "introduce: symbolVal/sameSymbol mismatch"
+            Nothing -> internalError "introduce: symbolVal/sameSymbol mismatch"
             Just Refl ->
-              -- (1) name ~ source
-              case lookupIntroduceDecl @ps @proxy @source
-                     @newVD @oldDecls @newDecls
-                     (Proxy @proxy) (Proxy @source) of
-                Left _ -> error "introduce: source == proxy (names must differ)"
-                Right Dict ->
-                  -- (2) Lookup source newDecls ~ Lookup source oldDecls
-                  let srcStr = reflectDomString @ps @ni @dOuter
-                      ni_val = fromIntegral (natVal (Proxy @ni))
-                  in case composeAccess @ps @ni @no @newNo @mapCs @mapExprs
-                            srcStr dstStr of
-                       Nothing -> Left (ImageOutOfBounds
-                         "introduce: dep access out of bounds after map composition"
-                         srcStr dstStr)
-                       Just (mapStr, mapConstrs) ->
-                         let someCs = liftConstraintsMap @ps @(ni + newNo)
-                                        ni_val mapConstrs
-                         in withKnownConstraints someCs $
-                              \(composedProxy :: Proxy composedCs) ->
-                           case islImageSubsetCheckS @ps @ni @newNo @composedCs
-                                  mapStr (Proxy @dOuter) (Proxy @('Literal newDomCs)) of
-                             Nothing -> Left (ImageOutOfBounds
-                               "introduce: image-subset re-check failed"
-                               srcStr dstStr)
-                             Just Dict ->
-                               -- (3) Lookup proxy newDecls ~ newVD
-                               case lookupIntroduceDecl @ps @proxy @proxy
-                                      @newVD @oldDecls @newDecls
-                                      (Proxy @proxy) (Proxy @proxy) of
-                                 Left (Refl, Dict) ->
-                                   Right (Dep composedProxy (Var (Proxy @proxy)))
-                                 Right _ ->
-                                   error "introduce: impossible — sameSymbol reflexivity"
+              -- (1) name ~ source (from the Refl above)
+              -- (2) Lookup source newDecls ~ Lookup source oldDecls
+              withIntroduceDecl @ps @proxy @source
+                @newVD @oldDecls @newDecls
+                (Proxy @proxy) (Proxy @source)
+                (do
+                   let ni_val = fromIntegral (natVal (Proxy @ni)) :: Int
+                       srcStr = domToString @ps @ni @dOuter
+                       dstStr = domToString @ps @newNo @('Literal newDomCs)
+                   (mapStr, mapConstrs) <-
+                     requireJust
+                       (ImageOutOfBounds
+                          "introduce: dep access out of bounds after map composition"
+                          srcStr dstStr)
+                       (composeAccess @ps @ni @no @newNo @mapCs @mapExprs
+                          @dOuter @('Literal newDomCs)
+                          (Proxy @dOuter) (Proxy @('Literal newDomCs)))
+                   let someCs = liftConstraintsMap @ps @(ni + newNo)
+                                  ni_val mapConstrs
+                   withKnownConstraints someCs $
+                     \(composedProxy :: Proxy composedCs) ->
+                       requireC
+                         (ImageOutOfBounds
+                            "introduce: image-subset re-check failed"
+                            srcStr dstStr)
+                         (islImageSubsetCheckS @ps @ni @newNo @composedCs
+                            mapStr (Proxy @dOuter) (Proxy @('Literal newDomCs)))
+                         $
+                         -- (3) Lookup proxy newDecls ~ newVD
+                         withIntroduceDecl @ps @proxy @proxy
+                           @newVD @oldDecls @newDecls
+                           (Proxy @proxy) (Proxy @proxy)
+                           (internalError "introduce: impossible — sameSymbol reflexivity")
+                           (Right (Dep composedProxy (Var (Proxy @proxy)))))
+                (internalError "introduce: source == proxy (names must differ)")
 
     go (Dep mapP inner) = Dep mapP <$> go inner
     go (Reduce rop projP body) = Reduce rop projP <$> go body
