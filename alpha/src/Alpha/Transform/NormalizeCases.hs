@@ -58,9 +58,9 @@ normalizeCases
      (KnownSymbols ps, KnownNat (Length ps))
   => System ps inputs outputs locals
   -> Either TransformError (System ps inputs outputs locals)
-normalizeCases (MkSystem _ decls eqs) = do
+normalizeCases (System decls eqs) = do
   eqs' <- walkEqList eqs
-  pure (MkSystem () decls eqs')
+  pure (System decls eqs')
 
 
 -- ═══════════════════════════════════════════════════════════════════════

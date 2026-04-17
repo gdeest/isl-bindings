@@ -52,12 +52,14 @@ import Alpha.Core
   ( Decl(..)
   , DeclList(..)
   , Decls(..)
+  , DefinesAllExactlyOnce(..)
   , Equation(..)
   , EqList(..)
   , Expr(..)
   , System
   , pattern System
   , VarDecl(..)
+  , type (++)
   )
 import Examples.Matmul
   ( CubeN
@@ -217,15 +219,9 @@ forceBadUndeclaredVar () =
 
 forceBadMissingDef :: () -> IO ()
 forceBadMissingDef () =
-  let !badSys = System
-                  (Decls
-                     { dInputs  = MkDecl :> MkDecl :> Nil
-                     , dOutputs = MkDecl :> Nil
-                     , dLocals  = Nil
-                     })
-                  EqNil
-                :: System '["N"] MatmulInputs MatmulOutputs MatmulLocals
-   in badSys `seq` return ()
+  let !_ = definesAllExactlyOnceEv
+             @'["N"] @(MatmulOutputs ++ MatmulLocals) @'[]
+   in return ()
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -234,17 +230,9 @@ forceBadMissingDef () =
 
 forceBadDoubleDef :: () -> IO ()
 forceBadDoubleDef () =
-  let !badSys = System
-                  (Decls
-                     { dInputs  = MkDecl :> MkDecl :> Nil
-                     , dOutputs = MkDecl :> Nil
-                     , dLocals  = Nil
-                     })
-                  ( Defines (Proxy @"C") trivialBody
-                 :& Defines (Proxy @"C") trivialBody
-                 :& EqNil )
-                :: System '["N"] MatmulInputs MatmulOutputs MatmulLocals
-   in badSys `seq` return ()
+  let !_ = definesAllExactlyOnceEv
+             @'["N"] @(MatmulOutputs ++ MatmulLocals) @'["C", "C"]
+   in return ()
 
 trivialBody :: Expr '["N"] MatmulDecls 2 ('Literal SquareN) Double
 trivialBody = Const 0

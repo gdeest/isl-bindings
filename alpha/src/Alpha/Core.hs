@@ -65,8 +65,7 @@ module Alpha.Core
   , Equation(..)
   , EqList(..)
   , eqListNames
-  , System(MkSystem)
-  , pattern System
+  , System(System)
     -- * Type-level supporting families
   , type (++)
   , DefinesAllExactlyOnce(..)
@@ -479,39 +478,13 @@ type System
   :: forall (ps :: [Symbol])
   -> [VarDecl ps] -> [VarDecl ps] -> [VarDecl ps] -> Type
 data System ps inputs outputs locals where
-  MkSystem
+  System
     :: forall ps inputs outputs locals defined.
        ( KnownSymbols ps
        , DefinesAllExactlyOnce (outputs ++ locals) defined )
-    => !()  -- D15: strict witness field.  The 'System' pattern synonym
-             -- constructs it from 'definesAllExactlyOnceEv', ensuring the
-             -- class dictionary is demanded at construction time.  When the
-             -- dictionary is a deferred-type-error trap, forcing the System
-             -- to WHNF (via bang patterns or @seq@) therefore fires it.
-    -> Decls  ps inputs outputs locals
+    => Decls  ps inputs outputs locals
     -> EqList ps (inputs ++ outputs ++ locals) defined
     -> System ps inputs outputs locals
-
--- | Pattern synonym exposing the 'System' GADT with the strict witness
--- field hidden.  Users write @System decls eqs@; the synonym fills in
--- the D15 witness from 'definesAllExactlyOnceEv'.  Pattern-matching
--- with @System decls eqs@ ignores the witness field.
-pattern System
-  :: forall ps inputs outputs locals. ()
-  => forall defined.
-     ( KnownSymbols ps
-     , DefinesAllExactlyOnce (outputs ++ locals) defined
-     )
-  => Decls  ps inputs outputs locals
-  -> EqList ps (inputs ++ outputs ++ locals) defined
-  -> System ps inputs outputs locals
-pattern System decls eqs <-
-    MkSystem _ decls eqs
-  where
-    System (decls :: Decls ps inputs outputs locals)
-           (eqs  :: EqList ps (inputs ++ outputs ++ locals) defined) =
-      MkSystem (definesAllExactlyOnceEv @ps @(outputs ++ locals) @defined) decls eqs
-{-# COMPLETE System #-}
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -567,9 +540,10 @@ type family RemoveNameStep
 -- at runtime.  Rewriting it as a class with a nullary method
 -- 'definesAllExactlyOnceEv' and pushing the 'TypeError' into *instance
 -- contexts* makes the runtime trap a proper dictionary field that
--- GHC's @addTcEvBind@ replaces with a 'typeError' binding — one that
--- the 'System' pattern synonym forces at construction via the strict
--- witness field.
+-- GHC's @addTcEvBind@ replaces with a 'typeError' binding.  Negative
+-- tests invoke 'definesAllExactlyOnceEv' directly to demand the
+-- dictionary — the same pattern @proofBadCholeskyCoverage@ uses for
+-- 'islCoversEv'.
 class DefinesAllExactlyOnce
         (needed :: [VarDecl ps]) (defined :: [Symbol]) where
   definesAllExactlyOnceEv :: ()
@@ -582,8 +556,8 @@ instance DefinesAllExactlyOnce ('[] :: [VarDecl ps]) ('[] :: [Symbol]) where
 -- variables are missing equations.  The instance context carries a
 -- custom 'TypeError' message (fires at compile time — same message
 -- as before); the method body calls 'error' so that when the module
--- is built with @-fdefer-type-errors@ and the 'System' pattern
--- synonym forces the witness, the runtime trap actually fires.
+-- is built with @-fdefer-type-errors@, the runtime trap fires when
+-- 'definesAllExactlyOnceEv' is demanded.
 instance {-# OVERLAPPING #-}
   ( TypeError ('Text "Alpha: missing equation definitions for: "
                ':<>: 'ShowType (NamesOf (n ': ns)))
@@ -607,7 +581,8 @@ class DefinesAllExactlyOnceStep
 
 -- Count 0: equation defines a variable not in the declaration list.
 -- TypeError in context for the compile-time message; 'error' in the
--- body so defer-type-errors + forced witness fires at runtime.
+-- body so defer-type-errors fires at runtime when
+-- 'definesAllExactlyOnceEv' is demanded.
 instance {-# OVERLAPPING #-}
   ( TypeError ('Text "Alpha: equation defines variable "
                ':<>: 'ShowType name
@@ -626,7 +601,8 @@ instance {-# OVERLAPPING #-}
 
 -- Count > 1: variable is defined by more than one equation.
 -- TypeError in context for the compile-time message; 'error' in the
--- body so defer-type-errors + forced witness fires at runtime.
+-- body so defer-type-errors fires at runtime when
+-- 'definesAllExactlyOnceEv' is demanded.
 instance {-# OVERLAPPABLE #-}
   ( TypeError ('Text "Alpha: variable "
                ':<>: 'ShowType name

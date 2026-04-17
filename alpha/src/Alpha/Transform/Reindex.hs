@@ -274,7 +274,7 @@ reindex
                (ReplaceDecl target (ReindexedVarDecl ps target newN newDomCs a) locals))
 reindex (type target) (type newN) (type mapExprs) sys =
   case sys of
-    MkSystem @_ @_ @_ @_ @defined _ decls eqs ->
+    System @_ @_ @_ @_ @defined decls eqs ->
       reindexImpl @target @newN @_ @_ @_ @_ @defined @_ @_ @_ @mapExprs @_ decls eqs
 
 reindexImpl
@@ -322,4 +322,4 @@ reindexImpl decls eqs =
                     @(ReindexedVarDecl ps target newN newDomCs a)
                     @mapExprs eqs of
                Left err -> Left err
-               Right newEqs -> Right (MkSystem () newDecls newEqs)
+               Right newEqs -> Right (System newDecls newEqs)

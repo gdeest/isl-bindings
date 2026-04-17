@@ -22,7 +22,8 @@
 --     plus two cholesky-specific negatives (coverage gap, branch
 --     out of bounds).  Each 'forceBad…' function forces GHC to
 --     solve the bad obligation at runtime via the D15 force-method
---     pattern (or, for the rank/kind-mismatch cases, bang + seq).
+--     pattern (the rank/kind-mismatch 'Expr'-level cases still
+--     use bang + seq on the bad value).
 --
 --   * Phase B (reflected route end-to-end): v1 Phase B demo — build
 --     matmul, compute a fresh runtime ISL set via the @islUnion@

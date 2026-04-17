@@ -82,7 +82,7 @@ introduce
             (System ps inputs outputs
                (IntroducedVarDecl ps proxy newN newDomCs a ': locals))
 introduce sys = case sys of
-  MkSystem @_ @_ @_ @_ @defined _ decls eqs ->
+  System @_ @_ @_ @_ @defined decls eqs ->
     introduceImpl @source @proxy @newN @ps @mapExprs
       @inputs @outputs @locals @defined
       @sourceN @sourceDomCs @a @newDomCs decls eqs
@@ -177,7 +177,7 @@ introduceImpl decls eqs
                        transportedEqs of
                    Left err -> Left err
                    Right rewrittenEqs ->
-                     Right (MkSystem () newDecls (copyEq :& rewrittenEqs))
+                     Right (System newDecls (copyEq :& rewrittenEqs))
 
         Left _ -> Left (ImageOutOfBounds
           "introduce: source == proxy (names must differ)"
