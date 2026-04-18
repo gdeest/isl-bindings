@@ -922,13 +922,13 @@ readFromStr str =
 foreign import ccall "isl_basic_map_free" c_free :: BasicMap -> IO ()
 
 instance Consumable BasicMap where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_free x)
+  consume = unsafeCoerce c_free
 
 
 foreign import ccall "isl_basic_map_copy" c_copy :: BasicMap -> IO BasicMap
 
 instance Dupable BasicMap where
-  dup = unsafeCoerce $ \x -> unsafePerformIO $ do
+  dup = unsafeCoerce $ \x -> do
     copy <- c_copy x
     return (x, copy)
 

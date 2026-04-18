@@ -678,13 +678,13 @@ readFromStr str =
 foreign import ccall "isl_basic_set_free" c_free :: BasicSet -> IO ()
 
 instance Consumable BasicSet where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_free x)
+  consume = unsafeCoerce c_free
 
 
 foreign import ccall "isl_basic_set_copy" c_copy :: BasicSet -> IO BasicSet
 
 instance Dupable BasicSet where
-  dup = unsafeCoerce $ \x -> unsafePerformIO $ do
+  dup = unsafeCoerce $ \x -> do
     copy <- c_copy x
     return (x, copy)
 

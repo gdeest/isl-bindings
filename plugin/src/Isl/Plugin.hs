@@ -111,17 +111,19 @@ runRawIsl1 :: NFData a => Isl.Ctx -> IslT IO a -> a
 runRawIsl1 ctx action = runRawIsl ctx (IslL.do { r <- action; urWrap r })
 
 -- | Produce @n@ independent copies of a 'Dupable' resource by chaining
--- @isl_X_copy@ via 'IslL.dup'.  Each returned element has its own
+-- @isl_X_copy@ via 'IslU.dup'.  Each returned element has its own
 -- refcounted ISL pointer and may be independently consumed.
 --
 -- Used by 'WantedPartitions' to give the pairwise-disjointness loop
 -- fresh per-pair borrow/consume handles without re-invoking
--- 'buildSet' — see the CSE-safety explainer at that handler.
+-- 'buildSet' — see the CSE-safety explainer at that handler.  The
+-- 'unsafePerformIO' is sound here: @isl_X_copy@ is an O(1) refcount
+-- bump with no observable ordering constraints.
 duplicateN :: Isl.Dupable a => Int -> a -> [a]
 duplicateN !n !s
   | n <= 1 = [s]
   | otherwise =
-      let !(a, b) = IslL.dup s
+      let !(a, b) = unsafePerformIO (IslU.dup s)
       in a : duplicateN (n - 1) b
 
 -- | Construct a SetRef from an owned Set (for PureQuery functions).
@@ -2122,7 +2124,7 @@ decomposeOneAff ctx nIn nParams ma j = unsafePerformIO $ do
     v <- Aff.affGetCoefficientSi ar Isl.islDimParam i
     pure (v, Ix (SetParam i))) [0..nParams-1]
   constant <- Aff.affGetConstantSi ar
-  IslU.consumeIO aff
+  IslU.consume aff
   let allTerms = [(v, e) | (v, e) <- dimCoeffs ++ paramCoeffs, v /= 0]
   pure $ rebuildExprWithDivs allTerms constant
 

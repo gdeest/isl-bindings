@@ -488,13 +488,13 @@ readFromStr str =
 foreign import ccall "isl_val_free" c_free :: Val -> IO ()
 
 instance Consumable Val where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_free x)
+  consume = unsafeCoerce c_free
 
 
 foreign import ccall "isl_val_copy" c_copy :: Val -> IO Val
 
 instance Dupable Val where
-  dup = unsafeCoerce $ \x -> unsafePerformIO $ do
+  dup = unsafeCoerce $ \x -> do
     copy <- c_copy x
     return (x, copy)
 

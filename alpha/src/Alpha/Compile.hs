@@ -31,7 +31,7 @@ import qualified Isl.Map as RawM
 import qualified Isl.UnionMap as UM
 import qualified Isl.Space as Space
 import Isl.Monad (IslT, Ur(..), runIslT)
-import Isl.Linear (query_, freeM, dup)
+import Isl.Linear (query_, freeM, dupM)
 import qualified Isl.Linear as Isl
 import Alpha.Core (System, pattern System, eqListNames)
 import Alpha.Lower (lowerSystem)
@@ -173,7 +173,7 @@ runWawCheck _params (entry : rest) schedMaps =
       Isl.pure (Ur (Left (ScheduleViolation "lowering produced no schedule maps")))
     (h:t) -> Isl.do
       sched <- Isl.foldM (\acc x -> UM.union acc x) h t
-      let !(sched1, sched2) = dup sched
+      (sched1, sched2) <- dupM sched
       Ur race <- checkContractionRaceFree waw sched1 sched2 (schedNOut schedMaps)
       case race of
         Just _ -> Isl.pure (Ur (Left (OutputDependenceViolated eqName)))
@@ -296,7 +296,7 @@ validateDeps :: NonEmpty Isl.UnionMap -> IslT IO Isl.UnionMap -> Int -> String
 validateDeps (d :| ds) mkSched nOut label = Isl.do
   allDeps <- Isl.foldM (\acc x -> UM.union acc x) d ds
   sched <- mkSched
-  let !(sched1, sched2) = dup sched
+  (sched1, sched2) <- dupM sched
   Ur result <- checkLexPositivity allDeps sched1 sched2 nOut
   case result of
     Nothing  -> Isl.pure (Ur (Right ()))

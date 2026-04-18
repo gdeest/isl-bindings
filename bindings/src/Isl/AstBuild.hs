@@ -33,12 +33,12 @@ module Isl.AstBuild
   , astNodeFree
   ) where
 
+import Control.Exception (bracket)
 import Foreign.C.String (peekCString)
 import Foreign.C.Types (CChar, CInt(..))
 import Foreign.Marshal.Alloc (free)
 import Foreign.Ptr (Ptr)
 import Control.Monad.IO.Class (MonadIO, liftIO)
-import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.Types
@@ -129,15 +129,20 @@ foreign import ccall "isl_ast_expr_get_id"
 -- Consumable instances
 
 instance Consumable AstBuild where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_ast_build_free x)
+  consume = unsafeCoerce c_ast_build_free
 
 instance Consumable AstNode where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_ast_node_free x)
+  consume = unsafeCoerce c_ast_node_free
+
+instance Consumable AstExpr where
+  consume = unsafeCoerce c_ast_expr_free
+
+instance Consumable AstNodeList where
+  consume = unsafeCoerce c_ast_node_list_free
 
 instance Borrow AstNode AstNodeRef where
   borrow = unsafeCoerce $ \(AstNode p) f ->
-    let result = f (AstNodeRef p)
-    in (result, AstNode p)
+    let !r = f (AstNodeRef p) in (r, AstNode p)
 
 
 -- Haskell wrappers
@@ -224,91 +229,83 @@ walkAstNode (AstNode ptr) = unsafeIslFromIO $ \_ -> walkIO (AstNodeRef ptr)
         5 -> walkUser ref    -- isl_ast_node_user
         _ -> fail ("walkAstNode: unexpected ISL AST node type " ++ show ty)
 
-    walkFor ref = do
-      iter <- c_ast_node_for_get_iterator ref
-      ini  <- c_ast_node_for_get_init ref
-      cond <- c_ast_node_for_get_cond ref
-      inc  <- c_ast_node_for_get_inc ref
-      body <- c_ast_node_for_get_body ref
-      iterS <- exprToC iter
-      iniS  <- exprToC ini
-      condS <- exprToC cond
-      incS  <- exprToC inc
-      bodyN <- walkIO (AstNodeRef (unAstNode body))
-      c_ast_node_free body
-      pure (CFor iterS iniS condS incS bodyN)
+    -- Each owned child (AstExpr / AstNode / AstNodeList / Id) lives inside
+    -- a bracket so an exception in any inner step still frees it.
 
-    walkIf ref = do
-      cond <- c_ast_node_if_get_cond ref
-      condS <- exprToC cond
-      thenN <- c_ast_node_if_get_then_node ref
-      thenC <- walkIO (AstNodeRef (unAstNode thenN))
-      c_ast_node_free thenN
-      hasElse <- c_ast_node_if_has_else ref
-      elseC <- if hasElse == 1
-        then do
-          elseN <- c_ast_node_if_get_else_node ref
-          ec <- walkIO (AstNodeRef (unAstNode elseN))
-          c_ast_node_free elseN
-          pure (Just ec)
-        else pure Nothing
-      pure (CIf condS thenC elseC)
+    walkFor ref =
+      bracket (c_ast_node_for_get_iterator ref) c_ast_expr_free $ \iter ->
+      bracket (c_ast_node_for_get_init     ref) c_ast_expr_free $ \ini  ->
+      bracket (c_ast_node_for_get_cond     ref) c_ast_expr_free $ \cond ->
+      bracket (c_ast_node_for_get_inc      ref) c_ast_expr_free $ \inc  ->
+      bracket (c_ast_node_for_get_body     ref) c_ast_node_free $ \body -> do
+        iterS <- exprRefToC iter
+        iniS  <- exprRefToC ini
+        condS <- exprRefToC cond
+        incS  <- exprRefToC inc
+        bodyN <- walkIO (AstNodeRef (unAstNode body))
+        pure (CFor iterS iniS condS incS bodyN)
 
-    walkBlock ref = do
-      list <- c_ast_node_block_get_children ref
-      let listRef = AstNodeListRef (unAstNodeList list)
-      n <- c_ast_node_list_n listRef
-      children <- mapM (\i -> do
-        child <- c_ast_node_list_get_at listRef i
-        cn <- walkIO (AstNodeRef (unAstNode child))
-        c_ast_node_free child
-        pure cn
-        ) [0 .. n - 1]
-      c_ast_node_list_free list
-      -- Flatten nested blocks: { { a; b } c } → { a; b; c }
-      pure (CBlock (concatMap flattenBlock children))
+    walkIf ref =
+      bracket (c_ast_node_if_get_cond ref) c_ast_expr_free $ \cond -> do
+        condS <- exprRefToC cond
+        thenC <-
+          bracket (c_ast_node_if_get_then_node ref) c_ast_node_free $ \thenN ->
+            walkIO (AstNodeRef (unAstNode thenN))
+        hasElse <- c_ast_node_if_has_else ref
+        elseC <- if hasElse == 1
+          then fmap Just $
+            bracket (c_ast_node_if_get_else_node ref) c_ast_node_free $ \elseN ->
+              walkIO (AstNodeRef (unAstNode elseN))
+          else pure Nothing
+        pure (CIf condS thenC elseC)
+
+    walkBlock ref =
+      bracket (c_ast_node_block_get_children ref) c_ast_node_list_free $ \list -> do
+        let listRef = AstNodeListRef (unAstNodeList list)
+        n <- c_ast_node_list_n listRef
+        children <- mapM (\i ->
+          bracket (c_ast_node_list_get_at listRef i) c_ast_node_free $ \child ->
+            walkIO (AstNodeRef (unAstNode child))
+          ) [0 .. n - 1]
+        -- Flatten nested blocks: { { a; b } c } → { a; b; c }
+        pure (CBlock (concatMap flattenBlock children))
 
     flattenBlock :: CNode -> [CNode]
     flattenBlock (CBlock cs) = concatMap flattenBlock cs
     flattenBlock n = [n]
 
-    walkUser ref = do
-      expr <- c_ast_node_user_get_expr ref
-      let exprRef = AstExprRef (unAstExpr expr)
-      nArgs <- c_ast_expr_get_op_n_arg exprRef
-      -- Arg 0 is the callee id; args 1..n-1 are the call arguments.
-      nameExpr <- c_ast_expr_get_op_arg exprRef 0
-      ident    <- c_ast_expr_get_id (AstExprRef (unAstExpr nameExpr))
-      let !name = Id.getName (IdRef (unId ident))
-      Id.c_free ident
-      c_ast_expr_free nameExpr
-      args <- mapM (\i -> do
-          argExpr <- c_ast_expr_get_op_arg exprRef i
-          exprToC argExpr
-        ) [1 .. nArgs - 1]
-      c_ast_expr_free expr
-      pure (CUser name args)
+    walkUser ref =
+      bracket (c_ast_node_user_get_expr ref) c_ast_expr_free $ \expr -> do
+        let exprRef = AstExprRef (unAstExpr expr)
+        nArgs <- c_ast_expr_get_op_n_arg exprRef
+        -- Arg 0 is the callee id; args 1..n-1 are the call arguments.
+        name <-
+          bracket (c_ast_expr_get_op_arg exprRef 0) c_ast_expr_free $ \nameExpr ->
+          bracket (c_ast_expr_get_id (AstExprRef (unAstExpr nameExpr))) Id.c_free $ \ident -> do
+            let !nm = Id.getName (IdRef (unId ident))
+            pure nm
+        args <- mapM (\i ->
+            bracket (c_ast_expr_get_op_arg exprRef i) c_ast_expr_free exprRefToC
+          ) [1 .. nArgs - 1]
+        pure (CUser name args)
 
-    walkMark ref = do
-      inner <- c_ast_node_mark_get_node ref
-      cn <- walkIO (AstNodeRef (unAstNode inner))
-      c_ast_node_free inner
-      pure cn
+    walkMark ref =
+      bracket (c_ast_node_mark_get_node ref) c_ast_node_free $ \inner ->
+        walkIO (AstNodeRef (unAstNode inner))
 
-    exprToC :: AstExpr -> IO String
-    exprToC expr = do
+    exprRefToC :: AstExpr -> IO String
+    exprRefToC expr = do
       cstr <- c_ast_expr_to_C_str (AstExprRef (unAstExpr expr))
       s <- peekCString cstr
       free cstr
-      c_ast_expr_free expr
       pure s
 
 -- | Convert an ISL AST expression to a C string.
 -- __Consumes__ the expression.
 astExprToC :: forall m. MonadIO m => AstExpr -> IslT m String
-astExprToC expr = unsafeIslFromIO $ \_ -> do
-  cstr <- c_ast_expr_to_C_str (AstExprRef (unAstExpr expr))
-  s <- peekCString cstr
-  free cstr
-  c_ast_expr_free expr
-  pure s
+astExprToC expr = unsafeIslFromIO $ \_ ->
+  bracket (pure expr) c_ast_expr_free $ \e -> do
+    cstr <- c_ast_expr_to_C_str (AstExprRef (unAstExpr e))
+    s <- peekCString cstr
+    free cstr
+    pure s

@@ -690,7 +690,7 @@ writeInstances coreh modName _functions = do
         [ "foreign import ccall \"" ++ cFreeName ++ "\" c_free :: " ++ ownedType ++ " -> IO ()"
         , ""
         , "instance Consumable " ++ ownedType ++ " where"
-        , "  consume = unsafeCoerce $ \\x -> unsafePerformIO (c_free x)"
+        , "  consume = unsafeCoerce c_free"
         , ""
         ]
 
@@ -699,7 +699,7 @@ writeInstances coreh modName _functions = do
         [ "foreign import ccall \"" ++ cCopyName ++ "\" c_copy :: " ++ ownedType ++ " -> IO " ++ ownedType
         , ""
         , "instance Dupable " ++ ownedType ++ " where"
-        , "  dup = unsafeCoerce $ \\x -> unsafePerformIO $ do"
+        , "  dup = unsafeCoerce $ \\x -> do"
         , "    copy <- c_copy x"
         , "    return (x, copy)"
         , ""

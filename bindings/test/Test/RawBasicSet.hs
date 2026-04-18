@@ -55,11 +55,10 @@ tests = testGroup "Isl.BasicSet"
   , testCase "dup produces independent copies" $ do
       let r = runIslTest $ Isl.do
             bs <- BS.readFromStr "{ [i] : 0 <= i <= 5 }"
-            case Isl.dup bs of
-              (bs1, bs2) -> Isl.do
-                Ur e1 <- query_ bs1 BS.isEmpty
-                Ur e2 <- query_ bs2 BS.isEmpty
-                Isl.pure (Ur (e1, e2))
+            (bs1, bs2) <- Isl.dupM bs
+            Ur e1 <- query_ bs1 BS.isEmpty
+            Ur e2 <- query_ bs2 BS.isEmpty
+            Isl.pure (Ur (e1, e2))
       assertEqual "both copies non-empty" (False, False) r
 
   , testCase "projectOut eliminates dimension" $ do

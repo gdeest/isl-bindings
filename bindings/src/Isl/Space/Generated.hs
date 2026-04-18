@@ -891,13 +891,13 @@ readFromStr str =
 foreign import ccall "isl_space_free" c_free :: Space -> IO ()
 
 instance Consumable Space where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_free x)
+  consume = unsafeCoerce c_free
 
 
 foreign import ccall "isl_space_copy" c_copy :: Space -> IO Space
 
 instance Dupable Space where
-  dup = unsafeCoerce $ \x -> unsafePerformIO $ do
+  dup = unsafeCoerce $ \x -> do
     copy <- c_copy x
     return (x, copy)
 

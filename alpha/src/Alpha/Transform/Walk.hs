@@ -77,7 +77,7 @@ composeAccess _ _ = unsafePerformIO $ runIslT $ Isl.do
   let nIn = fromIntegral (natVal (Proxy @ni))
       nNewNo = fromIntegral (natVal (Proxy @newNo))
       nParams = fromIntegral (natVal (Proxy @(Length ps)))
-  let !(composed1, composed2) = Isl.dup composed
+  (composed1, composed2) <- Isl.dupM composed
   Ur (composedStr, constrs) <- queryM_ composed1 (\composedRef -> Isl.do
     let !str = RawM.toStr composedRef
     conjs <- TC.decomposeMap nIn nNewNo nParams composedRef

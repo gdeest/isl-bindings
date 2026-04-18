@@ -27,7 +27,7 @@ import Isl.Typed.Constraints
 import qualified Isl.Types as Isl
 import qualified Isl.UnionMap as UM
 import Isl.Monad (IslT, Ur(..))
-import Isl.Linear (freeM, dup, urWrap)
+import Isl.Linear (freeM, dupM, urWrap)
 import qualified Isl.Linear as Isl
 import qualified Alpha.Polyhedral.Schedule as S
 import Alpha.Lower (logicalName)
@@ -90,7 +90,7 @@ computeAllDeps readUMs allWrites =
       Ur writeUMs <- Isl.mapM buildUnionMapFromNamed allWrites
       readUM  <- case readUMs of { (h:t) -> Isl.foldM (\acc x -> UM.union acc x) h t; [] -> error "unreachable" }
       writeUM <- case writeUMs of { (h:t) -> Isl.foldM (\acc x -> UM.union acc x) h t; [] -> error "unreachable" }
-      let !(writeUM1, writeUM2) = dup writeUM
+      (writeUM1, writeUM2) <- dupM writeUM
       writeInv <- UM.reverse writeUM1
       deps <- UM.applyRange readUM writeInv
       depsWR <- UM.reverse deps

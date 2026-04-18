@@ -131,7 +131,7 @@ contractionOutputDeps writeAccess writeAccessCopy storageMap storageMapCopy = Is
   cwCopyRev <- UM.reverse cwCopy
   wawSym  <- UM.applyRange cw cwCopyRev
   -- Remove the diagonal { S[a] → S[a] } so only genuine collisions remain.
-  let !(wawA, wawB) = Isl.dup wawSym
+  (wawA, wawB) <- Isl.dupM wawSym
   dom     <- UM.domain wawA
   diag    <- US.identity dom
   UM.subtract wawB diag

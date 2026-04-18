@@ -28,7 +28,7 @@ import qualified Isl.Types as Isl
 import qualified Isl.Map as RawM
 import qualified Isl.UnionMap as UM
 import Isl.Monad (IslT, Ur(..), runIslT)
-import Isl.Linear (query_, freeM, dup)
+import Isl.Linear (query_, freeM, dupM)
 import qualified Isl.Linear as Isl
 import Alpha.Core (System, pattern System)
 import Alpha.Lower (lowerSystem)
@@ -96,7 +96,7 @@ validateAnnotations sys@(System _ eqs) sched =
               schedUM <- buildUnionFromNamed schedMaps
 
               -- Scheduled deps: S ∘ D ∘ S⁻¹
-              let !(s1, s2) = dup schedUM
+              (s1, s2) <- dupM schedUM
               step1 <- UM.applyRange allDeps s1
               schedDeps <- UM.applyDomain step1 s2
 
@@ -143,7 +143,7 @@ checkDims deps _nOut [] = Isl.do
   Isl.pure (Ur (Right ()))
 checkDims deps nOut ((dim, ann):rest) = Isl.do
   carried <- buildCarriedAt nOut dim
-  let !(deps1, deps2) = dup deps
+  (deps1, deps2) <- dupM deps
   violations <- UM.intersect deps1 carried
   Ur empty <- query_ violations UM.isEmpty
   if empty

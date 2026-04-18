@@ -257,13 +257,13 @@ wrap = unsafeCoerce go where
 foreign import ccall "isl_local_space_free" c_free :: LocalSpace -> IO ()
 
 instance Consumable LocalSpace where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_free x)
+  consume = unsafeCoerce c_free
 
 
 foreign import ccall "isl_local_space_copy" c_copy :: LocalSpace -> IO LocalSpace
 
 instance Dupable LocalSpace where
-  dup = unsafeCoerce $ \x -> unsafePerformIO $ do
+  dup = unsafeCoerce $ \x -> do
     copy <- c_copy x
     return (x, copy)
 

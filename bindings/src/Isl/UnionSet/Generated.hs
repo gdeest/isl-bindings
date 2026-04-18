@@ -536,13 +536,13 @@ readFromStr str =
 foreign import ccall "isl_union_set_free" c_free :: UnionSet -> IO ()
 
 instance Consumable UnionSet where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_free x)
+  consume = unsafeCoerce c_free
 
 
 foreign import ccall "isl_union_set_copy" c_copy :: UnionSet -> IO UnionSet
 
 instance Dupable UnionSet where
-  dup = unsafeCoerce $ \x -> unsafePerformIO $ do
+  dup = unsafeCoerce $ \x -> do
     copy <- c_copy x
     return (x, copy)
 

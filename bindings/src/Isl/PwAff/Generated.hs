@@ -849,13 +849,13 @@ readFromStr str =
 foreign import ccall "isl_pw_aff_free" c_free :: PwAff -> IO ()
 
 instance Consumable PwAff where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_free x)
+  consume = unsafeCoerce c_free
 
 
 foreign import ccall "isl_pw_aff_copy" c_copy :: PwAff -> IO PwAff
 
 instance Dupable PwAff where
-  dup = unsafeCoerce $ \x -> unsafePerformIO $ do
+  dup = unsafeCoerce $ \x -> do
     copy <- c_copy x
     return (x, copy)
 

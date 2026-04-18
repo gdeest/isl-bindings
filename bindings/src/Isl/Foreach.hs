@@ -27,7 +27,7 @@ module Isl.Foreach
 import Data.IORef
 import Foreign.C.Types
 import Foreign.Ptr
-import Control.Exception (bracket, evaluate)
+import Control.Exception (bracket)
 
 import Isl.Types
 import Isl.Types.Internal (Consumable(..), Borrow(..))
@@ -83,7 +83,7 @@ foreachCollect mkWrapper doForeach process = do
     (mkWrapper $ \element _user -> do
       let !(eRef, element') = borrow element (\r -> r)
       !result <- process eRef
-      _ <- evaluate (consume element')
+      consume element'
       modifyIORef' ref (result :)
       return 0)  -- isl_stat_ok
     freeHaskellFunPtr
@@ -109,8 +109,8 @@ foreachCollect2 mkWrapper doForeach process = do
       let !(xRef, x') = borrow x (\r -> r)
           !(yRef, y') = borrow y (\r -> r)
       !result <- process xRef yRef
-      _ <- evaluate (consume x')
-      _ <- evaluate (consume y')
+      consume x'
+      consume y'
       modifyIORef' ref (result :)
       return 0)  -- isl_stat_ok
     freeHaskellFunPtr

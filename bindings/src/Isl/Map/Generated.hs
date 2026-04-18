@@ -1658,13 +1658,13 @@ readFromStr str =
 foreign import ccall "isl_map_free" c_free :: Map -> IO ()
 
 instance Consumable Map where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_free x)
+  consume = unsafeCoerce c_free
 
 
 foreign import ccall "isl_map_copy" c_copy :: Map -> IO Map
 
 instance Dupable Map where
-  dup = unsafeCoerce $ \x -> unsafePerformIO $ do
+  dup = unsafeCoerce $ \x -> do
     copy <- c_copy x
     return (x, copy)
 

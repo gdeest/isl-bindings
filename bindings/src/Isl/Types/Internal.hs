@@ -13,10 +13,10 @@ module Isl.Types.Internal
   ) where
 
 class Consumable a where
-  consume :: a %1 -> ()
+  consume :: a %1 -> IO ()
 
 class Borrow owned ref | owned -> ref where
   borrow :: owned %1 -> (ref -> a) -> (a, owned)
 
 class Consumable a => Dupable a where
-  dup :: a %1 -> (a, a)
+  dup :: a %1 -> IO (a, a)

@@ -1303,13 +1303,13 @@ readFromStr str =
 foreign import ccall "isl_set_free" c_free :: Set -> IO ()
 
 instance Consumable Set where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_free x)
+  consume = unsafeCoerce c_free
 
 
 foreign import ccall "isl_set_copy" c_copy :: Set -> IO Set
 
 instance Dupable Set where
-  dup = unsafeCoerce $ \x -> unsafePerformIO $ do
+  dup = unsafeCoerce $ \x -> do
     copy <- c_copy x
     return (x, copy)
 

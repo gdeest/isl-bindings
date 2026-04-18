@@ -54,13 +54,13 @@ readFromStr str =
 foreign import ccall "isl_id_free" c_free :: Id -> IO ()
 
 instance Consumable Id where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_free x)
+  consume = unsafeCoerce c_free
 
 
 foreign import ccall "isl_id_copy" c_copy :: Id -> IO Id
 
 instance Dupable Id where
-  dup = unsafeCoerce $ \x -> unsafePerformIO $ do
+  dup = unsafeCoerce $ \x -> do
     copy <- c_copy x
     return (x, copy)
 

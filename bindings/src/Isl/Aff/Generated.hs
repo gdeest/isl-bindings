@@ -700,13 +700,13 @@ readFromStr str =
 foreign import ccall "isl_aff_free" c_free :: Aff -> IO ()
 
 instance Consumable Aff where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_free x)
+  consume = unsafeCoerce c_free
 
 
 foreign import ccall "isl_aff_copy" c_copy :: Aff -> IO Aff
 
 instance Dupable Aff where
-  dup = unsafeCoerce $ \x -> unsafePerformIO $ do
+  dup = unsafeCoerce $ \x -> do
     copy <- c_copy x
     return (x, copy)
 

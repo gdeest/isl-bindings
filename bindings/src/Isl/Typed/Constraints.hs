@@ -66,7 +66,6 @@ module Isl.Typed.Constraints
   ) where
 
 import Control.DeepSeq (NFData)
-import Control.Exception (evaluate)
 import Control.Monad (forM)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Kind (Type)
@@ -312,7 +311,7 @@ extractOneSetDiv bsRef nDims nParams earlierDivs divIdx = do
   let !affR = Isl.AffRef (Isl.unAff aff)
   denomVal <- Aff.c_getDenominatorVal affR
   let !denom = fromIntegral $ Val.getNumSi (Isl.ValRef (Isl.unVal denomVal))
-  evaluate (consume denomVal)
+  consume denomVal
   dimCoeffs <- forM [0 .. nDims - 1] $ \i -> do
     c <- Aff.affGetCoefficientSi affR Isl.islDimIn (fromIntegral i)
     return (c, Ix (SetDim i))
@@ -323,7 +322,7 @@ extractOneSetDiv bsRef nDims nParams earlierDivs divIdx = do
     c <- Aff.affGetCoefficientSi affR Isl.islDimDiv (fromIntegral (i :: Int))
     return (c, divExpr)
   constVal <- Aff.affGetConstantSi affR
-  evaluate (consume aff)
+  consume aff
   let allTerms = [(v, e) | (v, e) <- dimCoeffs ++ paramCoeffs ++ divCoeffs, v /= 0]
       innerExpr = rebuildExprWithDivs allTerms constVal
   return $ FloorDiv innerExpr denom
@@ -345,7 +344,7 @@ extractOneMapDiv bmRef nIn nOut nParams earlierDivs divIdx = do
   let !affR = Isl.AffRef (Isl.unAff aff)
   denomVal <- Aff.c_getDenominatorVal affR
   let !denom = fromIntegral $ Val.getNumSi (Isl.ValRef (Isl.unVal denomVal))
-  evaluate (consume denomVal)
+  consume denomVal
   inCoeffs <- forM [0 .. nIn - 1] $ \i -> do
     c <- Aff.affGetCoefficientSi affR Isl.islDimIn (fromIntegral i)
     return (c, Ix (InDim i))
@@ -359,7 +358,7 @@ extractOneMapDiv bmRef nIn nOut nParams earlierDivs divIdx = do
     c <- Aff.affGetCoefficientSi affR Isl.islDimDiv (fromIntegral (i :: Int))
     return (c, divExpr)
   constVal <- Aff.affGetConstantSi affR
-  evaluate (consume aff)
+  consume aff
   let allTerms = [(v, e) | (v, e) <- inCoeffs ++ outCoeffs ++ paramCoeffs ++ divCoeffs, v /= 0]
       innerExpr = rebuildExprWithDivs allTerms constVal
   return $ FloorDiv innerExpr denom
@@ -684,7 +683,7 @@ decomposeMultiAff nParams nIn maRef =
       aff <- MA.multiAffGetAffCopy maRef (fromIntegral j)
       let affR = Isl.AffRef (Isl.unAff aff)
       expr <- extractAffExprIO nParams nIn affR
-      evaluate (consume aff)
+      consume aff
       return expr
 
 -- =========================================================================
@@ -773,7 +772,7 @@ decomposeUnionMapNamed ref =
       rangeName  <- Space.spaceGetTupleName space Isl.islDimOut
       paramNames <- forM [0 .. nParams - 1] $ \i ->
         Space.spaceGetDimName space Isl.islDimParam i
-      evaluate (consume space)
+      consume space
       conjunctions <- M.foreachBasicMap mRef $ \bmRef -> do
         divExprs <- extractMapDivs bmRef nIn nOut nParams
         constraints <- BM.foreachConstraint bmRef $ \cRef ->

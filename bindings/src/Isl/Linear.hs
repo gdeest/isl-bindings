@@ -37,7 +37,7 @@ module Isl.Linear
   , queryM_
     -- * Resource management
   , freeM
-  , dup
+  , dupM
   , urWrap
     -- * Re-exports
   , Both(..)
@@ -49,7 +49,6 @@ module Isl.Linear
 import Prelude (($), String, Monad, (.), map, IO)
 import qualified Prelude
 import qualified Control.Monad.Fail as Fail
-import Control.Exception (evaluate)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Isl.Monad.Internal (IslT(..), Ur(..), Both(..))
 import Isl.Types.Internal (Borrow(..), Consumable(..), Dupable(dup))
@@ -111,7 +110,7 @@ query_ = unsafeCoerce go
     go owned f =
       let !(result, owned') = borrow owned f
       in IslT $ \_ -> do
-        liftIO $ evaluate (consume owned')
+        liftIO (consume owned')
         Prelude.return (Ur result)
 
 -- | Monadic borrow. Borrow an owned value for the duration of a monadic
@@ -144,17 +143,25 @@ queryM_ = unsafeCoerce go
       let !(ref, owned') = borrow owned (\r -> r)
       in IslT $ \ctx -> do
         result <- unIslT (f ref) ctx
-        liftIO $ evaluate (consume owned')
+        liftIO (consume owned')
         Prelude.return result
 
--- | Free an ISL object within the IslT monad. Unlike 'consume' (which uses
--- unsafePerformIO and can be deferred by lazy evaluation), 'freeM' is
--- sequenced by the monad — the free happens in-order before subsequent actions.
+-- | Free an ISL object within the 'IslT' monad. 'consume' now returns @IO ()@
+-- so the free is sequenced by the monad; 'freeM' is the linear-arrow wrapper.
 freeM :: forall m a. (MonadIO m, Consumable a) => a %1 -> IslT m ()
 freeM = unsafeCoerce go
   where
     go :: Consumable a => a -> IslT m ()
-    go x = IslT $ \_ -> liftIO $ evaluate (consume x)
+    go x = IslT $ \_ -> liftIO (consume x)
+
+-- | Duplicate an ISL object within the 'IslT' monad. 'dup' now returns
+-- @IO (a, a)@ so the copy is sequenced by the monad; 'dupM' is the linear
+-- entry point to use from @Isl.do@ blocks.
+dupM :: forall m a. (MonadIO m, Dupable a) => a %1 -> IslT m (a, a)
+dupM = unsafeCoerce go
+  where
+    go :: Dupable a => a -> IslT m (a, a)
+    go x = IslT $ \_ -> liftIO (dup x)
 
 -- | Map a function over a list, sequencing the IslT effects.
 -- Returns @Ur@ so the result list can be used unrestrictedly in @Isl.do@.

@@ -32,6 +32,7 @@ library
                      , Isl.AstBuild
                      , Isl.FlowAnalysis
                      , Isl.Unsafe
+                     , Isl.LeakCheck
                      -- Typed constraint DSL and bridge
                      , Isl.Typed.Constraints
                      , Isl.Typed.Pure
@@ -60,8 +61,10 @@ library
 
   build-depends:       base >=4.12.0.0 && <5
                      , deepseq
+                     , directory
                      , reflection
                      , transformers
+                     , unix
   hs-source-dirs:      src
   extra-libraries:     isl
   default-language:    Haskell2010

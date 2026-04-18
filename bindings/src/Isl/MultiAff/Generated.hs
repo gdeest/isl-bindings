@@ -696,13 +696,13 @@ readFromStr str =
 foreign import ccall "isl_multi_aff_free" c_free :: MultiAff -> IO ()
 
 instance Consumable MultiAff where
-  consume = unsafeCoerce $ \x -> unsafePerformIO (c_free x)
+  consume = unsafeCoerce c_free
 
 
 foreign import ccall "isl_multi_aff_copy" c_copy :: MultiAff -> IO MultiAff
 
 instance Dupable MultiAff where
-  dup = unsafeCoerce $ \x -> unsafePerformIO $ do
+  dup = unsafeCoerce $ \x -> do
     copy <- c_copy x
     return (x, copy)
 
