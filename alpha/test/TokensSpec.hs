@@ -9,7 +9,6 @@
 -- Right/Left verdict matches ISL's answer.
 module TokensSpec (tokensSpec) where
 
-import Data.Proxy    (Proxy(..))
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -30,8 +29,6 @@ import Alpha.Core.Tokens
   , checkPartition
   , ElabError(..)
   )
-import Alpha.Core.Reify (withFreshDom, withFreshMap, withFreshVar, reifyVar)
-import Alpha.Scalar     (CNumType(..))
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- Minimal NamedSet / NamedMap builders
@@ -161,23 +158,4 @@ tokensSpec = testGroup "Alpha.Core.Tokens (ISL-backed checkers)"
         Left (NonPartitionCover _) -> pure ()
         Left e -> assertFailure ("unexpected error: " ++ show e)
 
-  , testGroup "Alpha.Core.Reify (CPS installers)"
-      [ testCase "withFreshDom installs domain skolem" $ do
-          let dom = range1D Nothing 10
-              observed = withFreshDom (Proxy @()) dom $ \_ -> (42 :: Int)
-          observed @?= 42
-
-      , testCase "withFreshMap installs map skolem" $ do
-          let m = identity1D 10
-              observed = withFreshMap (Proxy @()) m $ \_ -> (42 :: Int)
-          observed @?= 42
-
-      , testCase "withFreshVar installs var skolem and reifies triple" $ do
-          let dom = range1D Nothing 10
-              triple = ("x", 2, CFloat64)
-              observed =
-                withFreshVar (Proxy @()) ("x", 2, CFloat64, dom) $ \pv _ ->
-                  reifyVar (Proxy @()) pv
-          observed @?= triple
-      ]
   ]

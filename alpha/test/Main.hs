@@ -110,6 +110,8 @@ import qualified Reference.Heat3D as RefH3
 import qualified Reference.LU as RefLU
 import qualified Reference.Matmul as Ref
 
+import qualified TokensSpec
+
 
 -- | Run an IO action that internally constructs an Alpha term whose
 -- deferred type error should fire.  Assert that doing so raises an
@@ -175,7 +177,9 @@ testNeedsPctxBuilds = do
 
 main :: IO ()
 main = defaultMain $ testGroup "alpha-test"
-  [ testGroup "phase-A literal route"
+  [ TokensSpec.tokensSpec
+
+  , testGroup "phase-A literal route"
       [ testCase "matmul value compiles and exists" $ do
           -- The act of evaluating Matmul.matmul forces the GADT to be
           -- constructed.  If any plugin obligation in the matmul body

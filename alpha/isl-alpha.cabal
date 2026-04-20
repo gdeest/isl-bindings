@@ -24,6 +24,9 @@ library
                    , Alpha.Codegen.Parallel
                    , Alpha.Core
                    , Alpha.Core.Lemmas
+                   , Alpha.Core.Named
+                   , Alpha.Core.Tokens
+                   , Alpha.Core.V2
                    , Alpha.Surface
                    , Alpha.Lower
                    , Alpha.Schedule
@@ -88,6 +91,7 @@ test-suite alpha-test
                    , Examples.IntRowMax
                    , Examples.SumIndex2D
                    , Examples.SumIndex2DSquare
+                   , TokensSpec
                    , Reference.Matmul
                    , Reference.Cholesky
                    , Reference.FloydWarshall
