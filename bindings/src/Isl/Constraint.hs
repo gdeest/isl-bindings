@@ -8,14 +8,15 @@ module Isl.Constraint
   ) where
 
 import Foreign.C.Types
-import Isl.Types
+import Isl.Types (DimType(..))
+import Isl.Types.Raw
 import Isl.Constraint.Generated
 
 foreign import ccall "isl_constraint_get_coefficient_val"
-  c_get_coefficient_val :: ConstraintRef -> CInt -> CInt -> IO Val
+  c_get_coefficient_val :: ConstraintRef s -> CInt -> CInt -> IO Val
 
 foreign import ccall "isl_constraint_get_constant_val"
-  c_get_constant_val :: ConstraintRef -> IO Val
+  c_get_constant_val :: ConstraintRef s -> IO Val
 
 foreign import ccall "isl_val_get_num_si"
   c_val_get_num_si :: Val -> IO CLong
@@ -25,7 +26,7 @@ foreign import ccall "isl_val_free"
 
 -- | Get the coefficient of a dimension as an Integer. Extracts the Val
 -- and frees it, returning just the numerator (assumes integer coefficient).
-constraintGetCoefficientSi :: ConstraintRef -> DimType -> Int -> IO Integer
+constraintGetCoefficientSi :: ConstraintRef s -> DimType -> Int -> IO Integer
 constraintGetCoefficientSi c (DimType dt) pos = do
   val <- c_get_coefficient_val c dt (fromIntegral pos)
   n <- fromIntegral <$> c_val_get_num_si val
@@ -33,7 +34,7 @@ constraintGetCoefficientSi c (DimType dt) pos = do
   return n
 
 -- | Get the constant term of a constraint as an Integer.
-constraintGetConstantSi :: ConstraintRef -> IO Integer
+constraintGetConstantSi :: ConstraintRef s -> IO Integer
 constraintGetConstantSi c = do
   val <- c_get_constant_val c
   n <- fromIntegral <$> c_val_get_num_si val

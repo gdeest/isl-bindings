@@ -41,7 +41,7 @@ import Foreign.Ptr (Ptr)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Unsafe.Coerce (unsafeCoerce)
 
-import Isl.Types
+import Isl.Types.Raw
 import Isl.Types.Internal (Consumable(..), Borrow(..))
 import Isl.Monad.Internal (IslT(..), unsafeIslFromIO)
 import qualified Isl.Id.Generated as Id
@@ -59,10 +59,10 @@ foreign import ccall "isl_ast_build_node_from_schedule_map"
   c_ast_build_node_from_schedule_map :: AstBuild -> UnionMap -> IO AstNode
 
 foreign import ccall "isl_ast_node_to_C_str"
-  c_ast_node_to_C_str :: AstNodeRef -> IO (Ptr CChar)
+  c_ast_node_to_C_str :: AstNodeRef s -> IO (Ptr CChar)
 
 foreign import ccall "isl_ast_node_to_str"
-  c_ast_node_to_str :: AstNodeRef -> IO (Ptr CChar)
+  c_ast_node_to_str :: AstNodeRef s -> IO (Ptr CChar)
 
 foreign import ccall "isl_ast_build_free"
   c_ast_build_free :: AstBuild -> IO ()
@@ -72,45 +72,45 @@ foreign import ccall "isl_ast_node_free"
 
 -- AST tree walking: node type, for-loop accessors, block children, expressions
 foreign import ccall "isl_ast_node_get_type"
-  c_ast_node_get_type :: AstNodeRef -> IO Int
+  c_ast_node_get_type :: AstNodeRef s -> IO Int
 
 foreign import ccall "isl_ast_node_for_get_iterator"
-  c_ast_node_for_get_iterator :: AstNodeRef -> IO AstExpr
+  c_ast_node_for_get_iterator :: AstNodeRef s -> IO AstExpr
 foreign import ccall "isl_ast_node_for_get_init"
-  c_ast_node_for_get_init :: AstNodeRef -> IO AstExpr
+  c_ast_node_for_get_init :: AstNodeRef s -> IO AstExpr
 foreign import ccall "isl_ast_node_for_get_cond"
-  c_ast_node_for_get_cond :: AstNodeRef -> IO AstExpr
+  c_ast_node_for_get_cond :: AstNodeRef s -> IO AstExpr
 foreign import ccall "isl_ast_node_for_get_inc"
-  c_ast_node_for_get_inc :: AstNodeRef -> IO AstExpr
+  c_ast_node_for_get_inc :: AstNodeRef s -> IO AstExpr
 foreign import ccall "isl_ast_node_for_get_body"
-  c_ast_node_for_get_body :: AstNodeRef -> IO AstNode
+  c_ast_node_for_get_body :: AstNodeRef s -> IO AstNode
 
 foreign import ccall "isl_ast_node_if_get_cond"
-  c_ast_node_if_get_cond :: AstNodeRef -> IO AstExpr
+  c_ast_node_if_get_cond :: AstNodeRef s -> IO AstExpr
 foreign import ccall "isl_ast_node_if_get_then_node"
-  c_ast_node_if_get_then_node :: AstNodeRef -> IO AstNode
+  c_ast_node_if_get_then_node :: AstNodeRef s -> IO AstNode
 foreign import ccall "isl_ast_node_if_has_else_node"
-  c_ast_node_if_has_else :: AstNodeRef -> IO Int
+  c_ast_node_if_has_else :: AstNodeRef s -> IO Int
 foreign import ccall "isl_ast_node_if_get_else_node"
-  c_ast_node_if_get_else_node :: AstNodeRef -> IO AstNode
+  c_ast_node_if_get_else_node :: AstNodeRef s -> IO AstNode
 
 foreign import ccall "isl_ast_node_block_get_children"
-  c_ast_node_block_get_children :: AstNodeRef -> IO AstNodeList
+  c_ast_node_block_get_children :: AstNodeRef s -> IO AstNodeList
 foreign import ccall "isl_ast_node_list_n_ast_node"
-  c_ast_node_list_n :: AstNodeListRef -> IO Int
+  c_ast_node_list_n :: AstNodeListRef s -> IO Int
 foreign import ccall "isl_ast_node_list_get_at"
-  c_ast_node_list_get_at :: AstNodeListRef -> Int -> IO AstNode
+  c_ast_node_list_get_at :: AstNodeListRef s -> Int -> IO AstNode
 foreign import ccall "isl_ast_node_list_free"
   c_ast_node_list_free :: AstNodeList -> IO ()
 
 foreign import ccall "isl_ast_node_user_get_expr"
-  c_ast_node_user_get_expr :: AstNodeRef -> IO AstExpr
+  c_ast_node_user_get_expr :: AstNodeRef s -> IO AstExpr
 
 foreign import ccall "isl_ast_node_mark_get_node"
-  c_ast_node_mark_get_node :: AstNodeRef -> IO AstNode
+  c_ast_node_mark_get_node :: AstNodeRef s -> IO AstNode
 
 foreign import ccall "isl_ast_expr_to_C_str"
-  c_ast_expr_to_C_str :: AstExprRef -> IO (Ptr CChar)
+  c_ast_expr_to_C_str :: AstExprRef s -> IO (Ptr CChar)
 foreign import ccall "isl_ast_expr_free"
   c_ast_expr_free :: AstExpr -> IO ()
 
@@ -118,11 +118,11 @@ foreign import ccall "isl_ast_expr_free"
 -- For a call expression @S(a0, a1, …)@: arg 0 is the callee id, args 1..n-1
 -- are the call arguments.
 foreign import ccall "isl_ast_expr_get_op_n_arg"
-  c_ast_expr_get_op_n_arg :: AstExprRef -> IO CInt
+  c_ast_expr_get_op_n_arg :: AstExprRef s -> IO CInt
 foreign import ccall "isl_ast_expr_get_op_arg"
-  c_ast_expr_get_op_arg :: AstExprRef -> CInt -> IO AstExpr
+  c_ast_expr_get_op_arg :: AstExprRef s -> CInt -> IO AstExpr
 foreign import ccall "isl_ast_expr_get_id"
-  c_ast_expr_get_id :: AstExprRef -> IO Id
+  c_ast_expr_get_id :: AstExprRef s -> IO Id
 
 
 
@@ -160,12 +160,20 @@ astBuildFromContext = unsafeCoerce go where
 -- The schedule map has the form @{ S0[i,j] -> [c0,c1,...]; S1[...] -> [...] }@.
 -- ISL produces an AST with for-loops, if-conditions, and user statement calls.
 -- __Consumes both__ the build and the schedule map.
+-- ISL signature: @isl_ast_build_node_from_schedule_map(__isl_keep build,
+-- __isl_take schedule)@ — the build is *not* freed by the C call, only
+-- the schedule is.  The %1 signature claims both are consumed, so the
+-- binding itself must free the build to honour that contract; otherwise
+-- the build leaks into the enclosing 'runIslT' ctx and triggers
+-- @isl_ctx not freed as some objects still reference it@ at shutdown.
 astBuildNodeFromScheduleMap :: forall m. MonadIO m
   => AstBuild %1 -> UnionMap %1 -> IslT m AstNode
 astBuildNodeFromScheduleMap = unsafeCoerce go where
   go :: AstBuild -> UnionMap -> IslT m AstNode
-  go build umap = unsafeIslFromIO $ \_ ->
-    c_ast_build_node_from_schedule_map build umap
+  go build umap = unsafeIslFromIO $ \_ -> do
+    node <- c_ast_build_node_from_schedule_map build umap
+    c_ast_build_free build
+    pure node
 
 -- | Convert an AST node to a C code string.
 -- User statements are printed as function calls: @S0(c0, c1, c2);@
@@ -218,7 +226,7 @@ data CNode
 walkAstNode :: forall m. MonadIO m => AstNode -> IslT m CNode
 walkAstNode (AstNode ptr) = unsafeIslFromIO $ \_ -> walkIO (AstNodeRef ptr)
   where
-    walkIO :: AstNodeRef -> IO CNode
+    walkIO :: forall s. AstNodeRef s -> IO CNode
     walkIO ref = do
       ty <- c_ast_node_get_type ref
       case ty of

@@ -66,10 +66,9 @@ tests = testGroup "Isl.UnionMap"
   , testCase "foreachMap enumerates per-space maps" $ do
       let r = runIslTest $ Isl.do
             um <- UM.readFromStr "{ A[i] -> B[i]; C[j] -> D[j] }"
-            Ur count <- queryM_ um (\ref ->
-              unsafeIslFromIO $ \_ -> do
-                ms <- UM.foreachMap ref $ \_ -> return ()
-                return (Ur (length ms)))
+            Ur count <- queryM_ um (\ref -> Isl.do
+              Ur ms <- UM.foreachMap ref (\_ -> Isl.pure (Ur ()))
+              Isl.pure (Ur (length ms)))
             Isl.pure (Ur count)
       assertBool "should have 2 maps" (r == 2)
   ]

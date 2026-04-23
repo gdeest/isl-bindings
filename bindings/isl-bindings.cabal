@@ -39,7 +39,8 @@ library
                      , Isl.Typed.Params
                      , Isl.Typed.Indices
 
-  other-modules:       Isl.Types.Internal
+  other-modules:       Isl.Types.Raw
+                     , Isl.Types.Internal
                      , Isl.Monad.Internal
                      , Isl.Foreach
                      , Isl.Aff.Generated

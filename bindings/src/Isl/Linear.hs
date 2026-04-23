@@ -1,5 +1,8 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE ImpredicativeTypes #-}
+{-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE LinearTypes #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 -- | Linear do-notation for the 'IslT' monad via @QualifiedDo@.
@@ -24,6 +27,12 @@
 -- Values bound by @<-@ have multiplicity One — GHC enforces that every
 -- ISL object is consumed exactly once (freed, passed to an isl_take
 -- function, or duplicated via 'dup').
+--
+-- The @query*@ combinators are rank-2 in a region skolem @s@: the ref
+-- cannot escape into the callback's result because the result type is
+-- introduced outside the @forall s.@. Internally the helpers fix @s ~ ()@
+-- (via 'unsafeCoerce') so the wrapper functions can be given in plain
+-- non-polymorphic form; callers still see the rank-2 external type.
 module Isl.Linear
   ( -- * QualifiedDo operators
     (>>=)
@@ -49,7 +58,10 @@ module Isl.Linear
 import Prelude (($), String, Monad, (.), map, IO)
 import qualified Prelude
 import qualified Control.Monad.Fail as Fail
+import Control.DeepSeq (NFData, rnf)
+import Control.Exception (evaluate)
 import Control.Monad.IO.Class (MonadIO, liftIO)
+import Data.Kind (Type)
 import Isl.Monad.Internal (IslT(..), Ur(..), Both(..))
 import Isl.Types.Internal (Borrow(..), Consumable(..), Dupable(dup))
 import Unsafe.Coerce (unsafeCoerce)
@@ -81,32 +93,31 @@ fail s = IslT $ \_ -> Fail.fail s
 -- | Borrow an owned value, apply a pure query, and return the result
 -- wrapped in 'Ur' (unrestricted) alongside the still-owned value.
 --
--- The query result is forced immediately (strict borrow) so it doesn't
--- become a dangling thunk if the owned value is later consumed.
---
--- @
--- (Ur name, x') <- query x getNameRef
--- -- name :: String (Many, safe to share)
--- -- x'   :: OwnedType (One, must be consumed)
--- @
-query :: forall m owned ref a. (Monad m, Borrow owned ref) => owned %1 -> (ref -> a) -> IslT m (Both (Ur a) owned)
+-- The callback is rank-2 in a region skolem @s@: the ref cannot escape
+-- into the result @a@ because @a@ is introduced before @forall s.@.
+query
+  :: forall m owned (ref :: Type -> Type) a
+   . (Monad m, Borrow owned ref)
+  => owned %1
+  -> (forall s. ref s -> a)
+  -> IslT m (Both (Ur a) owned)
 query = unsafeCoerce go
   where
-    go :: owned -> (ref -> a) -> IslT m (Both (Ur a) owned)
+    go :: owned -> (forall s. ref s -> a) -> IslT m (Both (Ur a) owned)
     go owned f =
       let !(result, owned') = borrow owned f
       in IslT $ \_ -> Prelude.return (Both (Ur result) owned')
 
--- | Query an owned value and free it in one shot. Convenience for the
--- common pattern of extracting one value then disposing of the object.
---
--- @
--- Ur isEmpty <- query_ bs BS.isEmpty
--- @
-query_ :: forall m owned ref a. (MonadIO m, Borrow owned ref, Consumable owned) => owned %1 -> (ref -> a) -> IslT m (Ur a)
+-- | Query an owned value and free it in one shot.
+query_
+  :: forall m owned (ref :: Type -> Type) a
+   . (MonadIO m, Borrow owned ref, Consumable owned)
+  => owned %1
+  -> (forall s. ref s -> a)
+  -> IslT m (Ur a)
 query_ = unsafeCoerce go
   where
-    go :: (Consumable owned) => owned -> (ref -> a) -> IslT m (Ur a)
+    go :: (Consumable owned) => owned -> (forall s. ref s -> a) -> IslT m (Ur a)
     go owned f =
       let !(result, owned') = borrow owned f
       in IslT $ \_ -> do
@@ -116,35 +127,38 @@ query_ = unsafeCoerce go
 -- | Monadic borrow. Borrow an owned value for the duration of a monadic
 -- action (e.g. calling foreach on a borrowed object). The owned value is
 -- returned alongside the action result.
---
--- @
--- (Ur cs, bs') <- queryM bs $ \\bsRef -> do
---   cs <- unsafeIslFromIO $ \\_ -> BS.foreachConstraint bsRef ...
---   return (Ur cs)
--- @
-queryM :: forall m owned ref a. (MonadIO m, Borrow owned ref)
-  => owned %1 -> (ref -> IslT m (Ur a)) %1 -> IslT m (Both (Ur a) owned)
+queryM
+  :: forall m owned (ref :: Type -> Type) a
+   . (MonadIO m, Borrow owned ref)
+  => owned %1
+  -> (forall s. ref s -> IslT m (Ur a)) %1
+  -> IslT m (Both (Ur a) owned)
 queryM = unsafeCoerce go
   where
-    go :: owned -> (ref -> IslT m (Ur a)) -> IslT m (Both (Ur a) owned)
+    go :: owned -> (forall s. ref s -> IslT m (Ur a)) -> IslT m (Both (Ur a) owned)
     go owned f =
-      let !(ref, owned') = borrow owned (\r -> r)
+      let !(action, owned') = borrow owned f
       in IslT $ \ctx -> do
-        result <- unIslT (f ref) ctx
+        result <- unIslT action ctx
         Prelude.return (Both result owned')
 
 -- | Like 'queryM' but auto-frees the owned object after the callback.
-queryM_ :: forall m owned ref a. (MonadIO m, Borrow owned ref, Consumable owned)
-  => owned %1 -> (ref -> IslT m (Ur a)) %1 -> IslT m (Ur a)
+queryM_
+  :: forall m owned (ref :: Type -> Type) a
+   . (MonadIO m, Borrow owned ref, Consumable owned)
+  => owned %1
+  -> (forall s. ref s -> IslT m (Ur a)) %1
+  -> IslT m (Ur a)
 queryM_ = unsafeCoerce go
   where
-    go :: (Consumable owned) => owned -> (ref -> IslT m (Ur a)) -> IslT m (Ur a)
+    go :: (Consumable owned)
+       => owned -> (forall s. ref s -> IslT m (Ur a)) -> IslT m (Ur a)
     go owned f =
-      let !(ref, owned') = borrow owned (\r -> r)
+      let !(action, owned') = borrow owned f
       in IslT $ \ctx -> do
-        result <- unIslT (f ref) ctx
+        Ur !result <- unIslT action ctx
         liftIO (consume owned')
-        Prelude.return result
+        Prelude.return (Ur result)
 
 -- | Free an ISL object within the 'IslT' monad. 'consume' now returns @IO ()@
 -- so the free is sequenced by the monad; 'freeM' is the linear-arrow wrapper.
@@ -191,4 +205,3 @@ urWrap :: forall m a. Monad m => a %1 -> IslT m (Ur a)
 urWrap = unsafeCoerce go where
   go :: a -> IslT m (Ur a)
   go x = IslT $ \_ -> Prelude.return (Ur x)
-

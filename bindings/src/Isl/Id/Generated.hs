@@ -8,7 +8,8 @@
 
 module Isl.Id.Generated where
 
-import Isl.Types
+import Isl.Types (DimType(..))
+import Isl.Types.Raw
 import Isl.Types.Internal (Consumable(..), Borrow(..), Dupable(..))
 import Isl.Monad.Internal
 import Control.Monad.IO.Class (MonadIO)
@@ -21,23 +22,23 @@ import Foreign.Marshal.Utils as M
 import System.IO.Unsafe
 import Unsafe.Coerce (unsafeCoerce)
 
-foreign import ccall "isl_id_dump" c_dump :: IdRef -> IO ()
+foreign import ccall "isl_id_dump" c_dump :: IdRef s_id -> IO ()
 
-dump :: IdRef -> ()
+dump :: IdRef s_id -> ()
 dump id =
     let !r = unsafePerformIO $ c_dump id in r
 
 
-foreign import ccall "isl_id_to_str" c_toStr :: IdRef -> IO C.CString
+foreign import ccall "isl_id_to_str" c_toStr :: IdRef s_id -> IO C.CString
 
-toStr :: IdRef -> String
+toStr :: IdRef s_id -> String
 toStr id =
     let !r = unsafePerformIO $ C.peekCString =<< c_toStr id in r
 
 
-foreign import ccall "isl_id_get_name" c_getName :: IdRef -> IO C.CString
+foreign import ccall "isl_id_get_name" c_getName :: IdRef s_id -> IO C.CString
 
-getName :: IdRef -> String
+getName :: IdRef s_id -> String
 getName id =
     let !r = unsafePerformIO $ C.peekCString =<< c_getName id in r
 

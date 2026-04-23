@@ -8,7 +8,8 @@
 
 module Isl.MultiAff.Generated where
 
-import Isl.Types
+import Isl.Types (DimType(..))
+import Isl.Types.Raw
 import Isl.Types.Internal (Consumable(..), Borrow(..), Dupable(..))
 import Isl.Monad.Internal
 import Control.Monad.IO.Class (MonadIO)
@@ -21,23 +22,23 @@ import Foreign.Marshal.Utils as M
 import System.IO.Unsafe
 import Unsafe.Coerce (unsafeCoerce)
 
-foreign import ccall "isl_multi_aff_dim" c_dim :: MultiAffRef -> DimType -> IO C.CInt
+foreign import ccall "isl_multi_aff_dim" c_dim :: MultiAffRef s_multi -> DimType -> IO C.CInt
 
-dim :: MultiAffRef -> DimType -> Int
+dim :: MultiAffRef s_multi -> DimType -> Int
 dim multi typ =
     let !r = unsafePerformIO $ fromIntegral <$> c_dim multi typ in r
 
 
-foreign import ccall "isl_multi_aff_find_dim_by_id" c_findDimById :: MultiAffRef -> DimType -> IdRef -> IO C.CInt
+foreign import ccall "isl_multi_aff_find_dim_by_id" c_findDimById :: MultiAffRef s_multi -> DimType -> IdRef s_id -> IO C.CInt
 
-findDimById :: MultiAffRef -> DimType -> IdRef -> Int
+findDimById :: MultiAffRef s_multi -> DimType -> IdRef s_id -> Int
 findDimById multi typ id =
     let !r = unsafePerformIO $ fromIntegral <$> c_findDimById multi typ id in r
 
 
-foreign import ccall "isl_multi_aff_find_dim_by_name" c_findDimByName :: MultiAffRef -> DimType -> C.CString -> IO C.CInt
+foreign import ccall "isl_multi_aff_find_dim_by_name" c_findDimByName :: MultiAffRef s_multi -> DimType -> C.CString -> IO C.CInt
 
-findDimByName :: MultiAffRef -> DimType -> String -> Int
+findDimByName :: MultiAffRef s_multi -> DimType -> String -> Int
 findDimByName multi typ name =
     let !r = unsafePerformIO $ do
           name_c <- C.newCString name
@@ -45,51 +46,51 @@ findDimByName multi typ name =
     in r
 
 
-foreign import ccall "isl_multi_aff_involves_dims" c_involvesDims :: MultiAffRef -> DimType -> C.CUInt -> C.CUInt -> IO C.CInt
+foreign import ccall "isl_multi_aff_involves_dims" c_involvesDims :: MultiAffRef s_multi -> DimType -> C.CUInt -> C.CUInt -> IO C.CInt
 
-involvesDims :: MultiAffRef -> DimType -> Int -> Int -> Int
+involvesDims :: MultiAffRef s_multi -> DimType -> Int -> Int -> Int
 involvesDims multi typ first n =
     let !r = unsafePerformIO $ fromIntegral <$> c_involvesDims multi typ (fromIntegral first) (fromIntegral n) in r
 
 
-foreign import ccall "isl_multi_aff_plain_cmp" c_plainCmp :: MultiAffRef -> MultiAffRef -> IO C.CInt
+foreign import ccall "isl_multi_aff_plain_cmp" c_plainCmp :: MultiAffRef s_multi1 -> MultiAffRef s_multi2 -> IO C.CInt
 
-plainCmp :: MultiAffRef -> MultiAffRef -> Int
+plainCmp :: MultiAffRef s_multi1 -> MultiAffRef s_multi2 -> Int
 plainCmp multi1 multi2 =
     let !r = unsafePerformIO $ fromIntegral <$> c_plainCmp multi1 multi2 in r
 
 
-foreign import ccall "isl_multi_aff_dump" c_dump :: MultiAffRef -> IO ()
+foreign import ccall "isl_multi_aff_dump" c_dump :: MultiAffRef s_maff -> IO ()
 
-dump :: MultiAffRef -> ()
+dump :: MultiAffRef s_maff -> ()
 dump maff =
     let !r = unsafePerformIO $ c_dump maff in r
 
 
-foreign import ccall "isl_multi_aff_get_tuple_name" c_getTupleName :: MultiAffRef -> DimType -> IO C.CString
+foreign import ccall "isl_multi_aff_get_tuple_name" c_getTupleName :: MultiAffRef s_multi -> DimType -> IO C.CString
 
-getTupleName :: MultiAffRef -> DimType -> String
+getTupleName :: MultiAffRef s_multi -> DimType -> String
 getTupleName multi typ =
     let !r = unsafePerformIO $ C.peekCString =<< c_getTupleName multi typ in r
 
 
-foreign import ccall "isl_multi_aff_has_tuple_id" c_hasTupleId :: MultiAffRef -> DimType -> IO C.CBool
+foreign import ccall "isl_multi_aff_has_tuple_id" c_hasTupleId :: MultiAffRef s_multi -> DimType -> IO C.CBool
 
-hasTupleId :: MultiAffRef -> DimType -> Bool
+hasTupleId :: MultiAffRef s_multi -> DimType -> Bool
 hasTupleId multi typ =
     let !r = unsafePerformIO $ M.toBool <$> c_hasTupleId multi typ in r
 
 
-foreign import ccall "isl_multi_aff_range_is_wrapping" c_rangeIsWrapping :: MultiAffRef -> IO C.CBool
+foreign import ccall "isl_multi_aff_range_is_wrapping" c_rangeIsWrapping :: MultiAffRef s_multi -> IO C.CBool
 
-rangeIsWrapping :: MultiAffRef -> Bool
+rangeIsWrapping :: MultiAffRef s_multi -> Bool
 rangeIsWrapping multi =
     let !r = unsafePerformIO $ M.toBool <$> c_rangeIsWrapping multi in r
 
 
 foreign import ccall "isl_multi_aff_lex_ge_set" c_lexGeSet :: MultiAff -> MultiAff -> IO Set
 
-lexGeSet :: forall m. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m Set
+lexGeSet :: forall m s_ma1 s_ma2. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m Set
 lexGeSet = unsafeCoerce go where
   go :: MultiAff -> MultiAff -> IslT m Set
   go ma1 ma2 =
@@ -98,7 +99,7 @@ lexGeSet = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_lex_gt_set" c_lexGtSet :: MultiAff -> MultiAff -> IO Set
 
-lexGtSet :: forall m. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m Set
+lexGtSet :: forall m s_ma1 s_ma2. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m Set
 lexGtSet = unsafeCoerce go where
   go :: MultiAff -> MultiAff -> IslT m Set
   go ma1 ma2 =
@@ -107,7 +108,7 @@ lexGtSet = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_lex_le_set" c_lexLeSet :: MultiAff -> MultiAff -> IO Set
 
-lexLeSet :: forall m. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m Set
+lexLeSet :: forall m s_ma1 s_ma2. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m Set
 lexLeSet = unsafeCoerce go where
   go :: MultiAff -> MultiAff -> IslT m Set
   go ma1 ma2 =
@@ -116,30 +117,30 @@ lexLeSet = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_lex_lt_set" c_lexLtSet :: MultiAff -> MultiAff -> IO Set
 
-lexLtSet :: forall m. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m Set
+lexLtSet :: forall m s_ma1 s_ma2. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m Set
 lexLtSet = unsafeCoerce go where
   go :: MultiAff -> MultiAff -> IslT m Set
   go ma1 ma2 =
     unsafeIslFromIO $ \_ -> c_lexLtSet ma1 ma2
 
 
-foreign import ccall "isl_multi_aff_get_domain_space" c_getDomainSpace :: MultiAffRef -> IO Space
+foreign import ccall "isl_multi_aff_get_domain_space" c_getDomainSpace :: MultiAffRef s_multi -> IO Space
 
-getDomainSpace :: MonadIO m => MultiAffRef -> IslT m Space
+getDomainSpace :: MonadIO m => MultiAffRef s_multi -> IslT m Space
 getDomainSpace multi =
     unsafeIslFromIO $ \_ -> c_getDomainSpace multi
 
 
-foreign import ccall "isl_multi_aff_get_aff" c_getAff :: MultiAffRef -> C.CInt -> IO Aff
+foreign import ccall "isl_multi_aff_get_aff" c_getAff :: MultiAffRef s_multi -> C.CInt -> IO Aff
 
-getAff :: MonadIO m => MultiAffRef -> Int -> IslT m Aff
+getAff :: MonadIO m => MultiAffRef s_multi -> Int -> IslT m Aff
 getAff multi pos =
     unsafeIslFromIO $ \_ -> c_getAff multi (fromIntegral pos)
 
 
 foreign import ccall "isl_multi_aff_add_constant_val" c_addConstantVal :: MultiAff -> Val -> IO MultiAff
 
-addConstantVal :: forall m. MonadIO m => MultiAff %1 -> Val %1 -> IslT m MultiAff
+addConstantVal :: forall m s_mpa s_v. MonadIO m => MultiAff %1 -> Val %1 -> IslT m MultiAff
 addConstantVal = unsafeCoerce go where
   go :: MultiAff -> Val -> IslT m MultiAff
   go mpa v =
@@ -148,7 +149,7 @@ addConstantVal = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_add_dims" c_addDims :: MultiAff -> DimType -> C.CUInt -> IO MultiAff
 
-addDims :: forall m. MonadIO m => MultiAff %1 -> DimType -> Int -> IslT m MultiAff
+addDims :: forall m s_multi. MonadIO m => MultiAff %1 -> DimType -> Int -> IslT m MultiAff
 addDims = unsafeCoerce go where
   go :: MultiAff -> DimType -> Int -> IslT m MultiAff
   go multi typ n =
@@ -157,7 +158,7 @@ addDims = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_align_params" c_alignParams :: MultiAff -> Space -> IO MultiAff
 
-alignParams :: forall m. MonadIO m => MultiAff %1 -> Space %1 -> IslT m MultiAff
+alignParams :: forall m s_multi s_model. MonadIO m => MultiAff %1 -> Space %1 -> IslT m MultiAff
 alignParams = unsafeCoerce go where
   go :: MultiAff -> Space -> IslT m MultiAff
   go multi model =
@@ -166,7 +167,7 @@ alignParams = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_drop_dims" c_dropDims :: MultiAff -> DimType -> C.CUInt -> C.CUInt -> IO MultiAff
 
-dropDims :: forall m. MonadIO m => MultiAff %1 -> DimType -> Int -> Int -> IslT m MultiAff
+dropDims :: forall m s_multi. MonadIO m => MultiAff %1 -> DimType -> Int -> Int -> IslT m MultiAff
 dropDims = unsafeCoerce go where
   go :: MultiAff -> DimType -> Int -> Int -> IslT m MultiAff
   go multi typ first n =
@@ -175,7 +176,7 @@ dropDims = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_factor_range" c_factorRange :: MultiAff -> IO MultiAff
 
-factorRange :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+factorRange :: forall m s_multi. MonadIO m => MultiAff %1 -> IslT m MultiAff
 factorRange = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go multi =
@@ -184,7 +185,7 @@ factorRange = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_flatten_domain" c_flattenDomain :: MultiAff -> IO MultiAff
 
-flattenDomain :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+flattenDomain :: forall m s_ma. MonadIO m => MultiAff %1 -> IslT m MultiAff
 flattenDomain = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go ma =
@@ -193,7 +194,7 @@ flattenDomain = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_flatten_range" c_flattenRange :: MultiAff -> IO MultiAff
 
-flattenRange :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+flattenRange :: forall m s_multi. MonadIO m => MultiAff %1 -> IslT m MultiAff
 flattenRange = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go multi =
@@ -202,7 +203,7 @@ flattenRange = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_from_range" c_fromRange :: MultiAff -> IO MultiAff
 
-fromRange :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+fromRange :: forall m s_multi. MonadIO m => MultiAff %1 -> IslT m MultiAff
 fromRange = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go multi =
@@ -211,7 +212,7 @@ fromRange = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_identity" c_identity :: Space -> IO MultiAff
 
-identity :: forall m. MonadIO m => Space %1 -> IslT m MultiAff
+identity :: forall m s_space. MonadIO m => Space %1 -> IslT m MultiAff
 identity = unsafeCoerce go where
   go :: Space -> IslT m MultiAff
   go space =
@@ -220,7 +221,7 @@ identity = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_identity_multi_aff" c_identityMultiAff :: MultiAff -> IO MultiAff
 
-identityMultiAff :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+identityMultiAff :: forall m s_multi. MonadIO m => MultiAff %1 -> IslT m MultiAff
 identityMultiAff = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go multi =
@@ -229,7 +230,7 @@ identityMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_identity_on_domain_space" c_identityOnDomainSpace :: Space -> IO MultiAff
 
-identityOnDomainSpace :: forall m. MonadIO m => Space %1 -> IslT m MultiAff
+identityOnDomainSpace :: forall m s_space. MonadIO m => Space %1 -> IslT m MultiAff
 identityOnDomainSpace = unsafeCoerce go where
   go :: Space -> IslT m MultiAff
   go space =
@@ -238,7 +239,7 @@ identityOnDomainSpace = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_insert_dims" c_insertDims :: MultiAff -> DimType -> C.CUInt -> C.CUInt -> IO MultiAff
 
-insertDims :: forall m. MonadIO m => MultiAff %1 -> DimType -> Int -> Int -> IslT m MultiAff
+insertDims :: forall m s_multi. MonadIO m => MultiAff %1 -> DimType -> Int -> Int -> IslT m MultiAff
 insertDims = unsafeCoerce go where
   go :: MultiAff -> DimType -> Int -> Int -> IslT m MultiAff
   go multi typ first n =
@@ -247,7 +248,7 @@ insertDims = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_move_dims" c_moveDims :: MultiAff -> DimType -> C.CUInt -> DimType -> C.CUInt -> C.CUInt -> IO MultiAff
 
-moveDims :: forall m. MonadIO m => MultiAff %1 -> DimType -> Int -> DimType -> Int -> Int -> IslT m MultiAff
+moveDims :: forall m s_ma. MonadIO m => MultiAff %1 -> DimType -> Int -> DimType -> Int -> Int -> IslT m MultiAff
 moveDims = unsafeCoerce go where
   go :: MultiAff -> DimType -> Int -> DimType -> Int -> Int -> IslT m MultiAff
   go ma dst_type dst_pos src_type src_pos n =
@@ -256,7 +257,7 @@ moveDims = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_project_domain_on_params" c_projectDomainOnParams :: MultiAff -> IO MultiAff
 
-projectDomainOnParams :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+projectDomainOnParams :: forall m s_multi. MonadIO m => MultiAff %1 -> IslT m MultiAff
 projectDomainOnParams = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go multi =
@@ -265,7 +266,7 @@ projectDomainOnParams = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_project_out_map" c_projectOutMap :: Space -> DimType -> C.CUInt -> C.CUInt -> IO MultiAff
 
-projectOutMap :: forall m. MonadIO m => Space %1 -> DimType -> Int -> Int -> IslT m MultiAff
+projectOutMap :: forall m s_space. MonadIO m => Space %1 -> DimType -> Int -> Int -> IslT m MultiAff
 projectOutMap = unsafeCoerce go where
   go :: Space -> DimType -> Int -> Int -> IslT m MultiAff
   go space typ first n =
@@ -274,7 +275,7 @@ projectOutMap = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_pullback_multi_aff" c_pullbackMultiAff :: MultiAff -> MultiAff -> IO MultiAff
 
-pullbackMultiAff :: forall m. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m MultiAff
+pullbackMultiAff :: forall m s_ma1 s_ma2. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m MultiAff
 pullbackMultiAff = unsafeCoerce go where
   go :: MultiAff -> MultiAff -> IslT m MultiAff
   go ma1 ma2 =
@@ -283,7 +284,7 @@ pullbackMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_range_factor_domain" c_rangeFactorDomain :: MultiAff -> IO MultiAff
 
-rangeFactorDomain :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+rangeFactorDomain :: forall m s_multi. MonadIO m => MultiAff %1 -> IslT m MultiAff
 rangeFactorDomain = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go multi =
@@ -292,7 +293,7 @@ rangeFactorDomain = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_range_factor_range" c_rangeFactorRange :: MultiAff -> IO MultiAff
 
-rangeFactorRange :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+rangeFactorRange :: forall m s_multi. MonadIO m => MultiAff %1 -> IslT m MultiAff
 rangeFactorRange = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go multi =
@@ -301,7 +302,7 @@ rangeFactorRange = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_range_splice" c_rangeSplice :: MultiAff -> C.CUInt -> MultiAff -> IO MultiAff
 
-rangeSplice :: forall m. MonadIO m => MultiAff %1 -> Int -> MultiAff %1 -> IslT m MultiAff
+rangeSplice :: forall m s_multi1 s_multi2. MonadIO m => MultiAff %1 -> Int -> MultiAff %1 -> IslT m MultiAff
 rangeSplice = unsafeCoerce go where
   go :: MultiAff -> Int -> MultiAff -> IslT m MultiAff
   go multi1 pos multi2 =
@@ -310,7 +311,7 @@ rangeSplice = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_reset_tuple_id" c_resetTupleId :: MultiAff -> DimType -> IO MultiAff
 
-resetTupleId :: forall m. MonadIO m => MultiAff %1 -> DimType -> IslT m MultiAff
+resetTupleId :: forall m s_multi. MonadIO m => MultiAff %1 -> DimType -> IslT m MultiAff
 resetTupleId = unsafeCoerce go where
   go :: MultiAff -> DimType -> IslT m MultiAff
   go multi typ =
@@ -319,7 +320,7 @@ resetTupleId = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_reset_user" c_resetUser :: MultiAff -> IO MultiAff
 
-resetUser :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+resetUser :: forall m s_multi. MonadIO m => MultiAff %1 -> IslT m MultiAff
 resetUser = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go multi =
@@ -328,7 +329,7 @@ resetUser = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_scale_down_val" c_scaleDownVal :: MultiAff -> Val -> IO MultiAff
 
-scaleDownVal :: forall m. MonadIO m => MultiAff %1 -> Val %1 -> IslT m MultiAff
+scaleDownVal :: forall m s_multi s_v. MonadIO m => MultiAff %1 -> Val %1 -> IslT m MultiAff
 scaleDownVal = unsafeCoerce go where
   go :: MultiAff -> Val -> IslT m MultiAff
   go multi v =
@@ -337,7 +338,7 @@ scaleDownVal = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_scale_val" c_scaleVal :: MultiAff -> Val -> IO MultiAff
 
-scaleVal :: forall m. MonadIO m => MultiAff %1 -> Val %1 -> IslT m MultiAff
+scaleVal :: forall m s_multi s_v. MonadIO m => MultiAff %1 -> Val %1 -> IslT m MultiAff
 scaleVal = unsafeCoerce go where
   go :: MultiAff -> Val -> IslT m MultiAff
   go multi v =
@@ -346,7 +347,7 @@ scaleVal = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_set_aff" c_setAff :: MultiAff -> C.CInt -> Aff -> IO MultiAff
 
-setAff :: forall m. MonadIO m => MultiAff %1 -> Int -> Aff %1 -> IslT m MultiAff
+setAff :: forall m s_multi s_el. MonadIO m => MultiAff %1 -> Int -> Aff %1 -> IslT m MultiAff
 setAff = unsafeCoerce go where
   go :: MultiAff -> Int -> Aff -> IslT m MultiAff
   go multi pos el =
@@ -355,7 +356,7 @@ setAff = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_set_dim_id" c_setDimId :: MultiAff -> DimType -> C.CUInt -> Id -> IO MultiAff
 
-setDimId :: forall m. MonadIO m => MultiAff %1 -> DimType -> Int -> Id %1 -> IslT m MultiAff
+setDimId :: forall m s_multi s_id. MonadIO m => MultiAff %1 -> DimType -> Int -> Id %1 -> IslT m MultiAff
 setDimId = unsafeCoerce go where
   go :: MultiAff -> DimType -> Int -> Id -> IslT m MultiAff
   go multi typ pos id =
@@ -364,7 +365,7 @@ setDimId = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_set_dim_name" c_setDimName :: MultiAff -> DimType -> C.CUInt -> C.CString -> IO MultiAff
 
-setDimName :: forall m. MonadIO m => MultiAff %1 -> DimType -> Int -> String -> IslT m MultiAff
+setDimName :: forall m s_multi. MonadIO m => MultiAff %1 -> DimType -> Int -> String -> IslT m MultiAff
 setDimName = unsafeCoerce go where
   go :: MultiAff -> DimType -> Int -> String -> IslT m MultiAff
   go multi typ pos s =
@@ -375,7 +376,7 @@ setDimName = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_set_range_tuple_id" c_setRangeTupleId :: MultiAff -> Id -> IO MultiAff
 
-setRangeTupleId :: forall m. MonadIO m => MultiAff %1 -> Id %1 -> IslT m MultiAff
+setRangeTupleId :: forall m s_multi s_id. MonadIO m => MultiAff %1 -> Id %1 -> IslT m MultiAff
 setRangeTupleId = unsafeCoerce go where
   go :: MultiAff -> Id -> IslT m MultiAff
   go multi id =
@@ -384,7 +385,7 @@ setRangeTupleId = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_set_tuple_id" c_setTupleId :: MultiAff -> DimType -> Id -> IO MultiAff
 
-setTupleId :: forall m. MonadIO m => MultiAff %1 -> DimType -> Id %1 -> IslT m MultiAff
+setTupleId :: forall m s_multi s_id. MonadIO m => MultiAff %1 -> DimType -> Id %1 -> IslT m MultiAff
 setTupleId = unsafeCoerce go where
   go :: MultiAff -> DimType -> Id -> IslT m MultiAff
   go multi typ id =
@@ -393,7 +394,7 @@ setTupleId = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_set_tuple_name" c_setTupleName :: MultiAff -> DimType -> C.CString -> IO MultiAff
 
-setTupleName :: forall m. MonadIO m => MultiAff %1 -> DimType -> String -> IslT m MultiAff
+setTupleName :: forall m s_multi. MonadIO m => MultiAff %1 -> DimType -> String -> IslT m MultiAff
 setTupleName = unsafeCoerce go where
   go :: MultiAff -> DimType -> String -> IslT m MultiAff
   go multi typ s =
@@ -404,104 +405,104 @@ setTupleName = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_splice" c_splice :: MultiAff -> C.CUInt -> C.CUInt -> MultiAff -> IO MultiAff
 
-splice :: forall m. MonadIO m => MultiAff %1 -> Int -> Int -> MultiAff %1 -> IslT m MultiAff
+splice :: forall m s_multi1 s_multi2. MonadIO m => MultiAff %1 -> Int -> Int -> MultiAff %1 -> IslT m MultiAff
 splice = unsafeCoerce go where
   go :: MultiAff -> Int -> Int -> MultiAff -> IslT m MultiAff
   go multi1 in_pos out_pos multi2 =
     unsafeIslFromIO $ \_ -> c_splice multi1 (fromIntegral in_pos) (fromIntegral out_pos) multi2
 
 
-foreign import ccall "isl_multi_aff_get_dim_id" c_getDimId :: MultiAffRef -> DimType -> C.CUInt -> IO Id
+foreign import ccall "isl_multi_aff_get_dim_id" c_getDimId :: MultiAffRef s_multi -> DimType -> C.CUInt -> IO Id
 
-getDimId :: MonadIO m => MultiAffRef -> DimType -> Int -> IslT m Id
+getDimId :: MonadIO m => MultiAffRef s_multi -> DimType -> Int -> IslT m Id
 getDimId multi typ pos =
     unsafeIslFromIO $ \_ -> c_getDimId multi typ (fromIntegral pos)
 
 
-foreign import ccall "isl_multi_aff_get_tuple_id" c_getTupleId :: MultiAffRef -> DimType -> IO Id
+foreign import ccall "isl_multi_aff_get_tuple_id" c_getTupleId :: MultiAffRef s_multi -> DimType -> IO Id
 
-getTupleId :: MonadIO m => MultiAffRef -> DimType -> IslT m Id
+getTupleId :: MonadIO m => MultiAffRef s_multi -> DimType -> IslT m Id
 getTupleId multi typ =
     unsafeIslFromIO $ \_ -> c_getTupleId multi typ
 
 
-foreign import ccall "isl_multi_aff_to_str" c_toStr :: MultiAffRef -> IO C.CString
+foreign import ccall "isl_multi_aff_to_str" c_toStr :: MultiAffRef s_ma -> IO C.CString
 
-toStr :: MultiAffRef -> String
+toStr :: MultiAffRef s_ma -> String
 toStr ma =
     let !r = unsafePerformIO $ C.peekCString =<< c_toStr ma in r
 
 
-foreign import ccall "isl_multi_aff_involves_locals" c_involvesLocals :: MultiAffRef -> IO C.CInt
+foreign import ccall "isl_multi_aff_involves_locals" c_involvesLocals :: MultiAffRef s_multi -> IO C.CInt
 
-involvesLocals :: MultiAffRef -> Int
+involvesLocals :: MultiAffRef s_multi -> Int
 involvesLocals multi =
     let !r = unsafePerformIO $ fromIntegral <$> c_involvesLocals multi in r
 
 
-foreign import ccall "isl_multi_aff_involves_nan" c_involvesNan :: MultiAffRef -> IO C.CInt
+foreign import ccall "isl_multi_aff_involves_nan" c_involvesNan :: MultiAffRef s_multi -> IO C.CInt
 
-involvesNan :: MultiAffRef -> Int
+involvesNan :: MultiAffRef s_multi -> Int
 involvesNan multi =
     let !r = unsafePerformIO $ fromIntegral <$> c_involvesNan multi in r
 
 
-foreign import ccall "isl_multi_aff_size" c_size :: MultiAffRef -> IO C.CInt
+foreign import ccall "isl_multi_aff_size" c_size :: MultiAffRef s_multi -> IO C.CInt
 
-size :: MultiAffRef -> Int
+size :: MultiAffRef s_multi -> Int
 size multi =
     let !r = unsafePerformIO $ fromIntegral <$> c_size multi in r
 
 
-foreign import ccall "isl_multi_aff_has_range_tuple_id" c_hasRangeTupleId :: MultiAffRef -> IO C.CBool
+foreign import ccall "isl_multi_aff_has_range_tuple_id" c_hasRangeTupleId :: MultiAffRef s_multi -> IO C.CBool
 
-hasRangeTupleId :: MultiAffRef -> Bool
+hasRangeTupleId :: MultiAffRef s_multi -> Bool
 hasRangeTupleId multi =
     let !r = unsafePerformIO $ M.toBool <$> c_hasRangeTupleId multi in r
 
 
-foreign import ccall "isl_multi_aff_plain_is_equal" c_plainIsEqual :: MultiAffRef -> MultiAffRef -> IO C.CBool
+foreign import ccall "isl_multi_aff_plain_is_equal" c_plainIsEqual :: MultiAffRef s_multi1 -> MultiAffRef s_multi2 -> IO C.CBool
 
-plainIsEqual :: MultiAffRef -> MultiAffRef -> Bool
+plainIsEqual :: MultiAffRef s_multi1 -> MultiAffRef s_multi2 -> Bool
 plainIsEqual multi1 multi2 =
     let !r = unsafePerformIO $ M.toBool <$> c_plainIsEqual multi1 multi2 in r
 
 
 foreign import ccall "isl_multi_aff_as_set" c_asSet :: MultiAff -> IO Set
 
-asSet :: forall m. MonadIO m => MultiAff %1 -> IslT m Set
+asSet :: forall m s_ma. MonadIO m => MultiAff %1 -> IslT m Set
 asSet = unsafeCoerce go where
   go :: MultiAff -> IslT m Set
   go ma =
     unsafeIslFromIO $ \_ -> c_asSet ma
 
 
-foreign import ccall "isl_multi_aff_get_space" c_getSpace :: MultiAffRef -> IO Space
+foreign import ccall "isl_multi_aff_get_space" c_getSpace :: MultiAffRef s_multi -> IO Space
 
-getSpace :: MonadIO m => MultiAffRef -> IslT m Space
+getSpace :: MonadIO m => MultiAffRef s_multi -> IslT m Space
 getSpace multi =
     unsafeIslFromIO $ \_ -> c_getSpace multi
 
 
 foreign import ccall "isl_multi_aff_as_map" c_asMap :: MultiAff -> IO Map
 
-asMap :: forall m. MonadIO m => MultiAff %1 -> IslT m Map
+asMap :: forall m s_ma. MonadIO m => MultiAff %1 -> IslT m Map
 asMap = unsafeCoerce go where
   go :: MultiAff -> IslT m Map
   go ma =
     unsafeIslFromIO $ \_ -> c_asMap ma
 
 
-foreign import ccall "isl_multi_aff_get_at" c_getAt :: MultiAffRef -> C.CInt -> IO Aff
+foreign import ccall "isl_multi_aff_get_at" c_getAt :: MultiAffRef s_multi -> C.CInt -> IO Aff
 
-getAt :: MonadIO m => MultiAffRef -> Int -> IslT m Aff
+getAt :: MonadIO m => MultiAffRef s_multi -> Int -> IslT m Aff
 getAt multi pos =
     unsafeIslFromIO $ \_ -> c_getAt multi (fromIntegral pos)
 
 
 foreign import ccall "isl_multi_aff_add" c_add :: MultiAff -> MultiAff -> IO MultiAff
 
-add :: forall m. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m MultiAff
+add :: forall m s_multi1 s_multi2. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m MultiAff
 add = unsafeCoerce go where
   go :: MultiAff -> MultiAff -> IslT m MultiAff
   go multi1 multi2 =
@@ -510,7 +511,7 @@ add = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_domain_map" c_domainMap :: Space -> IO MultiAff
 
-domainMap :: forall m. MonadIO m => Space %1 -> IslT m MultiAff
+domainMap :: forall m s_space. MonadIO m => Space %1 -> IslT m MultiAff
 domainMap = unsafeCoerce go where
   go :: Space -> IslT m MultiAff
   go space =
@@ -519,7 +520,7 @@ domainMap = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_domain_reverse" c_domainReverse :: MultiAff -> IO MultiAff
 
-domainReverse :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+domainReverse :: forall m s_multi. MonadIO m => MultiAff %1 -> IslT m MultiAff
 domainReverse = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go multi =
@@ -528,7 +529,7 @@ domainReverse = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_flat_range_product" c_flatRangeProduct :: MultiAff -> MultiAff -> IO MultiAff
 
-flatRangeProduct :: forall m. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m MultiAff
+flatRangeProduct :: forall m s_multi1 s_multi2. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m MultiAff
 flatRangeProduct = unsafeCoerce go where
   go :: MultiAff -> MultiAff -> IslT m MultiAff
   go multi1 multi2 =
@@ -537,7 +538,7 @@ flatRangeProduct = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_floor" c_floor :: MultiAff -> IO MultiAff
 
-floor :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+floor :: forall m s_ma. MonadIO m => MultiAff %1 -> IslT m MultiAff
 floor = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go ma =
@@ -546,7 +547,7 @@ floor = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_gist" c_gist :: MultiAff -> Set -> IO MultiAff
 
-gist :: forall m. MonadIO m => MultiAff %1 -> Set %1 -> IslT m MultiAff
+gist :: forall m s_maff s_context. MonadIO m => MultiAff %1 -> Set %1 -> IslT m MultiAff
 gist = unsafeCoerce go where
   go :: MultiAff -> Set -> IslT m MultiAff
   go maff context =
@@ -555,7 +556,7 @@ gist = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_gist_params" c_gistParams :: MultiAff -> Set -> IO MultiAff
 
-gistParams :: forall m. MonadIO m => MultiAff %1 -> Set %1 -> IslT m MultiAff
+gistParams :: forall m s_maff s_context. MonadIO m => MultiAff %1 -> Set %1 -> IslT m MultiAff
 gistParams = unsafeCoerce go where
   go :: MultiAff -> Set -> IslT m MultiAff
   go maff context =
@@ -564,7 +565,7 @@ gistParams = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_insert_domain" c_insertDomain :: MultiAff -> Space -> IO MultiAff
 
-insertDomain :: forall m. MonadIO m => MultiAff %1 -> Space %1 -> IslT m MultiAff
+insertDomain :: forall m s_multi s_domain. MonadIO m => MultiAff %1 -> Space %1 -> IslT m MultiAff
 insertDomain = unsafeCoerce go where
   go :: MultiAff -> Space -> IslT m MultiAff
   go multi domain =
@@ -573,7 +574,7 @@ insertDomain = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_neg" c_neg :: MultiAff -> IO MultiAff
 
-neg :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+neg :: forall m s_multi. MonadIO m => MultiAff %1 -> IslT m MultiAff
 neg = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go multi =
@@ -582,7 +583,7 @@ neg = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_product" c_product :: MultiAff -> MultiAff -> IO MultiAff
 
-product :: forall m. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m MultiAff
+product :: forall m s_multi1 s_multi2. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m MultiAff
 product = unsafeCoerce go where
   go :: MultiAff -> MultiAff -> IslT m MultiAff
   go multi1 multi2 =
@@ -591,7 +592,7 @@ product = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_range_map" c_rangeMap :: Space -> IO MultiAff
 
-rangeMap :: forall m. MonadIO m => Space %1 -> IslT m MultiAff
+rangeMap :: forall m s_space. MonadIO m => Space %1 -> IslT m MultiAff
 rangeMap = unsafeCoerce go where
   go :: Space -> IslT m MultiAff
   go space =
@@ -600,7 +601,7 @@ rangeMap = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_range_product" c_rangeProduct :: MultiAff -> MultiAff -> IO MultiAff
 
-rangeProduct :: forall m. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m MultiAff
+rangeProduct :: forall m s_multi1 s_multi2. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m MultiAff
 rangeProduct = unsafeCoerce go where
   go :: MultiAff -> MultiAff -> IslT m MultiAff
   go multi1 multi2 =
@@ -609,7 +610,7 @@ rangeProduct = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_reset_range_tuple_id" c_resetRangeTupleId :: MultiAff -> IO MultiAff
 
-resetRangeTupleId :: forall m. MonadIO m => MultiAff %1 -> IslT m MultiAff
+resetRangeTupleId :: forall m s_multi. MonadIO m => MultiAff %1 -> IslT m MultiAff
 resetRangeTupleId = unsafeCoerce go where
   go :: MultiAff -> IslT m MultiAff
   go multi =
@@ -618,7 +619,7 @@ resetRangeTupleId = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_set_at" c_setAt :: MultiAff -> C.CInt -> Aff -> IO MultiAff
 
-setAt :: forall m. MonadIO m => MultiAff %1 -> Int -> Aff %1 -> IslT m MultiAff
+setAt :: forall m s_multi s_el. MonadIO m => MultiAff %1 -> Int -> Aff %1 -> IslT m MultiAff
 setAt = unsafeCoerce go where
   go :: MultiAff -> Int -> Aff -> IslT m MultiAff
   go multi pos el =
@@ -627,7 +628,7 @@ setAt = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_sub" c_sub :: MultiAff -> MultiAff -> IO MultiAff
 
-sub :: forall m. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m MultiAff
+sub :: forall m s_multi1 s_multi2. MonadIO m => MultiAff %1 -> MultiAff %1 -> IslT m MultiAff
 sub = unsafeCoerce go where
   go :: MultiAff -> MultiAff -> IslT m MultiAff
   go multi1 multi2 =
@@ -636,7 +637,7 @@ sub = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_zero" c_zero :: Space -> IO MultiAff
 
-zero :: forall m. MonadIO m => Space %1 -> IslT m MultiAff
+zero :: forall m s_space. MonadIO m => Space %1 -> IslT m MultiAff
 zero = unsafeCoerce go where
   go :: Space -> IslT m MultiAff
   go space =
@@ -645,30 +646,30 @@ zero = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_to_pw_multi_aff" c_toPwMultiAff :: MultiAff -> IO PwMultiAff
 
-toPwMultiAff :: forall m. MonadIO m => MultiAff %1 -> IslT m PwMultiAff
+toPwMultiAff :: forall m s_ma. MonadIO m => MultiAff %1 -> IslT m PwMultiAff
 toPwMultiAff = unsafeCoerce go where
   go :: MultiAff -> IslT m PwMultiAff
   go ma =
     unsafeIslFromIO $ \_ -> c_toPwMultiAff ma
 
 
-foreign import ccall "isl_multi_aff_get_range_tuple_id" c_getRangeTupleId :: MultiAffRef -> IO Id
+foreign import ccall "isl_multi_aff_get_range_tuple_id" c_getRangeTupleId :: MultiAffRef s_multi -> IO Id
 
-getRangeTupleId :: MonadIO m => MultiAffRef -> IslT m Id
+getRangeTupleId :: MonadIO m => MultiAffRef s_multi -> IslT m Id
 getRangeTupleId multi =
     unsafeIslFromIO $ \_ -> c_getRangeTupleId multi
 
 
-foreign import ccall "isl_multi_aff_get_list" c_getList :: MultiAffRef -> IO AffList
+foreign import ccall "isl_multi_aff_get_list" c_getList :: MultiAffRef s_multi -> IO AffList
 
-getList :: MonadIO m => MultiAffRef -> IslT m AffList
+getList :: MonadIO m => MultiAffRef s_multi -> IslT m AffList
 getList multi =
     unsafeIslFromIO $ \_ -> c_getList multi
 
 
 foreign import ccall "isl_multi_aff_from_aff" c_fromAff :: Aff -> IO MultiAff
 
-fromAff :: forall m. MonadIO m => Aff %1 -> IslT m MultiAff
+fromAff :: forall m s_aff. MonadIO m => Aff %1 -> IslT m MultiAff
 fromAff = unsafeCoerce go where
   go :: Aff -> IslT m MultiAff
   go aff =
@@ -677,7 +678,7 @@ fromAff = unsafeCoerce go where
 
 foreign import ccall "isl_multi_aff_from_aff_list" c_fromAffList :: Space -> AffList -> IO MultiAff
 
-fromAffList :: forall m. MonadIO m => Space %1 -> AffList %1 -> IslT m MultiAff
+fromAffList :: forall m s_space s_list. MonadIO m => Space %1 -> AffList %1 -> IslT m MultiAff
 fromAffList = unsafeCoerce go where
   go :: Space -> AffList -> IslT m MultiAff
   go space list =

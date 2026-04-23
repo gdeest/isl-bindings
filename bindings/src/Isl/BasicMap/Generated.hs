@@ -8,7 +8,8 @@
 
 module Isl.BasicMap.Generated where
 
-import Isl.Types
+import Isl.Types (DimType(..))
+import Isl.Types.Raw
 import Isl.Types.Internal (Consumable(..), Borrow(..), Dupable(..))
 import Isl.Monad.Internal
 import Control.Monad.IO.Class (MonadIO)
@@ -21,16 +22,16 @@ import Foreign.Marshal.Utils as M
 import System.IO.Unsafe
 import Unsafe.Coerce (unsafeCoerce)
 
-foreign import ccall "isl_basic_map_dim" c_dim :: BasicMapRef -> DimType -> IO C.CInt
+foreign import ccall "isl_basic_map_dim" c_dim :: BasicMapRef s_bmap -> DimType -> IO C.CInt
 
-dim :: BasicMapRef -> DimType -> Int
+dim :: BasicMapRef s_bmap -> DimType -> Int
 dim bmap typ =
     let !r = unsafePerformIO $ fromIntegral <$> c_dim bmap typ in r
 
 
-foreign import ccall "isl_basic_map_find_dim_by_name" c_findDimByName :: BasicMapRef -> DimType -> C.CString -> IO C.CInt
+foreign import ccall "isl_basic_map_find_dim_by_name" c_findDimByName :: BasicMapRef s_bmap -> DimType -> C.CString -> IO C.CInt
 
-findDimByName :: BasicMapRef -> DimType -> String -> Int
+findDimByName :: BasicMapRef s_bmap -> DimType -> String -> Int
 findDimByName bmap typ name =
     let !r = unsafePerformIO $ do
           name_c <- C.newCString name
@@ -38,135 +39,135 @@ findDimByName bmap typ name =
     in r
 
 
-foreign import ccall "isl_basic_map_involves_dims" c_involvesDims :: BasicMapRef -> DimType -> C.CUInt -> C.CUInt -> IO C.CInt
+foreign import ccall "isl_basic_map_involves_dims" c_involvesDims :: BasicMapRef s_bmap -> DimType -> C.CUInt -> C.CUInt -> IO C.CInt
 
-involvesDims :: BasicMapRef -> DimType -> Int -> Int -> Int
+involvesDims :: BasicMapRef s_bmap -> DimType -> Int -> Int -> Int
 involvesDims bmap typ first n =
     let !r = unsafePerformIO $ fromIntegral <$> c_involvesDims bmap typ (fromIntegral first) (fromIntegral n) in r
 
 
-foreign import ccall "isl_basic_map_n_constraint" c_nConstraint :: BasicMapRef -> IO C.CInt
+foreign import ccall "isl_basic_map_n_constraint" c_nConstraint :: BasicMapRef s_bmap -> IO C.CInt
 
-nConstraint :: BasicMapRef -> Int
+nConstraint :: BasicMapRef s_bmap -> Int
 nConstraint bmap =
     let !r = unsafePerformIO $ fromIntegral <$> c_nConstraint bmap in r
 
 
-foreign import ccall "isl_basic_map_dump" c_dump :: BasicMapRef -> IO ()
+foreign import ccall "isl_basic_map_dump" c_dump :: BasicMapRef s_bmap -> IO ()
 
-dump :: BasicMapRef -> ()
+dump :: BasicMapRef s_bmap -> ()
 dump bmap =
     let !r = unsafePerformIO $ c_dump bmap in r
 
 
-foreign import ccall "isl_basic_map_get_dim_name" c_getDimName :: BasicMapRef -> DimType -> C.CUInt -> IO C.CString
+foreign import ccall "isl_basic_map_get_dim_name" c_getDimName :: BasicMapRef s_bmap -> DimType -> C.CUInt -> IO C.CString
 
-getDimName :: BasicMapRef -> DimType -> Int -> String
+getDimName :: BasicMapRef s_bmap -> DimType -> Int -> String
 getDimName bmap typ pos =
     let !r = unsafePerformIO $ C.peekCString =<< c_getDimName bmap typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_basic_map_get_tuple_name" c_getTupleName :: BasicMapRef -> DimType -> IO C.CString
+foreign import ccall "isl_basic_map_get_tuple_name" c_getTupleName :: BasicMapRef s_bmap -> DimType -> IO C.CString
 
-getTupleName :: BasicMapRef -> DimType -> String
+getTupleName :: BasicMapRef s_bmap -> DimType -> String
 getTupleName bmap typ =
     let !r = unsafePerformIO $ C.peekCString =<< c_getTupleName bmap typ in r
 
 
-foreign import ccall "isl_basic_map_can_curry" c_canCurry :: BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_can_curry" c_canCurry :: BasicMapRef s_bmap -> IO C.CBool
 
-canCurry :: BasicMapRef -> Bool
+canCurry :: BasicMapRef s_bmap -> Bool
 canCurry bmap =
     let !r = unsafePerformIO $ M.toBool <$> c_canCurry bmap in r
 
 
-foreign import ccall "isl_basic_map_can_uncurry" c_canUncurry :: BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_can_uncurry" c_canUncurry :: BasicMapRef s_bmap -> IO C.CBool
 
-canUncurry :: BasicMapRef -> Bool
+canUncurry :: BasicMapRef s_bmap -> Bool
 canUncurry bmap =
     let !r = unsafePerformIO $ M.toBool <$> c_canUncurry bmap in r
 
 
-foreign import ccall "isl_basic_map_can_zip" c_canZip :: BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_can_zip" c_canZip :: BasicMapRef s_bmap -> IO C.CBool
 
-canZip :: BasicMapRef -> Bool
+canZip :: BasicMapRef s_bmap -> Bool
 canZip bmap =
     let !r = unsafePerformIO $ M.toBool <$> c_canZip bmap in r
 
 
-foreign import ccall "isl_basic_map_has_dim_id" c_hasDimId :: BasicMapRef -> DimType -> C.CUInt -> IO C.CBool
+foreign import ccall "isl_basic_map_has_dim_id" c_hasDimId :: BasicMapRef s_bmap -> DimType -> C.CUInt -> IO C.CBool
 
-hasDimId :: BasicMapRef -> DimType -> Int -> Bool
+hasDimId :: BasicMapRef s_bmap -> DimType -> Int -> Bool
 hasDimId bmap typ pos =
     let !r = unsafePerformIO $ M.toBool <$> c_hasDimId bmap typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_basic_map_image_is_bounded" c_imageIsBounded :: BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_image_is_bounded" c_imageIsBounded :: BasicMapRef s_bmap -> IO C.CBool
 
-imageIsBounded :: BasicMapRef -> Bool
+imageIsBounded :: BasicMapRef s_bmap -> Bool
 imageIsBounded bmap =
     let !r = unsafePerformIO $ M.toBool <$> c_imageIsBounded bmap in r
 
 
-foreign import ccall "isl_basic_map_is_disjoint" c_isDisjoint :: BasicMapRef -> BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_is_disjoint" c_isDisjoint :: BasicMapRef s_bmap1 -> BasicMapRef s_bmap2 -> IO C.CBool
 
-isDisjoint :: BasicMapRef -> BasicMapRef -> Bool
+isDisjoint :: BasicMapRef s_bmap1 -> BasicMapRef s_bmap2 -> Bool
 isDisjoint bmap1 bmap2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isDisjoint bmap1 bmap2 in r
 
 
-foreign import ccall "isl_basic_map_is_rational" c_isRational :: BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_is_rational" c_isRational :: BasicMapRef s_bmap -> IO C.CBool
 
-isRational :: BasicMapRef -> Bool
+isRational :: BasicMapRef s_bmap -> Bool
 isRational bmap =
     let !r = unsafePerformIO $ M.toBool <$> c_isRational bmap in r
 
 
-foreign import ccall "isl_basic_map_is_single_valued" c_isSingleValued :: BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_is_single_valued" c_isSingleValued :: BasicMapRef s_bmap -> IO C.CBool
 
-isSingleValued :: BasicMapRef -> Bool
+isSingleValued :: BasicMapRef s_bmap -> Bool
 isSingleValued bmap =
     let !r = unsafePerformIO $ M.toBool <$> c_isSingleValued bmap in r
 
 
-foreign import ccall "isl_basic_map_is_strict_subset" c_isStrictSubset :: BasicMapRef -> BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_is_strict_subset" c_isStrictSubset :: BasicMapRef s_bmap1 -> BasicMapRef s_bmap2 -> IO C.CBool
 
-isStrictSubset :: BasicMapRef -> BasicMapRef -> Bool
+isStrictSubset :: BasicMapRef s_bmap1 -> BasicMapRef s_bmap2 -> Bool
 isStrictSubset bmap1 bmap2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isStrictSubset bmap1 bmap2 in r
 
 
-foreign import ccall "isl_basic_map_is_universe" c_isUniverse :: BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_is_universe" c_isUniverse :: BasicMapRef s_bmap -> IO C.CBool
 
-isUniverse :: BasicMapRef -> Bool
+isUniverse :: BasicMapRef s_bmap -> Bool
 isUniverse bmap =
     let !r = unsafePerformIO $ M.toBool <$> c_isUniverse bmap in r
 
 
-foreign import ccall "isl_basic_map_plain_is_empty" c_plainIsEmpty :: BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_plain_is_empty" c_plainIsEmpty :: BasicMapRef s_bmap -> IO C.CBool
 
-plainIsEmpty :: BasicMapRef -> Bool
+plainIsEmpty :: BasicMapRef s_bmap -> Bool
 plainIsEmpty bmap =
     let !r = unsafePerformIO $ M.toBool <$> c_plainIsEmpty bmap in r
 
 
-foreign import ccall "isl_basic_map_plain_is_universe" c_plainIsUniverse :: BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_plain_is_universe" c_plainIsUniverse :: BasicMapRef s_bmap -> IO C.CBool
 
-plainIsUniverse :: BasicMapRef -> Bool
+plainIsUniverse :: BasicMapRef s_bmap -> Bool
 plainIsUniverse bmap =
     let !r = unsafePerformIO $ M.toBool <$> c_plainIsUniverse bmap in r
 
 
-foreign import ccall "isl_basic_map_get_space" c_getSpace :: BasicMapRef -> IO Space
+foreign import ccall "isl_basic_map_get_space" c_getSpace :: BasicMapRef s_bmap -> IO Space
 
-getSpace :: MonadIO m => BasicMapRef -> IslT m Space
+getSpace :: MonadIO m => BasicMapRef s_bmap -> IslT m Space
 getSpace bmap =
     unsafeIslFromIO $ \_ -> c_getSpace bmap
 
 
 foreign import ccall "isl_basic_map_compute_divs" c_computeDivs :: BasicMap -> IO Map
 
-computeDivs :: forall m. MonadIO m => BasicMap %1 -> IslT m Map
+computeDivs :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m Map
 computeDivs = unsafeCoerce go where
   go :: BasicMap -> IslT m Map
   go bmap =
@@ -175,7 +176,7 @@ computeDivs = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_add_constraint" c_addConstraint :: BasicMap -> Constraint -> IO BasicMap
 
-addConstraint :: forall m. MonadIO m => BasicMap %1 -> Constraint %1 -> IslT m BasicMap
+addConstraint :: forall m s_bmap s_constraint. MonadIO m => BasicMap %1 -> Constraint %1 -> IslT m BasicMap
 addConstraint = unsafeCoerce go where
   go :: BasicMap -> Constraint -> IslT m BasicMap
   go bmap constraint =
@@ -184,7 +185,7 @@ addConstraint = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_add_dims" c_addDims :: BasicMap -> DimType -> C.CUInt -> IO BasicMap
 
-addDims :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> IslT m BasicMap
+addDims :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> IslT m BasicMap
 addDims = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> IslT m BasicMap
   go bmap typ n =
@@ -193,7 +194,7 @@ addDims = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_align_params" c_alignParams :: BasicMap -> Space -> IO BasicMap
 
-alignParams :: forall m. MonadIO m => BasicMap %1 -> Space %1 -> IslT m BasicMap
+alignParams :: forall m s_bmap s_model. MonadIO m => BasicMap %1 -> Space %1 -> IslT m BasicMap
 alignParams = unsafeCoerce go where
   go :: BasicMap -> Space -> IslT m BasicMap
   go bmap model =
@@ -202,7 +203,7 @@ alignParams = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_curry" c_curry :: BasicMap -> IO BasicMap
 
-curry :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+curry :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 curry = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -211,7 +212,7 @@ curry = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_deltas_map" c_deltasMap :: BasicMap -> IO BasicMap
 
-deltasMap :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+deltasMap :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 deltasMap = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -220,7 +221,7 @@ deltasMap = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_domain_map" c_domainMap :: BasicMap -> IO BasicMap
 
-domainMap :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+domainMap :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 domainMap = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -229,7 +230,7 @@ domainMap = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_domain_product" c_domainProduct :: BasicMap -> BasicMap -> IO BasicMap
 
-domainProduct :: forall m. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
+domainProduct :: forall m s_bmap1 s_bmap2. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
 domainProduct = unsafeCoerce go where
   go :: BasicMap -> BasicMap -> IslT m BasicMap
   go bmap1 bmap2 =
@@ -238,7 +239,7 @@ domainProduct = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_drop_constraints_involving_dims" c_dropConstraintsInvolvingDims :: BasicMap -> DimType -> C.CUInt -> C.CUInt -> IO BasicMap
 
-dropConstraintsInvolvingDims :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
+dropConstraintsInvolvingDims :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
 dropConstraintsInvolvingDims = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> Int -> IslT m BasicMap
   go bmap typ first n =
@@ -247,7 +248,7 @@ dropConstraintsInvolvingDims = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_drop_constraints_not_involving_dims" c_dropConstraintsNotInvolvingDims :: BasicMap -> DimType -> C.CUInt -> C.CUInt -> IO BasicMap
 
-dropConstraintsNotInvolvingDims :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
+dropConstraintsNotInvolvingDims :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
 dropConstraintsNotInvolvingDims = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> Int -> IslT m BasicMap
   go bmap typ first n =
@@ -256,7 +257,7 @@ dropConstraintsNotInvolvingDims = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_drop_unused_params" c_dropUnusedParams :: BasicMap -> IO BasicMap
 
-dropUnusedParams :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+dropUnusedParams :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 dropUnusedParams = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -265,7 +266,7 @@ dropUnusedParams = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_eliminate" c_eliminate :: BasicMap -> DimType -> C.CUInt -> C.CUInt -> IO BasicMap
 
-eliminate :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
+eliminate :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
 eliminate = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> Int -> IslT m BasicMap
   go bmap typ first n =
@@ -274,7 +275,7 @@ eliminate = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_empty" c_empty :: Space -> IO BasicMap
 
-empty :: forall m. MonadIO m => Space %1 -> IslT m BasicMap
+empty :: forall m s_space. MonadIO m => Space %1 -> IslT m BasicMap
 empty = unsafeCoerce go where
   go :: Space -> IslT m BasicMap
   go space =
@@ -283,7 +284,7 @@ empty = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_equal" c_equal :: Space -> C.CUInt -> IO BasicMap
 
-equal :: forall m. MonadIO m => Space %1 -> Int -> IslT m BasicMap
+equal :: forall m s_space. MonadIO m => Space %1 -> Int -> IslT m BasicMap
 equal = unsafeCoerce go where
   go :: Space -> Int -> IslT m BasicMap
   go space n_equal =
@@ -292,7 +293,7 @@ equal = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_equate" c_equate :: BasicMap -> DimType -> C.CInt -> DimType -> C.CInt -> IO BasicMap
 
-equate :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> DimType -> Int -> IslT m BasicMap
+equate :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> DimType -> Int -> IslT m BasicMap
 equate = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> DimType -> Int -> IslT m BasicMap
   go bmap type1 pos1 type2 pos2 =
@@ -301,7 +302,7 @@ equate = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_fix_si" c_fixSi :: BasicMap -> DimType -> C.CUInt -> C.CInt -> IO BasicMap
 
-fixSi :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
+fixSi :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
 fixSi = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> Int -> IslT m BasicMap
   go bmap typ pos value =
@@ -310,7 +311,7 @@ fixSi = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_fix_val" c_fixVal :: BasicMap -> DimType -> C.CUInt -> Val -> IO BasicMap
 
-fixVal :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> Val %1 -> IslT m BasicMap
+fixVal :: forall m s_bmap s_v. MonadIO m => BasicMap %1 -> DimType -> Int -> Val %1 -> IslT m BasicMap
 fixVal = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> Val -> IslT m BasicMap
   go bmap typ pos v =
@@ -319,7 +320,7 @@ fixVal = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_flat_product" c_flatProduct :: BasicMap -> BasicMap -> IO BasicMap
 
-flatProduct :: forall m. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
+flatProduct :: forall m s_bmap1 s_bmap2. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
 flatProduct = unsafeCoerce go where
   go :: BasicMap -> BasicMap -> IslT m BasicMap
   go bmap1 bmap2 =
@@ -328,7 +329,7 @@ flatProduct = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_flat_range_product" c_flatRangeProduct :: BasicMap -> BasicMap -> IO BasicMap
 
-flatRangeProduct :: forall m. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
+flatRangeProduct :: forall m s_bmap1 s_bmap2. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
 flatRangeProduct = unsafeCoerce go where
   go :: BasicMap -> BasicMap -> IslT m BasicMap
   go bmap1 bmap2 =
@@ -337,7 +338,7 @@ flatRangeProduct = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_from_aff" c_fromAff :: Aff -> IO BasicMap
 
-fromAff :: forall m. MonadIO m => Aff %1 -> IslT m BasicMap
+fromAff :: forall m s_aff. MonadIO m => Aff %1 -> IslT m BasicMap
 fromAff = unsafeCoerce go where
   go :: Aff -> IslT m BasicMap
   go aff =
@@ -346,7 +347,7 @@ fromAff = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_from_aff_list" c_fromAffList :: Space -> AffList -> IO BasicMap
 
-fromAffList :: forall m. MonadIO m => Space %1 -> AffList %1 -> IslT m BasicMap
+fromAffList :: forall m s_domain_space s_list. MonadIO m => Space %1 -> AffList %1 -> IslT m BasicMap
 fromAffList = unsafeCoerce go where
   go :: Space -> AffList -> IslT m BasicMap
   go domain_space list =
@@ -355,7 +356,7 @@ fromAffList = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_from_constraint" c_fromConstraint :: Constraint -> IO BasicMap
 
-fromConstraint :: forall m. MonadIO m => Constraint %1 -> IslT m BasicMap
+fromConstraint :: forall m s_constraint. MonadIO m => Constraint %1 -> IslT m BasicMap
 fromConstraint = unsafeCoerce go where
   go :: Constraint -> IslT m BasicMap
   go constraint =
@@ -364,7 +365,7 @@ fromConstraint = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_from_domain" c_fromDomain :: BasicSet -> IO BasicMap
 
-fromDomain :: forall m. MonadIO m => BasicSet %1 -> IslT m BasicMap
+fromDomain :: forall m s_bset. MonadIO m => BasicSet %1 -> IslT m BasicMap
 fromDomain = unsafeCoerce go where
   go :: BasicSet -> IslT m BasicMap
   go bset =
@@ -373,7 +374,7 @@ fromDomain = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_from_domain_and_range" c_fromDomainAndRange :: BasicSet -> BasicSet -> IO BasicMap
 
-fromDomainAndRange :: forall m. MonadIO m => BasicSet %1 -> BasicSet %1 -> IslT m BasicMap
+fromDomainAndRange :: forall m s_domain s_range. MonadIO m => BasicSet %1 -> BasicSet %1 -> IslT m BasicMap
 fromDomainAndRange = unsafeCoerce go where
   go :: BasicSet -> BasicSet -> IslT m BasicMap
   go domain range =
@@ -382,7 +383,7 @@ fromDomainAndRange = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_from_multi_aff" c_fromMultiAff :: MultiAff -> IO BasicMap
 
-fromMultiAff :: forall m. MonadIO m => MultiAff %1 -> IslT m BasicMap
+fromMultiAff :: forall m s_maff. MonadIO m => MultiAff %1 -> IslT m BasicMap
 fromMultiAff = unsafeCoerce go where
   go :: MultiAff -> IslT m BasicMap
   go maff =
@@ -391,7 +392,7 @@ fromMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_from_range" c_fromRange :: BasicSet -> IO BasicMap
 
-fromRange :: forall m. MonadIO m => BasicSet %1 -> IslT m BasicMap
+fromRange :: forall m s_bset. MonadIO m => BasicSet %1 -> IslT m BasicMap
 fromRange = unsafeCoerce go where
   go :: BasicSet -> IslT m BasicMap
   go bset =
@@ -400,7 +401,7 @@ fromRange = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_gist_domain" c_gistDomain :: BasicMap -> BasicSet -> IO BasicMap
 
-gistDomain :: forall m. MonadIO m => BasicMap %1 -> BasicSet %1 -> IslT m BasicMap
+gistDomain :: forall m s_bmap s_context. MonadIO m => BasicMap %1 -> BasicSet %1 -> IslT m BasicMap
 gistDomain = unsafeCoerce go where
   go :: BasicMap -> BasicSet -> IslT m BasicMap
   go bmap context =
@@ -409,7 +410,7 @@ gistDomain = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_identity" c_identity :: Space -> IO BasicMap
 
-identity :: forall m. MonadIO m => Space %1 -> IslT m BasicMap
+identity :: forall m s_space. MonadIO m => Space %1 -> IslT m BasicMap
 identity = unsafeCoerce go where
   go :: Space -> IslT m BasicMap
   go space =
@@ -418,7 +419,7 @@ identity = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_insert_dims" c_insertDims :: BasicMap -> DimType -> C.CUInt -> C.CUInt -> IO BasicMap
 
-insertDims :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
+insertDims :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
 insertDims = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> Int -> IslT m BasicMap
   go bmap typ pos n =
@@ -427,7 +428,7 @@ insertDims = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_less_at" c_lessAt :: Space -> C.CUInt -> IO BasicMap
 
-lessAt :: forall m. MonadIO m => Space %1 -> Int -> IslT m BasicMap
+lessAt :: forall m s_space. MonadIO m => Space %1 -> Int -> IslT m BasicMap
 lessAt = unsafeCoerce go where
   go :: Space -> Int -> IslT m BasicMap
   go space pos =
@@ -436,7 +437,7 @@ lessAt = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_lower_bound_si" c_lowerBoundSi :: BasicMap -> DimType -> C.CUInt -> C.CInt -> IO BasicMap
 
-lowerBoundSi :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
+lowerBoundSi :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
 lowerBoundSi = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> Int -> IslT m BasicMap
   go bmap typ pos value =
@@ -445,7 +446,7 @@ lowerBoundSi = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_more_at" c_moreAt :: Space -> C.CUInt -> IO BasicMap
 
-moreAt :: forall m. MonadIO m => Space %1 -> Int -> IslT m BasicMap
+moreAt :: forall m s_space. MonadIO m => Space %1 -> Int -> IslT m BasicMap
 moreAt = unsafeCoerce go where
   go :: Space -> Int -> IslT m BasicMap
   go space pos =
@@ -454,7 +455,7 @@ moreAt = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_move_dims" c_moveDims :: BasicMap -> DimType -> C.CUInt -> DimType -> C.CUInt -> C.CUInt -> IO BasicMap
 
-moveDims :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> DimType -> Int -> Int -> IslT m BasicMap
+moveDims :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> DimType -> Int -> Int -> IslT m BasicMap
 moveDims = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> DimType -> Int -> Int -> IslT m BasicMap
   go bmap dst_type dst_pos src_type src_pos n =
@@ -463,7 +464,7 @@ moveDims = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_nat_universe" c_natUniverse :: Space -> IO BasicMap
 
-natUniverse :: forall m. MonadIO m => Space %1 -> IslT m BasicMap
+natUniverse :: forall m s_space. MonadIO m => Space %1 -> IslT m BasicMap
 natUniverse = unsafeCoerce go where
   go :: Space -> IslT m BasicMap
   go space =
@@ -472,7 +473,7 @@ natUniverse = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_neg" c_neg :: BasicMap -> IO BasicMap
 
-neg :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+neg :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 neg = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -481,7 +482,7 @@ neg = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_order_ge" c_orderGe :: BasicMap -> DimType -> C.CInt -> DimType -> C.CInt -> IO BasicMap
 
-orderGe :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> DimType -> Int -> IslT m BasicMap
+orderGe :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> DimType -> Int -> IslT m BasicMap
 orderGe = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> DimType -> Int -> IslT m BasicMap
   go bmap type1 pos1 type2 pos2 =
@@ -490,7 +491,7 @@ orderGe = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_order_gt" c_orderGt :: BasicMap -> DimType -> C.CInt -> DimType -> C.CInt -> IO BasicMap
 
-orderGt :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> DimType -> Int -> IslT m BasicMap
+orderGt :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> DimType -> Int -> IslT m BasicMap
 orderGt = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> DimType -> Int -> IslT m BasicMap
   go bmap type1 pos1 type2 pos2 =
@@ -499,7 +500,7 @@ orderGt = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_preimage_domain_multi_aff" c_preimageDomainMultiAff :: BasicMap -> MultiAff -> IO BasicMap
 
-preimageDomainMultiAff :: forall m. MonadIO m => BasicMap %1 -> MultiAff %1 -> IslT m BasicMap
+preimageDomainMultiAff :: forall m s_bmap s_ma. MonadIO m => BasicMap %1 -> MultiAff %1 -> IslT m BasicMap
 preimageDomainMultiAff = unsafeCoerce go where
   go :: BasicMap -> MultiAff -> IslT m BasicMap
   go bmap ma =
@@ -508,7 +509,7 @@ preimageDomainMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_preimage_range_multi_aff" c_preimageRangeMultiAff :: BasicMap -> MultiAff -> IO BasicMap
 
-preimageRangeMultiAff :: forall m. MonadIO m => BasicMap %1 -> MultiAff %1 -> IslT m BasicMap
+preimageRangeMultiAff :: forall m s_bmap s_ma. MonadIO m => BasicMap %1 -> MultiAff %1 -> IslT m BasicMap
 preimageRangeMultiAff = unsafeCoerce go where
   go :: BasicMap -> MultiAff -> IslT m BasicMap
   go bmap ma =
@@ -517,7 +518,7 @@ preimageRangeMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_product" c_product :: BasicMap -> BasicMap -> IO BasicMap
 
-product :: forall m. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
+product :: forall m s_bmap1 s_bmap2. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
 product = unsafeCoerce go where
   go :: BasicMap -> BasicMap -> IslT m BasicMap
   go bmap1 bmap2 =
@@ -526,7 +527,7 @@ product = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_project_out" c_projectOut :: BasicMap -> DimType -> C.CUInt -> C.CUInt -> IO BasicMap
 
-projectOut :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
+projectOut :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
 projectOut = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> Int -> IslT m BasicMap
   go bmap typ first n =
@@ -535,7 +536,7 @@ projectOut = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_range_map" c_rangeMap :: BasicMap -> IO BasicMap
 
-rangeMap :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+rangeMap :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 rangeMap = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -544,7 +545,7 @@ rangeMap = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_range_product" c_rangeProduct :: BasicMap -> BasicMap -> IO BasicMap
 
-rangeProduct :: forall m. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
+rangeProduct :: forall m s_bmap1 s_bmap2. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
 rangeProduct = unsafeCoerce go where
   go :: BasicMap -> BasicMap -> IslT m BasicMap
   go bmap1 bmap2 =
@@ -553,7 +554,7 @@ rangeProduct = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_remove_dims" c_removeDims :: BasicMap -> DimType -> C.CUInt -> C.CUInt -> IO BasicMap
 
-removeDims :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
+removeDims :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
 removeDims = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> Int -> IslT m BasicMap
   go bmap typ first n =
@@ -562,7 +563,7 @@ removeDims = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_remove_divs" c_removeDivs :: BasicMap -> IO BasicMap
 
-removeDivs :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+removeDivs :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 removeDivs = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -571,7 +572,7 @@ removeDivs = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_remove_divs_involving_dims" c_removeDivsInvolvingDims :: BasicMap -> DimType -> C.CUInt -> C.CUInt -> IO BasicMap
 
-removeDivsInvolvingDims :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
+removeDivsInvolvingDims :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
 removeDivsInvolvingDims = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> Int -> IslT m BasicMap
   go bmap typ first n =
@@ -580,7 +581,7 @@ removeDivsInvolvingDims = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_remove_redundancies" c_removeRedundancies :: BasicMap -> IO BasicMap
 
-removeRedundancies :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+removeRedundancies :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 removeRedundancies = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -589,7 +590,7 @@ removeRedundancies = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_set_dim_name" c_setDimName :: BasicMap -> DimType -> C.CUInt -> C.CString -> IO BasicMap
 
-setDimName :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> String -> IslT m BasicMap
+setDimName :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> String -> IslT m BasicMap
 setDimName = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> String -> IslT m BasicMap
   go bmap typ pos s =
@@ -600,7 +601,7 @@ setDimName = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_set_tuple_id" c_setTupleId :: BasicMap -> DimType -> Id -> IO BasicMap
 
-setTupleId :: forall m. MonadIO m => BasicMap %1 -> DimType -> Id %1 -> IslT m BasicMap
+setTupleId :: forall m s_bmap s_id. MonadIO m => BasicMap %1 -> DimType -> Id %1 -> IslT m BasicMap
 setTupleId = unsafeCoerce go where
   go :: BasicMap -> DimType -> Id -> IslT m BasicMap
   go bmap typ id =
@@ -609,7 +610,7 @@ setTupleId = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_set_tuple_name" c_setTupleName :: BasicMap -> DimType -> C.CString -> IO BasicMap
 
-setTupleName :: forall m. MonadIO m => BasicMap %1 -> DimType -> String -> IslT m BasicMap
+setTupleName :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> String -> IslT m BasicMap
 setTupleName = unsafeCoerce go where
   go :: BasicMap -> DimType -> String -> IslT m BasicMap
   go bmap typ s =
@@ -620,7 +621,7 @@ setTupleName = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_sum" c_sum :: BasicMap -> BasicMap -> IO BasicMap
 
-sum :: forall m. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
+sum :: forall m s_bmap1 s_bmap2. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
 sum = unsafeCoerce go where
   go :: BasicMap -> BasicMap -> IslT m BasicMap
   go bmap1 bmap2 =
@@ -629,7 +630,7 @@ sum = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_uncurry" c_uncurry :: BasicMap -> IO BasicMap
 
-uncurry :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+uncurry :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 uncurry = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -638,7 +639,7 @@ uncurry = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_universe" c_universe :: Space -> IO BasicMap
 
-universe :: forall m. MonadIO m => Space %1 -> IslT m BasicMap
+universe :: forall m s_space. MonadIO m => Space %1 -> IslT m BasicMap
 universe = unsafeCoerce go where
   go :: Space -> IslT m BasicMap
   go space =
@@ -647,7 +648,7 @@ universe = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_upper_bound_si" c_upperBoundSi :: BasicMap -> DimType -> C.CUInt -> C.CInt -> IO BasicMap
 
-upperBoundSi :: forall m. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
+upperBoundSi :: forall m s_bmap. MonadIO m => BasicMap %1 -> DimType -> Int -> Int -> IslT m BasicMap
 upperBoundSi = unsafeCoerce go where
   go :: BasicMap -> DimType -> Int -> Int -> IslT m BasicMap
   go bmap typ pos value =
@@ -656,7 +657,7 @@ upperBoundSi = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_zip" c_zip :: BasicMap -> IO BasicMap
 
-zip :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+zip :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 zip = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -665,7 +666,7 @@ zip = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_domain" c_domain :: BasicMap -> IO BasicSet
 
-domain :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicSet
+domain :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicSet
 domain = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicSet
   go bmap =
@@ -674,7 +675,7 @@ domain = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_range" c_range :: BasicMap -> IO BasicSet
 
-range :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicSet
+range :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicSet
 range = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicSet
   go bmap =
@@ -683,74 +684,74 @@ range = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_wrap" c_wrap :: BasicMap -> IO BasicSet
 
-wrap :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicSet
+wrap :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicSet
 wrap = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicSet
   go bmap =
     unsafeIslFromIO $ \_ -> c_wrap bmap
 
 
-foreign import ccall "isl_basic_map_plain_get_val_if_fixed" c_plainGetValIfFixed :: BasicMapRef -> DimType -> C.CUInt -> IO Val
+foreign import ccall "isl_basic_map_plain_get_val_if_fixed" c_plainGetValIfFixed :: BasicMapRef s_bmap -> DimType -> C.CUInt -> IO Val
 
-plainGetValIfFixed :: MonadIO m => BasicMapRef -> DimType -> Int -> IslT m Val
+plainGetValIfFixed :: MonadIO m => BasicMapRef s_bmap -> DimType -> Int -> IslT m Val
 plainGetValIfFixed bmap typ pos =
     unsafeIslFromIO $ \_ -> c_plainGetValIfFixed bmap typ (fromIntegral pos)
 
 
-foreign import ccall "isl_basic_map_get_div" c_getDiv :: BasicMapRef -> C.CInt -> IO Aff
+foreign import ccall "isl_basic_map_get_div" c_getDiv :: BasicMapRef s_bmap -> C.CInt -> IO Aff
 
-getDiv :: MonadIO m => BasicMapRef -> Int -> IslT m Aff
+getDiv :: MonadIO m => BasicMapRef s_bmap -> Int -> IslT m Aff
 getDiv bmap pos =
     unsafeIslFromIO $ \_ -> c_getDiv bmap (fromIntegral pos)
 
 
 foreign import ccall "isl_basic_map_lexmin_pw_multi_aff" c_lexminPwMultiAff :: BasicMap -> IO PwMultiAff
 
-lexminPwMultiAff :: forall m. MonadIO m => BasicMap %1 -> IslT m PwMultiAff
+lexminPwMultiAff :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m PwMultiAff
 lexminPwMultiAff = unsafeCoerce go where
   go :: BasicMap -> IslT m PwMultiAff
   go bmap =
     unsafeIslFromIO $ \_ -> c_lexminPwMultiAff bmap
 
 
-foreign import ccall "isl_basic_map_to_str" c_toStr :: BasicMapRef -> IO C.CString
+foreign import ccall "isl_basic_map_to_str" c_toStr :: BasicMapRef s_bmap -> IO C.CString
 
-toStr :: BasicMapRef -> String
+toStr :: BasicMapRef s_bmap -> String
 toStr bmap =
     let !r = unsafePerformIO $ C.peekCString =<< c_toStr bmap in r
 
 
-foreign import ccall "isl_basic_map_get_local_space" c_getLocalSpace :: BasicMapRef -> IO LocalSpace
+foreign import ccall "isl_basic_map_get_local_space" c_getLocalSpace :: BasicMapRef s_bmap -> IO LocalSpace
 
-getLocalSpace :: MonadIO m => BasicMapRef -> IslT m LocalSpace
+getLocalSpace :: MonadIO m => BasicMapRef s_bmap -> IslT m LocalSpace
 getLocalSpace bmap =
     unsafeIslFromIO $ \_ -> c_getLocalSpace bmap
 
 
-foreign import ccall "isl_basic_map_is_empty" c_isEmpty :: BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_is_empty" c_isEmpty :: BasicMapRef s_bmap -> IO C.CBool
 
-isEmpty :: BasicMapRef -> Bool
+isEmpty :: BasicMapRef s_bmap -> Bool
 isEmpty bmap =
     let !r = unsafePerformIO $ M.toBool <$> c_isEmpty bmap in r
 
 
-foreign import ccall "isl_basic_map_is_equal" c_isEqual :: BasicMapRef -> BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_is_equal" c_isEqual :: BasicMapRef s_bmap1 -> BasicMapRef s_bmap2 -> IO C.CBool
 
-isEqual :: BasicMapRef -> BasicMapRef -> Bool
+isEqual :: BasicMapRef s_bmap1 -> BasicMapRef s_bmap2 -> Bool
 isEqual bmap1 bmap2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isEqual bmap1 bmap2 in r
 
 
-foreign import ccall "isl_basic_map_is_subset" c_isSubset :: BasicMapRef -> BasicMapRef -> IO C.CBool
+foreign import ccall "isl_basic_map_is_subset" c_isSubset :: BasicMapRef s_bmap1 -> BasicMapRef s_bmap2 -> IO C.CBool
 
-isSubset :: BasicMapRef -> BasicMapRef -> Bool
+isSubset :: BasicMapRef s_bmap1 -> BasicMapRef s_bmap2 -> Bool
 isSubset bmap1 bmap2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isSubset bmap1 bmap2 in r
 
 
 foreign import ccall "isl_basic_map_lexmax" c_lexmax :: BasicMap -> IO Map
 
-lexmax :: forall m. MonadIO m => BasicMap %1 -> IslT m Map
+lexmax :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m Map
 lexmax = unsafeCoerce go where
   go :: BasicMap -> IslT m Map
   go bmap =
@@ -759,7 +760,7 @@ lexmax = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_lexmin" c_lexmin :: BasicMap -> IO Map
 
-lexmin :: forall m. MonadIO m => BasicMap %1 -> IslT m Map
+lexmin :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m Map
 lexmin = unsafeCoerce go where
   go :: BasicMap -> IslT m Map
   go bmap =
@@ -768,7 +769,7 @@ lexmin = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_union" c_union :: BasicMap -> BasicMap -> IO Map
 
-union :: forall m. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m Map
+union :: forall m s_bmap1 s_bmap2. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m Map
 union = unsafeCoerce go where
   go :: BasicMap -> BasicMap -> IslT m Map
   go bmap1 bmap2 =
@@ -777,7 +778,7 @@ union = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_affine_hull" c_affineHull :: BasicMap -> IO BasicMap
 
-affineHull :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+affineHull :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 affineHull = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -786,7 +787,7 @@ affineHull = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_apply_domain" c_applyDomain :: BasicMap -> BasicMap -> IO BasicMap
 
-applyDomain :: forall m. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
+applyDomain :: forall m s_bmap1 s_bmap2. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
 applyDomain = unsafeCoerce go where
   go :: BasicMap -> BasicMap -> IslT m BasicMap
   go bmap1 bmap2 =
@@ -795,7 +796,7 @@ applyDomain = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_apply_range" c_applyRange :: BasicMap -> BasicMap -> IO BasicMap
 
-applyRange :: forall m. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
+applyRange :: forall m s_bmap1 s_bmap2. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
 applyRange = unsafeCoerce go where
   go :: BasicMap -> BasicMap -> IslT m BasicMap
   go bmap1 bmap2 =
@@ -804,7 +805,7 @@ applyRange = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_detect_equalities" c_detectEqualities :: BasicMap -> IO BasicMap
 
-detectEqualities :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+detectEqualities :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 detectEqualities = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -813,7 +814,7 @@ detectEqualities = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_flatten" c_flatten :: BasicMap -> IO BasicMap
 
-flatten :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+flatten :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 flatten = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -822,7 +823,7 @@ flatten = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_flatten_domain" c_flattenDomain :: BasicMap -> IO BasicMap
 
-flattenDomain :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+flattenDomain :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 flattenDomain = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -831,7 +832,7 @@ flattenDomain = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_flatten_range" c_flattenRange :: BasicMap -> IO BasicMap
 
-flattenRange :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+flattenRange :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 flattenRange = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -840,7 +841,7 @@ flattenRange = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_gist" c_gist :: BasicMap -> BasicMap -> IO BasicMap
 
-gist :: forall m. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
+gist :: forall m s_bmap s_context. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
 gist = unsafeCoerce go where
   go :: BasicMap -> BasicMap -> IslT m BasicMap
   go bmap context =
@@ -849,7 +850,7 @@ gist = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_intersect" c_intersect :: BasicMap -> BasicMap -> IO BasicMap
 
-intersect :: forall m. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
+intersect :: forall m s_bmap1 s_bmap2. MonadIO m => BasicMap %1 -> BasicMap %1 -> IslT m BasicMap
 intersect = unsafeCoerce go where
   go :: BasicMap -> BasicMap -> IslT m BasicMap
   go bmap1 bmap2 =
@@ -858,7 +859,7 @@ intersect = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_intersect_domain" c_intersectDomain :: BasicMap -> BasicSet -> IO BasicMap
 
-intersectDomain :: forall m. MonadIO m => BasicMap %1 -> BasicSet %1 -> IslT m BasicMap
+intersectDomain :: forall m s_bmap s_bset. MonadIO m => BasicMap %1 -> BasicSet %1 -> IslT m BasicMap
 intersectDomain = unsafeCoerce go where
   go :: BasicMap -> BasicSet -> IslT m BasicMap
   go bmap bset =
@@ -867,7 +868,7 @@ intersectDomain = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_intersect_params" c_intersectParams :: BasicMap -> BasicSet -> IO BasicMap
 
-intersectParams :: forall m. MonadIO m => BasicMap %1 -> BasicSet %1 -> IslT m BasicMap
+intersectParams :: forall m s_bmap s_bset. MonadIO m => BasicMap %1 -> BasicSet %1 -> IslT m BasicMap
 intersectParams = unsafeCoerce go where
   go :: BasicMap -> BasicSet -> IslT m BasicMap
   go bmap bset =
@@ -876,7 +877,7 @@ intersectParams = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_intersect_range" c_intersectRange :: BasicMap -> BasicSet -> IO BasicMap
 
-intersectRange :: forall m. MonadIO m => BasicMap %1 -> BasicSet %1 -> IslT m BasicMap
+intersectRange :: forall m s_bmap s_bset. MonadIO m => BasicMap %1 -> BasicSet %1 -> IslT m BasicMap
 intersectRange = unsafeCoerce go where
   go :: BasicMap -> BasicSet -> IslT m BasicMap
   go bmap bset =
@@ -885,7 +886,7 @@ intersectRange = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_reverse" c_reverse :: BasicMap -> IO BasicMap
 
-reverse :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+reverse :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 reverse = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -894,7 +895,7 @@ reverse = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_sample" c_sample :: BasicMap -> IO BasicMap
 
-sample :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicMap
+sample :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicMap
 sample = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicMap
   go bmap =
@@ -903,7 +904,7 @@ sample = unsafeCoerce go where
 
 foreign import ccall "isl_basic_map_deltas" c_deltas :: BasicMap -> IO BasicSet
 
-deltas :: forall m. MonadIO m => BasicMap %1 -> IslT m BasicSet
+deltas :: forall m s_bmap. MonadIO m => BasicMap %1 -> IslT m BasicSet
 deltas = unsafeCoerce go where
   go :: BasicMap -> IslT m BasicSet
   go bmap =

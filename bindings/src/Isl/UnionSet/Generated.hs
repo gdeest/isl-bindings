@@ -8,7 +8,8 @@
 
 module Isl.UnionSet.Generated where
 
-import Isl.Types
+import Isl.Types (DimType(..))
+import Isl.Types.Raw
 import Isl.Types.Internal (Consumable(..), Borrow(..), Dupable(..))
 import Isl.Monad.Internal
 import Control.Monad.IO.Class (MonadIO)
@@ -21,44 +22,44 @@ import Foreign.Marshal.Utils as M
 import System.IO.Unsafe
 import Unsafe.Coerce (unsafeCoerce)
 
-foreign import ccall "isl_union_set_contains" c_contains :: UnionSetRef -> SpaceRef -> IO C.CInt
+foreign import ccall "isl_union_set_contains" c_contains :: UnionSetRef s_uset -> SpaceRef s_space -> IO C.CInt
 
-contains :: UnionSetRef -> SpaceRef -> Int
+contains :: UnionSetRef s_uset -> SpaceRef s_space -> Int
 contains uset space =
     let !r = unsafePerformIO $ fromIntegral <$> c_contains uset space in r
 
 
-foreign import ccall "isl_union_set_dim" c_dim :: UnionSetRef -> DimType -> IO C.CInt
+foreign import ccall "isl_union_set_dim" c_dim :: UnionSetRef s_uset -> DimType -> IO C.CInt
 
-dim :: UnionSetRef -> DimType -> Int
+dim :: UnionSetRef s_uset -> DimType -> Int
 dim uset typ =
     let !r = unsafePerformIO $ fromIntegral <$> c_dim uset typ in r
 
 
-foreign import ccall "isl_union_set_n_set" c_nSet :: UnionSetRef -> IO C.CInt
+foreign import ccall "isl_union_set_n_set" c_nSet :: UnionSetRef s_uset -> IO C.CInt
 
-nSet :: UnionSetRef -> Int
+nSet :: UnionSetRef s_uset -> Int
 nSet uset =
     let !r = unsafePerformIO $ fromIntegral <$> c_nSet uset in r
 
 
-foreign import ccall "isl_union_set_dump" c_dump :: UnionSetRef -> IO ()
+foreign import ccall "isl_union_set_dump" c_dump :: UnionSetRef s_uset -> IO ()
 
-dump :: UnionSetRef -> ()
+dump :: UnionSetRef s_uset -> ()
 dump uset =
     let !r = unsafePerformIO $ c_dump uset in r
 
 
-foreign import ccall "isl_union_set_is_params" c_isParams :: UnionSetRef -> IO C.CBool
+foreign import ccall "isl_union_set_is_params" c_isParams :: UnionSetRef s_uset -> IO C.CBool
 
-isParams :: UnionSetRef -> Bool
+isParams :: UnionSetRef s_uset -> Bool
 isParams uset =
     let !r = unsafePerformIO $ M.toBool <$> c_isParams uset in r
 
 
 foreign import ccall "isl_union_set_lex_ge_union_set" c_lexGeUnionSet :: UnionSet -> UnionSet -> IO UnionMap
 
-lexGeUnionSet :: forall m. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionMap
+lexGeUnionSet :: forall m s_uset1 s_uset2. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionMap
 lexGeUnionSet = unsafeCoerce go where
   go :: UnionSet -> UnionSet -> IslT m UnionMap
   go uset1 uset2 =
@@ -67,7 +68,7 @@ lexGeUnionSet = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_lex_gt_union_set" c_lexGtUnionSet :: UnionSet -> UnionSet -> IO UnionMap
 
-lexGtUnionSet :: forall m. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionMap
+lexGtUnionSet :: forall m s_uset1 s_uset2. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionMap
 lexGtUnionSet = unsafeCoerce go where
   go :: UnionSet -> UnionSet -> IslT m UnionMap
   go uset1 uset2 =
@@ -76,7 +77,7 @@ lexGtUnionSet = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_lex_le_union_set" c_lexLeUnionSet :: UnionSet -> UnionSet -> IO UnionMap
 
-lexLeUnionSet :: forall m. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionMap
+lexLeUnionSet :: forall m s_uset1 s_uset2. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionMap
 lexLeUnionSet = unsafeCoerce go where
   go :: UnionSet -> UnionSet -> IslT m UnionMap
   go uset1 uset2 =
@@ -85,7 +86,7 @@ lexLeUnionSet = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_lex_lt_union_set" c_lexLtUnionSet :: UnionSet -> UnionSet -> IO UnionMap
 
-lexLtUnionSet :: forall m. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionMap
+lexLtUnionSet :: forall m s_uset1 s_uset2. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionMap
 lexLtUnionSet = unsafeCoerce go where
   go :: UnionSet -> UnionSet -> IslT m UnionMap
   go uset1 uset2 =
@@ -94,7 +95,7 @@ lexLtUnionSet = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_wrapped_domain_map" c_wrappedDomainMap :: UnionSet -> IO UnionMap
 
-wrappedDomainMap :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionMap
+wrappedDomainMap :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionMap
 wrappedDomainMap = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionMap
   go uset =
@@ -103,7 +104,7 @@ wrappedDomainMap = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_sample" c_sample :: UnionSet -> IO BasicSet
 
-sample :: forall m. MonadIO m => UnionSet %1 -> IslT m BasicSet
+sample :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m BasicSet
 sample = unsafeCoerce go where
   go :: UnionSet -> IslT m BasicSet
   go uset =
@@ -112,7 +113,7 @@ sample = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_add_set" c_addSet :: UnionSet -> Set -> IO UnionSet
 
-addSet :: forall m. MonadIO m => UnionSet %1 -> Set %1 -> IslT m UnionSet
+addSet :: forall m s_uset s_set. MonadIO m => UnionSet %1 -> Set %1 -> IslT m UnionSet
 addSet = unsafeCoerce go where
   go :: UnionSet -> Set -> IslT m UnionSet
   go uset set =
@@ -121,7 +122,7 @@ addSet = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_align_params" c_alignParams :: UnionSet -> Space -> IO UnionSet
 
-alignParams :: forall m. MonadIO m => UnionSet %1 -> Space %1 -> IslT m UnionSet
+alignParams :: forall m s_uset s_model. MonadIO m => UnionSet %1 -> Space %1 -> IslT m UnionSet
 alignParams = unsafeCoerce go where
   go :: UnionSet -> Space -> IslT m UnionSet
   go uset model =
@@ -130,7 +131,7 @@ alignParams = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_coefficients" c_coefficients :: UnionSet -> IO UnionSet
 
-coefficients :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+coefficients :: forall m s_bset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 coefficients = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go bset =
@@ -139,7 +140,7 @@ coefficients = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_empty" c_empty :: Space -> IO UnionSet
 
-empty :: forall m. MonadIO m => Space %1 -> IslT m UnionSet
+empty :: forall m s_space. MonadIO m => Space %1 -> IslT m UnionSet
 empty = unsafeCoerce go where
   go :: Space -> IslT m UnionSet
   go space =
@@ -155,7 +156,7 @@ emptyCtx =
 
 foreign import ccall "isl_union_set_empty_space" c_emptySpace :: Space -> IO UnionSet
 
-emptySpace :: forall m. MonadIO m => Space %1 -> IslT m UnionSet
+emptySpace :: forall m s_space. MonadIO m => Space %1 -> IslT m UnionSet
 emptySpace = unsafeCoerce go where
   go :: Space -> IslT m UnionSet
   go space =
@@ -164,7 +165,7 @@ emptySpace = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_lift" c_lift :: UnionSet -> IO UnionSet
 
-lift :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+lift :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 lift = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -173,7 +174,7 @@ lift = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_preimage_multi_aff" c_preimageMultiAff :: UnionSet -> MultiAff -> IO UnionSet
 
-preimageMultiAff :: forall m. MonadIO m => UnionSet %1 -> MultiAff %1 -> IslT m UnionSet
+preimageMultiAff :: forall m s_uset s_ma. MonadIO m => UnionSet %1 -> MultiAff %1 -> IslT m UnionSet
 preimageMultiAff = unsafeCoerce go where
   go :: UnionSet -> MultiAff -> IslT m UnionSet
   go uset ma =
@@ -182,7 +183,7 @@ preimageMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_preimage_pw_multi_aff" c_preimagePwMultiAff :: UnionSet -> PwMultiAff -> IO UnionSet
 
-preimagePwMultiAff :: forall m. MonadIO m => UnionSet %1 -> PwMultiAff %1 -> IslT m UnionSet
+preimagePwMultiAff :: forall m s_uset s_pma. MonadIO m => UnionSet %1 -> PwMultiAff %1 -> IslT m UnionSet
 preimagePwMultiAff = unsafeCoerce go where
   go :: UnionSet -> PwMultiAff -> IslT m UnionSet
   go uset pma =
@@ -191,7 +192,7 @@ preimagePwMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_product" c_product :: UnionSet -> UnionSet -> IO UnionSet
 
-product :: forall m. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionSet
+product :: forall m s_uset1 s_uset2. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionSet
 product = unsafeCoerce go where
   go :: UnionSet -> UnionSet -> IslT m UnionSet
   go uset1 uset2 =
@@ -200,7 +201,7 @@ product = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_project_out" c_projectOut :: UnionSet -> DimType -> C.CUInt -> C.CUInt -> IO UnionSet
 
-projectOut :: forall m. MonadIO m => UnionSet %1 -> DimType -> Int -> Int -> IslT m UnionSet
+projectOut :: forall m s_uset. MonadIO m => UnionSet %1 -> DimType -> Int -> Int -> IslT m UnionSet
 projectOut = unsafeCoerce go where
   go :: UnionSet -> DimType -> Int -> Int -> IslT m UnionSet
   go uset typ first n =
@@ -209,7 +210,7 @@ projectOut = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_remove_divs" c_removeDivs :: UnionSet -> IO UnionSet
 
-removeDivs :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+removeDivs :: forall m s_bset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 removeDivs = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go bset =
@@ -218,7 +219,7 @@ removeDivs = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_remove_redundancies" c_removeRedundancies :: UnionSet -> IO UnionSet
 
-removeRedundancies :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+removeRedundancies :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 removeRedundancies = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -227,7 +228,7 @@ removeRedundancies = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_reset_user" c_resetUser :: UnionSet -> IO UnionSet
 
-resetUser :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+resetUser :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 resetUser = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -236,7 +237,7 @@ resetUser = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_simple_hull" c_simpleHull :: UnionSet -> IO UnionSet
 
-simpleHull :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+simpleHull :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 simpleHull = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -245,99 +246,99 @@ simpleHull = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_solutions" c_solutions :: UnionSet -> IO UnionSet
 
-solutions :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+solutions :: forall m s_bset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 solutions = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go bset =
     unsafeIslFromIO $ \_ -> c_solutions bset
 
 
-foreign import ccall "isl_union_set_to_str" c_toStr :: UnionSetRef -> IO C.CString
+foreign import ccall "isl_union_set_to_str" c_toStr :: UnionSetRef s_uset -> IO C.CString
 
-toStr :: UnionSetRef -> String
+toStr :: UnionSetRef s_uset -> String
 toStr uset =
     let !r = unsafePerformIO $ C.peekCString =<< c_toStr uset in r
 
 
-foreign import ccall "isl_union_set_isa_set" c_isaSet :: UnionSetRef -> IO C.CInt
+foreign import ccall "isl_union_set_isa_set" c_isaSet :: UnionSetRef s_uset -> IO C.CInt
 
-isaSet :: UnionSetRef -> Int
+isaSet :: UnionSetRef s_uset -> Int
 isaSet uset =
     let !r = unsafePerformIO $ fromIntegral <$> c_isaSet uset in r
 
 
-foreign import ccall "isl_union_set_is_disjoint" c_isDisjoint :: UnionSetRef -> UnionSetRef -> IO C.CBool
+foreign import ccall "isl_union_set_is_disjoint" c_isDisjoint :: UnionSetRef s_uset1 -> UnionSetRef s_uset2 -> IO C.CBool
 
-isDisjoint :: UnionSetRef -> UnionSetRef -> Bool
+isDisjoint :: UnionSetRef s_uset1 -> UnionSetRef s_uset2 -> Bool
 isDisjoint uset1 uset2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isDisjoint uset1 uset2 in r
 
 
-foreign import ccall "isl_union_set_is_empty" c_isEmpty :: UnionSetRef -> IO C.CBool
+foreign import ccall "isl_union_set_is_empty" c_isEmpty :: UnionSetRef s_uset -> IO C.CBool
 
-isEmpty :: UnionSetRef -> Bool
+isEmpty :: UnionSetRef s_uset -> Bool
 isEmpty uset =
     let !r = unsafePerformIO $ M.toBool <$> c_isEmpty uset in r
 
 
-foreign import ccall "isl_union_set_is_equal" c_isEqual :: UnionSetRef -> UnionSetRef -> IO C.CBool
+foreign import ccall "isl_union_set_is_equal" c_isEqual :: UnionSetRef s_uset1 -> UnionSetRef s_uset2 -> IO C.CBool
 
-isEqual :: UnionSetRef -> UnionSetRef -> Bool
+isEqual :: UnionSetRef s_uset1 -> UnionSetRef s_uset2 -> Bool
 isEqual uset1 uset2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isEqual uset1 uset2 in r
 
 
-foreign import ccall "isl_union_set_is_strict_subset" c_isStrictSubset :: UnionSetRef -> UnionSetRef -> IO C.CBool
+foreign import ccall "isl_union_set_is_strict_subset" c_isStrictSubset :: UnionSetRef s_uset1 -> UnionSetRef s_uset2 -> IO C.CBool
 
-isStrictSubset :: UnionSetRef -> UnionSetRef -> Bool
+isStrictSubset :: UnionSetRef s_uset1 -> UnionSetRef s_uset2 -> Bool
 isStrictSubset uset1 uset2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isStrictSubset uset1 uset2 in r
 
 
-foreign import ccall "isl_union_set_is_subset" c_isSubset :: UnionSetRef -> UnionSetRef -> IO C.CBool
+foreign import ccall "isl_union_set_is_subset" c_isSubset :: UnionSetRef s_uset1 -> UnionSetRef s_uset2 -> IO C.CBool
 
-isSubset :: UnionSetRef -> UnionSetRef -> Bool
+isSubset :: UnionSetRef s_uset1 -> UnionSetRef s_uset2 -> Bool
 isSubset uset1 uset2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isSubset uset1 uset2 in r
 
 
 foreign import ccall "isl_union_set_as_set" c_asSet :: UnionSet -> IO Set
 
-asSet :: forall m. MonadIO m => UnionSet %1 -> IslT m Set
+asSet :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m Set
 asSet = unsafeCoerce go where
   go :: UnionSet -> IslT m Set
   go uset =
     unsafeIslFromIO $ \_ -> c_asSet uset
 
 
-foreign import ccall "isl_union_set_extract_set" c_extractSet :: UnionSetRef -> Space -> IO Set
+foreign import ccall "isl_union_set_extract_set" c_extractSet :: UnionSetRef s_uset -> Space -> IO Set
 
-extractSet :: forall m. MonadIO m => UnionSetRef -> Space %1 -> IslT m Set
+extractSet :: forall m s_uset s_space. MonadIO m => UnionSetRef s_uset -> Space %1 -> IslT m Set
 extractSet = unsafeCoerce go where
-  go :: UnionSetRef -> Space -> IslT m Set
+  go :: UnionSetRef s_uset -> Space -> IslT m Set
   go uset space =
     unsafeIslFromIO $ \_ -> c_extractSet uset space
 
 
 foreign import ccall "isl_union_set_params" c_params :: UnionSet -> IO Set
 
-params :: forall m. MonadIO m => UnionSet %1 -> IslT m Set
+params :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m Set
 params = unsafeCoerce go where
   go :: UnionSet -> IslT m Set
   go uset =
     unsafeIslFromIO $ \_ -> c_params uset
 
 
-foreign import ccall "isl_union_set_get_space" c_getSpace :: UnionSetRef -> IO Space
+foreign import ccall "isl_union_set_get_space" c_getSpace :: UnionSetRef s_uset -> IO Space
 
-getSpace :: MonadIO m => UnionSetRef -> IslT m Space
+getSpace :: MonadIO m => UnionSetRef s_uset -> IslT m Space
 getSpace uset =
     unsafeIslFromIO $ \_ -> c_getSpace uset
 
 
 foreign import ccall "isl_union_set_identity" c_identity :: UnionSet -> IO UnionMap
 
-identity :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionMap
+identity :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionMap
 identity = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionMap
   go uset =
@@ -346,7 +347,7 @@ identity = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_unwrap" c_unwrap :: UnionSet -> IO UnionMap
 
-unwrap :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionMap
+unwrap :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionMap
 unwrap = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionMap
   go uset =
@@ -355,7 +356,7 @@ unwrap = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_affine_hull" c_affineHull :: UnionSet -> IO UnionSet
 
-affineHull :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+affineHull :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 affineHull = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -364,7 +365,7 @@ affineHull = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_apply" c_apply :: UnionSet -> UnionMap -> IO UnionSet
 
-apply :: forall m. MonadIO m => UnionSet %1 -> UnionMap %1 -> IslT m UnionSet
+apply :: forall m s_uset s_umap. MonadIO m => UnionSet %1 -> UnionMap %1 -> IslT m UnionSet
 apply = unsafeCoerce go where
   go :: UnionSet -> UnionMap -> IslT m UnionSet
   go uset umap =
@@ -373,7 +374,7 @@ apply = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_coalesce" c_coalesce :: UnionSet -> IO UnionSet
 
-coalesce :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+coalesce :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 coalesce = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -382,7 +383,7 @@ coalesce = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_compute_divs" c_computeDivs :: UnionSet -> IO UnionSet
 
-computeDivs :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+computeDivs :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 computeDivs = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -391,7 +392,7 @@ computeDivs = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_detect_equalities" c_detectEqualities :: UnionSet -> IO UnionSet
 
-detectEqualities :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+detectEqualities :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 detectEqualities = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -400,7 +401,7 @@ detectEqualities = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_drop_unused_params" c_dropUnusedParams :: UnionSet -> IO UnionSet
 
-dropUnusedParams :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+dropUnusedParams :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 dropUnusedParams = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -409,7 +410,7 @@ dropUnusedParams = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_gist" c_gist :: UnionSet -> UnionSet -> IO UnionSet
 
-gist :: forall m. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionSet
+gist :: forall m s_uset s_context. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionSet
 gist = unsafeCoerce go where
   go :: UnionSet -> UnionSet -> IslT m UnionSet
   go uset context =
@@ -418,7 +419,7 @@ gist = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_gist_params" c_gistParams :: UnionSet -> Set -> IO UnionSet
 
-gistParams :: forall m. MonadIO m => UnionSet %1 -> Set %1 -> IslT m UnionSet
+gistParams :: forall m s_uset s_set. MonadIO m => UnionSet %1 -> Set %1 -> IslT m UnionSet
 gistParams = unsafeCoerce go where
   go :: UnionSet -> Set -> IslT m UnionSet
   go uset set =
@@ -427,7 +428,7 @@ gistParams = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_intersect" c_intersect :: UnionSet -> UnionSet -> IO UnionSet
 
-intersect :: forall m. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionSet
+intersect :: forall m s_uset1 s_uset2. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionSet
 intersect = unsafeCoerce go where
   go :: UnionSet -> UnionSet -> IslT m UnionSet
   go uset1 uset2 =
@@ -436,7 +437,7 @@ intersect = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_intersect_params" c_intersectParams :: UnionSet -> Set -> IO UnionSet
 
-intersectParams :: forall m. MonadIO m => UnionSet %1 -> Set %1 -> IslT m UnionSet
+intersectParams :: forall m s_uset s_set. MonadIO m => UnionSet %1 -> Set %1 -> IslT m UnionSet
 intersectParams = unsafeCoerce go where
   go :: UnionSet -> Set -> IslT m UnionSet
   go uset set =
@@ -445,7 +446,7 @@ intersectParams = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_lexmax" c_lexmax :: UnionSet -> IO UnionSet
 
-lexmax :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+lexmax :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 lexmax = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -454,7 +455,7 @@ lexmax = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_lexmin" c_lexmin :: UnionSet -> IO UnionSet
 
-lexmin :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+lexmin :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 lexmin = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -463,7 +464,7 @@ lexmin = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_polyhedral_hull" c_polyhedralHull :: UnionSet -> IO UnionSet
 
-polyhedralHull :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+polyhedralHull :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 polyhedralHull = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -472,7 +473,7 @@ polyhedralHull = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_project_out_all_params" c_projectOutAllParams :: UnionSet -> IO UnionSet
 
-projectOutAllParams :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+projectOutAllParams :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 projectOutAllParams = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -481,7 +482,7 @@ projectOutAllParams = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_subtract" c_subtract :: UnionSet -> UnionSet -> IO UnionSet
 
-subtract :: forall m. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionSet
+subtract :: forall m s_uset1 s_uset2. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionSet
 subtract = unsafeCoerce go where
   go :: UnionSet -> UnionSet -> IslT m UnionSet
   go uset1 uset2 =
@@ -490,7 +491,7 @@ subtract = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_union" c_union :: UnionSet -> UnionSet -> IO UnionSet
 
-union :: forall m. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionSet
+union :: forall m s_uset1 s_uset2. MonadIO m => UnionSet %1 -> UnionSet %1 -> IslT m UnionSet
 union = unsafeCoerce go where
   go :: UnionSet -> UnionSet -> IslT m UnionSet
   go uset1 uset2 =
@@ -499,7 +500,7 @@ union = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_universe" c_universe :: UnionSet -> IO UnionSet
 
-universe :: forall m. MonadIO m => UnionSet %1 -> IslT m UnionSet
+universe :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m UnionSet
 universe = unsafeCoerce go where
   go :: UnionSet -> IslT m UnionSet
   go uset =
@@ -508,7 +509,7 @@ universe = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_from_basic_set" c_fromBasicSet :: BasicSet -> IO UnionSet
 
-fromBasicSet :: forall m. MonadIO m => BasicSet %1 -> IslT m UnionSet
+fromBasicSet :: forall m s_bset. MonadIO m => BasicSet %1 -> IslT m UnionSet
 fromBasicSet = unsafeCoerce go where
   go :: BasicSet -> IslT m UnionSet
   go bset =
@@ -517,7 +518,7 @@ fromBasicSet = unsafeCoerce go where
 
 foreign import ccall "isl_union_set_from_set" c_fromSet :: Set -> IO UnionSet
 
-fromSet :: forall m. MonadIO m => Set %1 -> IslT m UnionSet
+fromSet :: forall m s_set. MonadIO m => Set %1 -> IslT m UnionSet
 fromSet = unsafeCoerce go where
   go :: Set -> IslT m UnionSet
   go set =

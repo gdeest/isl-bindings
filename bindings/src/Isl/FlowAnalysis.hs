@@ -37,7 +37,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.Types
-import Isl.Monad.Internal (IslT(..), unsafeIslFromIO)
+import Isl.Monad.Internal (IslT(..), Both(..), unsafeIslFromIO)
 import qualified Isl.Linear as Isl
 
 
@@ -93,21 +93,24 @@ computeFlow = unsafeCoerce go where
   go :: UnionAccessInfo -> IslT m UnionFlow
   go ai = unsafeIslFromIO $ \_ -> c_compute_flow ai
 
--- | Get the must-dependence relation. __isl_keep: returns the flow alongside the result.
-getMustDependence :: forall m. MonadIO m => UnionFlow %1 -> IslT m (UnionMap, UnionFlow)
+-- | Get the must-dependence relation. ISL annotates @flow@ as @__isl_keep@,
+-- so the flow is handed back to the caller paired with the result via the
+-- linear 'Both' — a plain @(,)@ would silently drop the %1 obligation.
+getMustDependence :: forall m. MonadIO m => UnionFlow %1 -> IslT m (Both UnionFlow UnionMap)
 getMustDependence = unsafeCoerce go where
-  go :: UnionFlow -> IslT m (UnionMap, UnionFlow)
+  go :: UnionFlow -> IslT m (Both UnionFlow UnionMap)
   go flow@(UnionFlow ptr) = unsafeIslFromIO $ \_ -> do
     deps <- c_get_must_dep (UnionFlow ptr)
-    return (deps, flow)
+    return (Both flow deps)
 
--- | Get the may-dependence relation. __isl_keep: returns the flow alongside the result.
-getMayDependence :: forall m. MonadIO m => UnionFlow %1 -> IslT m (UnionMap, UnionFlow)
+-- | Get the may-dependence relation. Same borrow-and-return shape as
+-- 'getMustDependence' — flow is @__isl_keep@ in C, returned via 'Both'.
+getMayDependence :: forall m. MonadIO m => UnionFlow %1 -> IslT m (Both UnionFlow UnionMap)
 getMayDependence = unsafeCoerce go where
-  go :: UnionFlow -> IslT m (UnionMap, UnionFlow)
+  go :: UnionFlow -> IslT m (Both UnionFlow UnionMap)
   go flow@(UnionFlow ptr) = unsafeIslFromIO $ \_ -> do
     deps <- c_get_may_dep (UnionFlow ptr)
-    return (deps, flow)
+    return (Both flow deps)
 
 freeAccessInfo :: forall m. MonadIO m => UnionAccessInfo %1 -> IslT m ()
 freeAccessInfo = unsafeCoerce go where
@@ -135,6 +138,6 @@ computeFlowDeps reads writes sched = Isl.do
   ai'  <- setMustSource ai writes
   ai'' <- setScheduleMap ai' sched
   flow <- computeFlow ai''
-  (deps, flow') <- getMustDependence flow
+  Both flow' deps <- getMustDependence flow
   freeFlow flow'
   Isl.pure deps

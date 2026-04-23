@@ -8,7 +8,8 @@
 
 module Isl.Set.Generated where
 
-import Isl.Types
+import Isl.Types (DimType(..))
+import Isl.Types.Raw
 import Isl.Types.Internal (Consumable(..), Borrow(..), Dupable(..))
 import Isl.Monad.Internal
 import Control.Monad.IO.Class (MonadIO)
@@ -21,23 +22,23 @@ import Foreign.Marshal.Utils as M
 import System.IO.Unsafe
 import Unsafe.Coerce (unsafeCoerce)
 
-foreign import ccall "isl_set_dim" c_dim :: SetRef -> DimType -> IO C.CInt
+foreign import ccall "isl_set_dim" c_dim :: SetRef s_set -> DimType -> IO C.CInt
 
-dim :: SetRef -> DimType -> Int
+dim :: SetRef s_set -> DimType -> Int
 dim set typ =
     let !r = unsafePerformIO $ fromIntegral <$> c_dim set typ in r
 
 
-foreign import ccall "isl_set_find_dim_by_id" c_findDimById :: SetRef -> DimType -> IdRef -> IO C.CInt
+foreign import ccall "isl_set_find_dim_by_id" c_findDimById :: SetRef s_set -> DimType -> IdRef s_id -> IO C.CInt
 
-findDimById :: SetRef -> DimType -> IdRef -> Int
+findDimById :: SetRef s_set -> DimType -> IdRef s_id -> Int
 findDimById set typ id =
     let !r = unsafePerformIO $ fromIntegral <$> c_findDimById set typ id in r
 
 
-foreign import ccall "isl_set_find_dim_by_name" c_findDimByName :: SetRef -> DimType -> C.CString -> IO C.CInt
+foreign import ccall "isl_set_find_dim_by_name" c_findDimByName :: SetRef s_set -> DimType -> C.CString -> IO C.CInt
 
-findDimByName :: SetRef -> DimType -> String -> Int
+findDimByName :: SetRef s_set -> DimType -> String -> Int
 findDimByName set typ name =
     let !r = unsafePerformIO $ do
           name_c <- C.newCString name
@@ -45,191 +46,191 @@ findDimByName set typ name =
     in r
 
 
-foreign import ccall "isl_set_follows_at" c_followsAt :: SetRef -> SetRef -> C.CInt -> IO C.CInt
+foreign import ccall "isl_set_follows_at" c_followsAt :: SetRef s_set1 -> SetRef s_set2 -> C.CInt -> IO C.CInt
 
-followsAt :: SetRef -> SetRef -> Int -> Int
+followsAt :: SetRef s_set1 -> SetRef s_set2 -> Int -> Int
 followsAt set1 set2 pos =
     let !r = unsafePerformIO $ fromIntegral <$> c_followsAt set1 set2 (fromIntegral pos) in r
 
 
-foreign import ccall "isl_set_involves_dims" c_involvesDims :: SetRef -> DimType -> C.CUInt -> C.CUInt -> IO C.CInt
+foreign import ccall "isl_set_involves_dims" c_involvesDims :: SetRef s_set -> DimType -> C.CUInt -> C.CUInt -> IO C.CInt
 
-involvesDims :: SetRef -> DimType -> Int -> Int -> Int
+involvesDims :: SetRef s_set -> DimType -> Int -> Int -> Int
 involvesDims set typ first n =
     let !r = unsafePerformIO $ fromIntegral <$> c_involvesDims set typ (fromIntegral first) (fromIntegral n) in r
 
 
-foreign import ccall "isl_set_n_dim" c_nDim :: SetRef -> IO C.CInt
+foreign import ccall "isl_set_n_dim" c_nDim :: SetRef s_set -> IO C.CInt
 
-nDim :: SetRef -> Int
+nDim :: SetRef s_set -> Int
 nDim set =
     let !r = unsafePerformIO $ fromIntegral <$> c_nDim set in r
 
 
-foreign import ccall "isl_set_n_param" c_nParam :: SetRef -> IO C.CInt
+foreign import ccall "isl_set_n_param" c_nParam :: SetRef s_set -> IO C.CInt
 
-nParam :: SetRef -> Int
+nParam :: SetRef s_set -> Int
 nParam set =
     let !r = unsafePerformIO $ fromIntegral <$> c_nParam set in r
 
 
-foreign import ccall "isl_set_plain_cmp" c_plainCmp :: SetRef -> SetRef -> IO C.CInt
+foreign import ccall "isl_set_plain_cmp" c_plainCmp :: SetRef s_set1 -> SetRef s_set2 -> IO C.CInt
 
-plainCmp :: SetRef -> SetRef -> Int
+plainCmp :: SetRef s_set1 -> SetRef s_set2 -> Int
 plainCmp set1 set2 =
     let !r = unsafePerformIO $ fromIntegral <$> c_plainCmp set1 set2 in r
 
 
-foreign import ccall "isl_set_size" c_size :: SetRef -> IO C.CInt
+foreign import ccall "isl_set_size" c_size :: SetRef s_set -> IO C.CInt
 
-size :: SetRef -> Int
+size :: SetRef s_set -> Int
 size set =
     let !r = unsafePerformIO $ fromIntegral <$> c_size set in r
 
 
-foreign import ccall "isl_set_dump" c_dump :: SetRef -> IO ()
+foreign import ccall "isl_set_dump" c_dump :: SetRef s_set -> IO ()
 
-dump :: SetRef -> ()
+dump :: SetRef s_set -> ()
 dump set =
     let !r = unsafePerformIO $ c_dump set in r
 
 
-foreign import ccall "isl_set_get_dim_name" c_getDimName :: SetRef -> DimType -> C.CUInt -> IO C.CString
+foreign import ccall "isl_set_get_dim_name" c_getDimName :: SetRef s_set -> DimType -> C.CUInt -> IO C.CString
 
-getDimName :: SetRef -> DimType -> Int -> String
+getDimName :: SetRef s_set -> DimType -> Int -> String
 getDimName set typ pos =
     let !r = unsafePerformIO $ C.peekCString =<< c_getDimName set typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_set_get_tuple_name" c_getTupleName :: SetRef -> IO C.CString
+foreign import ccall "isl_set_get_tuple_name" c_getTupleName :: SetRef s_set -> IO C.CString
 
-getTupleName :: SetRef -> String
+getTupleName :: SetRef s_set -> String
 getTupleName set =
     let !r = unsafePerformIO $ C.peekCString =<< c_getTupleName set in r
 
 
-foreign import ccall "isl_set_dim_has_any_lower_bound" c_dimHasAnyLowerBound :: SetRef -> DimType -> C.CUInt -> IO C.CBool
+foreign import ccall "isl_set_dim_has_any_lower_bound" c_dimHasAnyLowerBound :: SetRef s_set -> DimType -> C.CUInt -> IO C.CBool
 
-dimHasAnyLowerBound :: SetRef -> DimType -> Int -> Bool
+dimHasAnyLowerBound :: SetRef s_set -> DimType -> Int -> Bool
 dimHasAnyLowerBound set typ pos =
     let !r = unsafePerformIO $ M.toBool <$> c_dimHasAnyLowerBound set typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_set_dim_has_any_upper_bound" c_dimHasAnyUpperBound :: SetRef -> DimType -> C.CUInt -> IO C.CBool
+foreign import ccall "isl_set_dim_has_any_upper_bound" c_dimHasAnyUpperBound :: SetRef s_set -> DimType -> C.CUInt -> IO C.CBool
 
-dimHasAnyUpperBound :: SetRef -> DimType -> Int -> Bool
+dimHasAnyUpperBound :: SetRef s_set -> DimType -> Int -> Bool
 dimHasAnyUpperBound set typ pos =
     let !r = unsafePerformIO $ M.toBool <$> c_dimHasAnyUpperBound set typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_set_dim_has_lower_bound" c_dimHasLowerBound :: SetRef -> DimType -> C.CUInt -> IO C.CBool
+foreign import ccall "isl_set_dim_has_lower_bound" c_dimHasLowerBound :: SetRef s_set -> DimType -> C.CUInt -> IO C.CBool
 
-dimHasLowerBound :: SetRef -> DimType -> Int -> Bool
+dimHasLowerBound :: SetRef s_set -> DimType -> Int -> Bool
 dimHasLowerBound set typ pos =
     let !r = unsafePerformIO $ M.toBool <$> c_dimHasLowerBound set typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_set_dim_has_upper_bound" c_dimHasUpperBound :: SetRef -> DimType -> C.CUInt -> IO C.CBool
+foreign import ccall "isl_set_dim_has_upper_bound" c_dimHasUpperBound :: SetRef s_set -> DimType -> C.CUInt -> IO C.CBool
 
-dimHasUpperBound :: SetRef -> DimType -> Int -> Bool
+dimHasUpperBound :: SetRef s_set -> DimType -> Int -> Bool
 dimHasUpperBound set typ pos =
     let !r = unsafePerformIO $ M.toBool <$> c_dimHasUpperBound set typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_set_dim_is_bounded" c_dimIsBounded :: SetRef -> DimType -> C.CUInt -> IO C.CBool
+foreign import ccall "isl_set_dim_is_bounded" c_dimIsBounded :: SetRef s_set -> DimType -> C.CUInt -> IO C.CBool
 
-dimIsBounded :: SetRef -> DimType -> Int -> Bool
+dimIsBounded :: SetRef s_set -> DimType -> Int -> Bool
 dimIsBounded set typ pos =
     let !r = unsafePerformIO $ M.toBool <$> c_dimIsBounded set typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_set_has_dim_id" c_hasDimId :: SetRef -> DimType -> C.CUInt -> IO C.CBool
+foreign import ccall "isl_set_has_dim_id" c_hasDimId :: SetRef s_set -> DimType -> C.CUInt -> IO C.CBool
 
-hasDimId :: SetRef -> DimType -> Int -> Bool
+hasDimId :: SetRef s_set -> DimType -> Int -> Bool
 hasDimId set typ pos =
     let !r = unsafePerformIO $ M.toBool <$> c_hasDimId set typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_set_has_dim_name" c_hasDimName :: SetRef -> DimType -> C.CUInt -> IO C.CBool
+foreign import ccall "isl_set_has_dim_name" c_hasDimName :: SetRef s_set -> DimType -> C.CUInt -> IO C.CBool
 
-hasDimName :: SetRef -> DimType -> Int -> Bool
+hasDimName :: SetRef s_set -> DimType -> Int -> Bool
 hasDimName set typ pos =
     let !r = unsafePerformIO $ M.toBool <$> c_hasDimName set typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_set_has_equal_space" c_hasEqualSpace :: SetRef -> SetRef -> IO C.CBool
+foreign import ccall "isl_set_has_equal_space" c_hasEqualSpace :: SetRef s_set1 -> SetRef s_set2 -> IO C.CBool
 
-hasEqualSpace :: SetRef -> SetRef -> Bool
+hasEqualSpace :: SetRef s_set1 -> SetRef s_set2 -> Bool
 hasEqualSpace set1 set2 =
     let !r = unsafePerformIO $ M.toBool <$> c_hasEqualSpace set1 set2 in r
 
 
-foreign import ccall "isl_set_has_tuple_id" c_hasTupleId :: SetRef -> IO C.CBool
+foreign import ccall "isl_set_has_tuple_id" c_hasTupleId :: SetRef s_set -> IO C.CBool
 
-hasTupleId :: SetRef -> Bool
+hasTupleId :: SetRef s_set -> Bool
 hasTupleId set =
     let !r = unsafePerformIO $ M.toBool <$> c_hasTupleId set in r
 
 
-foreign import ccall "isl_set_has_tuple_name" c_hasTupleName :: SetRef -> IO C.CBool
+foreign import ccall "isl_set_has_tuple_name" c_hasTupleName :: SetRef s_set -> IO C.CBool
 
-hasTupleName :: SetRef -> Bool
+hasTupleName :: SetRef s_set -> Bool
 hasTupleName set =
     let !r = unsafePerformIO $ M.toBool <$> c_hasTupleName set in r
 
 
-foreign import ccall "isl_set_is_bounded" c_isBounded :: SetRef -> IO C.CBool
+foreign import ccall "isl_set_is_bounded" c_isBounded :: SetRef s_set -> IO C.CBool
 
-isBounded :: SetRef -> Bool
+isBounded :: SetRef s_set -> Bool
 isBounded set =
     let !r = unsafePerformIO $ M.toBool <$> c_isBounded set in r
 
 
-foreign import ccall "isl_set_is_box" c_isBox :: SetRef -> IO C.CBool
+foreign import ccall "isl_set_is_box" c_isBox :: SetRef s_set -> IO C.CBool
 
-isBox :: SetRef -> Bool
+isBox :: SetRef s_set -> Bool
 isBox set =
     let !r = unsafePerformIO $ M.toBool <$> c_isBox set in r
 
 
-foreign import ccall "isl_set_is_params" c_isParams :: SetRef -> IO C.CBool
+foreign import ccall "isl_set_is_params" c_isParams :: SetRef s_set -> IO C.CBool
 
-isParams :: SetRef -> Bool
+isParams :: SetRef s_set -> Bool
 isParams set =
     let !r = unsafePerformIO $ M.toBool <$> c_isParams set in r
 
 
-foreign import ccall "isl_set_plain_is_disjoint" c_plainIsDisjoint :: SetRef -> SetRef -> IO C.CBool
+foreign import ccall "isl_set_plain_is_disjoint" c_plainIsDisjoint :: SetRef s_set1 -> SetRef s_set2 -> IO C.CBool
 
-plainIsDisjoint :: SetRef -> SetRef -> Bool
+plainIsDisjoint :: SetRef s_set1 -> SetRef s_set2 -> Bool
 plainIsDisjoint set1 set2 =
     let !r = unsafePerformIO $ M.toBool <$> c_plainIsDisjoint set1 set2 in r
 
 
-foreign import ccall "isl_set_plain_is_empty" c_plainIsEmpty :: SetRef -> IO C.CBool
+foreign import ccall "isl_set_plain_is_empty" c_plainIsEmpty :: SetRef s_set -> IO C.CBool
 
-plainIsEmpty :: SetRef -> Bool
+plainIsEmpty :: SetRef s_set -> Bool
 plainIsEmpty set =
     let !r = unsafePerformIO $ M.toBool <$> c_plainIsEmpty set in r
 
 
-foreign import ccall "isl_set_plain_is_equal" c_plainIsEqual :: SetRef -> SetRef -> IO C.CBool
+foreign import ccall "isl_set_plain_is_equal" c_plainIsEqual :: SetRef s_set1 -> SetRef s_set2 -> IO C.CBool
 
-plainIsEqual :: SetRef -> SetRef -> Bool
+plainIsEqual :: SetRef s_set1 -> SetRef s_set2 -> Bool
 plainIsEqual set1 set2 =
     let !r = unsafePerformIO $ M.toBool <$> c_plainIsEqual set1 set2 in r
 
 
-foreign import ccall "isl_set_plain_is_universe" c_plainIsUniverse :: SetRef -> IO C.CBool
+foreign import ccall "isl_set_plain_is_universe" c_plainIsUniverse :: SetRef s_set -> IO C.CBool
 
-plainIsUniverse :: SetRef -> Bool
+plainIsUniverse :: SetRef s_set -> Bool
 plainIsUniverse set =
     let !r = unsafePerformIO $ M.toBool <$> c_plainIsUniverse set in r
 
 
 foreign import ccall "isl_set_add_constraint" c_addConstraint :: Set -> Constraint -> IO Set
 
-addConstraint :: forall m. MonadIO m => Set %1 -> Constraint %1 -> IslT m Set
+addConstraint :: forall m s_set s_constraint. MonadIO m => Set %1 -> Constraint %1 -> IslT m Set
 addConstraint = unsafeCoerce go where
   go :: Set -> Constraint -> IslT m Set
   go set constraint =
@@ -238,7 +239,7 @@ addConstraint = unsafeCoerce go where
 
 foreign import ccall "isl_set_add_dims" c_addDims :: Set -> DimType -> C.CUInt -> IO Set
 
-addDims :: forall m. MonadIO m => Set %1 -> DimType -> Int -> IslT m Set
+addDims :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> IslT m Set
 addDims = unsafeCoerce go where
   go :: Set -> DimType -> Int -> IslT m Set
   go set typ n =
@@ -247,7 +248,7 @@ addDims = unsafeCoerce go where
 
 foreign import ccall "isl_set_align_params" c_alignParams :: Set -> Space -> IO Set
 
-alignParams :: forall m. MonadIO m => Set %1 -> Space %1 -> IslT m Set
+alignParams :: forall m s_set s_model. MonadIO m => Set %1 -> Space %1 -> IslT m Set
 alignParams = unsafeCoerce go where
   go :: Set -> Space -> IslT m Set
   go set model =
@@ -256,7 +257,7 @@ alignParams = unsafeCoerce go where
 
 foreign import ccall "isl_set_compute_divs" c_computeDivs :: Set -> IO Set
 
-computeDivs :: forall m. MonadIO m => Set %1 -> IslT m Set
+computeDivs :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 computeDivs = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -265,7 +266,7 @@ computeDivs = unsafeCoerce go where
 
 foreign import ccall "isl_set_drop_constraints_involving_dims" c_dropConstraintsInvolvingDims :: Set -> DimType -> C.CUInt -> C.CUInt -> IO Set
 
-dropConstraintsInvolvingDims :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
+dropConstraintsInvolvingDims :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
 dropConstraintsInvolvingDims = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Int -> IslT m Set
   go set typ first n =
@@ -274,7 +275,7 @@ dropConstraintsInvolvingDims = unsafeCoerce go where
 
 foreign import ccall "isl_set_drop_constraints_not_involving_dims" c_dropConstraintsNotInvolvingDims :: Set -> DimType -> C.CUInt -> C.CUInt -> IO Set
 
-dropConstraintsNotInvolvingDims :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
+dropConstraintsNotInvolvingDims :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
 dropConstraintsNotInvolvingDims = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Int -> IslT m Set
   go set typ first n =
@@ -283,7 +284,7 @@ dropConstraintsNotInvolvingDims = unsafeCoerce go where
 
 foreign import ccall "isl_set_eliminate" c_eliminate :: Set -> DimType -> C.CUInt -> C.CUInt -> IO Set
 
-eliminate :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
+eliminate :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
 eliminate = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Int -> IslT m Set
   go set typ first n =
@@ -292,7 +293,7 @@ eliminate = unsafeCoerce go where
 
 foreign import ccall "isl_set_eliminate_dims" c_eliminateDims :: Set -> C.CUInt -> C.CUInt -> IO Set
 
-eliminateDims :: forall m. MonadIO m => Set %1 -> Int -> Int -> IslT m Set
+eliminateDims :: forall m s_set. MonadIO m => Set %1 -> Int -> Int -> IslT m Set
 eliminateDims = unsafeCoerce go where
   go :: Set -> Int -> Int -> IslT m Set
   go set first n =
@@ -301,7 +302,7 @@ eliminateDims = unsafeCoerce go where
 
 foreign import ccall "isl_set_equate" c_equate :: Set -> DimType -> C.CInt -> DimType -> C.CInt -> IO Set
 
-equate :: forall m. MonadIO m => Set %1 -> DimType -> Int -> DimType -> Int -> IslT m Set
+equate :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> DimType -> Int -> IslT m Set
 equate = unsafeCoerce go where
   go :: Set -> DimType -> Int -> DimType -> Int -> IslT m Set
   go set type1 pos1 type2 pos2 =
@@ -310,7 +311,7 @@ equate = unsafeCoerce go where
 
 foreign import ccall "isl_set_fix_dim_si" c_fixDimSi :: Set -> C.CUInt -> C.CInt -> IO Set
 
-fixDimSi :: forall m. MonadIO m => Set %1 -> Int -> Int -> IslT m Set
+fixDimSi :: forall m s_set. MonadIO m => Set %1 -> Int -> Int -> IslT m Set
 fixDimSi = unsafeCoerce go where
   go :: Set -> Int -> Int -> IslT m Set
   go set dim value =
@@ -319,7 +320,7 @@ fixDimSi = unsafeCoerce go where
 
 foreign import ccall "isl_set_fix_si" c_fixSi :: Set -> DimType -> C.CUInt -> C.CInt -> IO Set
 
-fixSi :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
+fixSi :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
 fixSi = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Int -> IslT m Set
   go set typ pos value =
@@ -328,7 +329,7 @@ fixSi = unsafeCoerce go where
 
 foreign import ccall "isl_set_fix_val" c_fixVal :: Set -> DimType -> C.CUInt -> Val -> IO Set
 
-fixVal :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Val %1 -> IslT m Set
+fixVal :: forall m s_set s_v. MonadIO m => Set %1 -> DimType -> Int -> Val %1 -> IslT m Set
 fixVal = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Val -> IslT m Set
   go set typ pos v =
@@ -337,7 +338,7 @@ fixVal = unsafeCoerce go where
 
 foreign import ccall "isl_set_flat_product" c_flatProduct :: Set -> Set -> IO Set
 
-flatProduct :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Set
+flatProduct :: forall m s_set1 s_set2. MonadIO m => Set %1 -> Set %1 -> IslT m Set
 flatProduct = unsafeCoerce go where
   go :: Set -> Set -> IslT m Set
   go set1 set2 =
@@ -346,7 +347,7 @@ flatProduct = unsafeCoerce go where
 
 foreign import ccall "isl_set_from_multi_aff" c_fromMultiAff :: MultiAff -> IO Set
 
-fromMultiAff :: forall m. MonadIO m => MultiAff %1 -> IslT m Set
+fromMultiAff :: forall m s_ma. MonadIO m => MultiAff %1 -> IslT m Set
 fromMultiAff = unsafeCoerce go where
   go :: MultiAff -> IslT m Set
   go ma =
@@ -355,7 +356,7 @@ fromMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_set_from_params" c_fromParams :: Set -> IO Set
 
-fromParams :: forall m. MonadIO m => Set %1 -> IslT m Set
+fromParams :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 fromParams = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -364,7 +365,7 @@ fromParams = unsafeCoerce go where
 
 foreign import ccall "isl_set_from_pw_aff" c_fromPwAff :: PwAff -> IO Set
 
-fromPwAff :: forall m. MonadIO m => PwAff %1 -> IslT m Set
+fromPwAff :: forall m s_pwaff. MonadIO m => PwAff %1 -> IslT m Set
 fromPwAff = unsafeCoerce go where
   go :: PwAff -> IslT m Set
   go pwaff =
@@ -373,7 +374,7 @@ fromPwAff = unsafeCoerce go where
 
 foreign import ccall "isl_set_from_pw_multi_aff" c_fromPwMultiAff :: PwMultiAff -> IO Set
 
-fromPwMultiAff :: forall m. MonadIO m => PwMultiAff %1 -> IslT m Set
+fromPwMultiAff :: forall m s_pma. MonadIO m => PwMultiAff %1 -> IslT m Set
 fromPwMultiAff = unsafeCoerce go where
   go :: PwMultiAff -> IslT m Set
   go pma =
@@ -382,7 +383,7 @@ fromPwMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_set_from_union_set" c_fromUnionSet :: UnionSet -> IO Set
 
-fromUnionSet :: forall m. MonadIO m => UnionSet %1 -> IslT m Set
+fromUnionSet :: forall m s_uset. MonadIO m => UnionSet %1 -> IslT m Set
 fromUnionSet = unsafeCoerce go where
   go :: UnionSet -> IslT m Set
   go uset =
@@ -391,7 +392,7 @@ fromUnionSet = unsafeCoerce go where
 
 foreign import ccall "isl_set_gist_basic_set" c_gistBasicSet :: Set -> BasicSet -> IO Set
 
-gistBasicSet :: forall m. MonadIO m => Set %1 -> BasicSet %1 -> IslT m Set
+gistBasicSet :: forall m s_set s_context. MonadIO m => Set %1 -> BasicSet %1 -> IslT m Set
 gistBasicSet = unsafeCoerce go where
   go :: Set -> BasicSet -> IslT m Set
   go set context =
@@ -400,7 +401,7 @@ gistBasicSet = unsafeCoerce go where
 
 foreign import ccall "isl_set_insert_dims" c_insertDims :: Set -> DimType -> C.CUInt -> C.CUInt -> IO Set
 
-insertDims :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
+insertDims :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
 insertDims = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Int -> IslT m Set
   go set typ pos n =
@@ -409,7 +410,7 @@ insertDims = unsafeCoerce go where
 
 foreign import ccall "isl_set_intersect_factor_domain" c_intersectFactorDomain :: Set -> Set -> IO Set
 
-intersectFactorDomain :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Set
+intersectFactorDomain :: forall m s_set s_domain. MonadIO m => Set %1 -> Set %1 -> IslT m Set
 intersectFactorDomain = unsafeCoerce go where
   go :: Set -> Set -> IslT m Set
   go set domain =
@@ -418,7 +419,7 @@ intersectFactorDomain = unsafeCoerce go where
 
 foreign import ccall "isl_set_intersect_factor_range" c_intersectFactorRange :: Set -> Set -> IO Set
 
-intersectFactorRange :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Set
+intersectFactorRange :: forall m s_set s_range. MonadIO m => Set %1 -> Set %1 -> IslT m Set
 intersectFactorRange = unsafeCoerce go where
   go :: Set -> Set -> IslT m Set
   go set range =
@@ -427,7 +428,7 @@ intersectFactorRange = unsafeCoerce go where
 
 foreign import ccall "isl_set_lift" c_lift :: Set -> IO Set
 
-lift :: forall m. MonadIO m => Set %1 -> IslT m Set
+lift :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 lift = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -436,7 +437,7 @@ lift = unsafeCoerce go where
 
 foreign import ccall "isl_set_lower_bound_si" c_lowerBoundSi :: Set -> DimType -> C.CUInt -> C.CInt -> IO Set
 
-lowerBoundSi :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
+lowerBoundSi :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
 lowerBoundSi = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Int -> IslT m Set
   go set typ pos value =
@@ -445,7 +446,7 @@ lowerBoundSi = unsafeCoerce go where
 
 foreign import ccall "isl_set_lower_bound_val" c_lowerBoundVal :: Set -> DimType -> C.CUInt -> Val -> IO Set
 
-lowerBoundVal :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Val %1 -> IslT m Set
+lowerBoundVal :: forall m s_set s_value. MonadIO m => Set %1 -> DimType -> Int -> Val %1 -> IslT m Set
 lowerBoundVal = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Val -> IslT m Set
   go set typ pos value =
@@ -454,7 +455,7 @@ lowerBoundVal = unsafeCoerce go where
 
 foreign import ccall "isl_set_make_disjoint" c_makeDisjoint :: Set -> IO Set
 
-makeDisjoint :: forall m. MonadIO m => Set %1 -> IslT m Set
+makeDisjoint :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 makeDisjoint = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -463,7 +464,7 @@ makeDisjoint = unsafeCoerce go where
 
 foreign import ccall "isl_set_move_dims" c_moveDims :: Set -> DimType -> C.CUInt -> DimType -> C.CUInt -> C.CUInt -> IO Set
 
-moveDims :: forall m. MonadIO m => Set %1 -> DimType -> Int -> DimType -> Int -> Int -> IslT m Set
+moveDims :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> DimType -> Int -> Int -> IslT m Set
 moveDims = unsafeCoerce go where
   go :: Set -> DimType -> Int -> DimType -> Int -> Int -> IslT m Set
   go set dst_type dst_pos src_type src_pos n =
@@ -472,7 +473,7 @@ moveDims = unsafeCoerce go where
 
 foreign import ccall "isl_set_nat_universe" c_natUniverse :: Space -> IO Set
 
-natUniverse :: forall m. MonadIO m => Space %1 -> IslT m Set
+natUniverse :: forall m s_space. MonadIO m => Space %1 -> IslT m Set
 natUniverse = unsafeCoerce go where
   go :: Space -> IslT m Set
   go space =
@@ -481,7 +482,7 @@ natUniverse = unsafeCoerce go where
 
 foreign import ccall "isl_set_neg" c_neg :: Set -> IO Set
 
-neg :: forall m. MonadIO m => Set %1 -> IslT m Set
+neg :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 neg = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -490,7 +491,7 @@ neg = unsafeCoerce go where
 
 foreign import ccall "isl_set_preimage_multi_aff" c_preimageMultiAff :: Set -> MultiAff -> IO Set
 
-preimageMultiAff :: forall m. MonadIO m => Set %1 -> MultiAff %1 -> IslT m Set
+preimageMultiAff :: forall m s_set s_ma. MonadIO m => Set %1 -> MultiAff %1 -> IslT m Set
 preimageMultiAff = unsafeCoerce go where
   go :: Set -> MultiAff -> IslT m Set
   go set ma =
@@ -499,7 +500,7 @@ preimageMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_set_preimage_pw_multi_aff" c_preimagePwMultiAff :: Set -> PwMultiAff -> IO Set
 
-preimagePwMultiAff :: forall m. MonadIO m => Set %1 -> PwMultiAff %1 -> IslT m Set
+preimagePwMultiAff :: forall m s_set s_pma. MonadIO m => Set %1 -> PwMultiAff %1 -> IslT m Set
 preimagePwMultiAff = unsafeCoerce go where
   go :: Set -> PwMultiAff -> IslT m Set
   go set pma =
@@ -508,7 +509,7 @@ preimagePwMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_set_project_out" c_projectOut :: Set -> DimType -> C.CUInt -> C.CUInt -> IO Set
 
-projectOut :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
+projectOut :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
 projectOut = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Int -> IslT m Set
   go set typ first n =
@@ -517,7 +518,7 @@ projectOut = unsafeCoerce go where
 
 foreign import ccall "isl_set_project_out_param_id" c_projectOutParamId :: Set -> Id -> IO Set
 
-projectOutParamId :: forall m. MonadIO m => Set %1 -> Id %1 -> IslT m Set
+projectOutParamId :: forall m s_set s_id. MonadIO m => Set %1 -> Id %1 -> IslT m Set
 projectOutParamId = unsafeCoerce go where
   go :: Set -> Id -> IslT m Set
   go set id =
@@ -526,7 +527,7 @@ projectOutParamId = unsafeCoerce go where
 
 foreign import ccall "isl_set_remove_dims" c_removeDims :: Set -> DimType -> C.CUInt -> C.CUInt -> IO Set
 
-removeDims :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
+removeDims :: forall m s_bset. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
 removeDims = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Int -> IslT m Set
   go bset typ first n =
@@ -535,7 +536,7 @@ removeDims = unsafeCoerce go where
 
 foreign import ccall "isl_set_remove_divs" c_removeDivs :: Set -> IO Set
 
-removeDivs :: forall m. MonadIO m => Set %1 -> IslT m Set
+removeDivs :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 removeDivs = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -544,7 +545,7 @@ removeDivs = unsafeCoerce go where
 
 foreign import ccall "isl_set_remove_divs_involving_dims" c_removeDivsInvolvingDims :: Set -> DimType -> C.CUInt -> C.CUInt -> IO Set
 
-removeDivsInvolvingDims :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
+removeDivsInvolvingDims :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
 removeDivsInvolvingDims = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Int -> IslT m Set
   go set typ first n =
@@ -553,7 +554,7 @@ removeDivsInvolvingDims = unsafeCoerce go where
 
 foreign import ccall "isl_set_remove_redundancies" c_removeRedundancies :: Set -> IO Set
 
-removeRedundancies :: forall m. MonadIO m => Set %1 -> IslT m Set
+removeRedundancies :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 removeRedundancies = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -562,7 +563,7 @@ removeRedundancies = unsafeCoerce go where
 
 foreign import ccall "isl_set_remove_unknown_divs" c_removeUnknownDivs :: Set -> IO Set
 
-removeUnknownDivs :: forall m. MonadIO m => Set %1 -> IslT m Set
+removeUnknownDivs :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 removeUnknownDivs = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -571,7 +572,7 @@ removeUnknownDivs = unsafeCoerce go where
 
 foreign import ccall "isl_set_reset_space" c_resetSpace :: Set -> Space -> IO Set
 
-resetSpace :: forall m. MonadIO m => Set %1 -> Space %1 -> IslT m Set
+resetSpace :: forall m s_set s_space. MonadIO m => Set %1 -> Space %1 -> IslT m Set
 resetSpace = unsafeCoerce go where
   go :: Set -> Space -> IslT m Set
   go set space =
@@ -580,7 +581,7 @@ resetSpace = unsafeCoerce go where
 
 foreign import ccall "isl_set_reset_tuple_id" c_resetTupleId :: Set -> IO Set
 
-resetTupleId :: forall m. MonadIO m => Set %1 -> IslT m Set
+resetTupleId :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 resetTupleId = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -589,7 +590,7 @@ resetTupleId = unsafeCoerce go where
 
 foreign import ccall "isl_set_reset_user" c_resetUser :: Set -> IO Set
 
-resetUser :: forall m. MonadIO m => Set %1 -> IslT m Set
+resetUser :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 resetUser = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -598,7 +599,7 @@ resetUser = unsafeCoerce go where
 
 foreign import ccall "isl_set_set_dim_id" c_setDimId :: Set -> DimType -> C.CUInt -> Id -> IO Set
 
-setDimId :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Id %1 -> IslT m Set
+setDimId :: forall m s_set s_id. MonadIO m => Set %1 -> DimType -> Int -> Id %1 -> IslT m Set
 setDimId = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Id -> IslT m Set
   go set typ pos id =
@@ -607,7 +608,7 @@ setDimId = unsafeCoerce go where
 
 foreign import ccall "isl_set_set_dim_name" c_setDimName :: Set -> DimType -> C.CUInt -> C.CString -> IO Set
 
-setDimName :: forall m. MonadIO m => Set %1 -> DimType -> Int -> String -> IslT m Set
+setDimName :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> String -> IslT m Set
 setDimName = unsafeCoerce go where
   go :: Set -> DimType -> Int -> String -> IslT m Set
   go set typ pos s =
@@ -618,7 +619,7 @@ setDimName = unsafeCoerce go where
 
 foreign import ccall "isl_set_set_tuple_id" c_setTupleId :: Set -> Id -> IO Set
 
-setTupleId :: forall m. MonadIO m => Set %1 -> Id %1 -> IslT m Set
+setTupleId :: forall m s_set s_id. MonadIO m => Set %1 -> Id %1 -> IslT m Set
 setTupleId = unsafeCoerce go where
   go :: Set -> Id -> IslT m Set
   go set id =
@@ -627,7 +628,7 @@ setTupleId = unsafeCoerce go where
 
 foreign import ccall "isl_set_set_tuple_name" c_setTupleName :: Set -> C.CString -> IO Set
 
-setTupleName :: forall m. MonadIO m => Set %1 -> String -> IslT m Set
+setTupleName :: forall m s_set. MonadIO m => Set %1 -> String -> IslT m Set
 setTupleName = unsafeCoerce go where
   go :: Set -> String -> IslT m Set
   go set s =
@@ -638,7 +639,7 @@ setTupleName = unsafeCoerce go where
 
 foreign import ccall "isl_set_split_dims" c_splitDims :: Set -> DimType -> C.CUInt -> C.CUInt -> IO Set
 
-splitDims :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
+splitDims :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
 splitDims = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Int -> IslT m Set
   go set typ first n =
@@ -647,7 +648,7 @@ splitDims = unsafeCoerce go where
 
 foreign import ccall "isl_set_sum" c_sum :: Set -> Set -> IO Set
 
-sum :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Set
+sum :: forall m s_set1 s_set2. MonadIO m => Set %1 -> Set %1 -> IslT m Set
 sum = unsafeCoerce go where
   go :: Set -> Set -> IslT m Set
   go set1 set2 =
@@ -656,7 +657,7 @@ sum = unsafeCoerce go where
 
 foreign import ccall "isl_set_union_disjoint" c_unionDisjoint :: Set -> Set -> IO Set
 
-unionDisjoint :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Set
+unionDisjoint :: forall m s_set1 s_set2. MonadIO m => Set %1 -> Set %1 -> IslT m Set
 unionDisjoint = unsafeCoerce go where
   go :: Set -> Set -> IslT m Set
   go set1 set2 =
@@ -665,7 +666,7 @@ unionDisjoint = unsafeCoerce go where
 
 foreign import ccall "isl_set_upper_bound_si" c_upperBoundSi :: Set -> DimType -> C.CUInt -> C.CInt -> IO Set
 
-upperBoundSi :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
+upperBoundSi :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Set
 upperBoundSi = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Int -> IslT m Set
   go set typ pos value =
@@ -674,7 +675,7 @@ upperBoundSi = unsafeCoerce go where
 
 foreign import ccall "isl_set_upper_bound_val" c_upperBoundVal :: Set -> DimType -> C.CUInt -> Val -> IO Set
 
-upperBoundVal :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Val %1 -> IslT m Set
+upperBoundVal :: forall m s_set s_value. MonadIO m => Set %1 -> DimType -> Int -> Val %1 -> IslT m Set
 upperBoundVal = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Val -> IslT m Set
   go set typ pos value =
@@ -683,7 +684,7 @@ upperBoundVal = unsafeCoerce go where
 
 foreign import ccall "isl_set_flatten_map" c_flattenMap :: Set -> IO Map
 
-flattenMap :: forall m. MonadIO m => Set %1 -> IslT m Map
+flattenMap :: forall m s_set. MonadIO m => Set %1 -> IslT m Map
 flattenMap = unsafeCoerce go where
   go :: Set -> IslT m Map
   go set =
@@ -692,7 +693,7 @@ flattenMap = unsafeCoerce go where
 
 foreign import ccall "isl_set_lex_ge_set" c_lexGeSet :: Set -> Set -> IO Map
 
-lexGeSet :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Map
+lexGeSet :: forall m s_set1 s_set2. MonadIO m => Set %1 -> Set %1 -> IslT m Map
 lexGeSet = unsafeCoerce go where
   go :: Set -> Set -> IslT m Map
   go set1 set2 =
@@ -701,7 +702,7 @@ lexGeSet = unsafeCoerce go where
 
 foreign import ccall "isl_set_lex_gt_set" c_lexGtSet :: Set -> Set -> IO Map
 
-lexGtSet :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Map
+lexGtSet :: forall m s_set1 s_set2. MonadIO m => Set %1 -> Set %1 -> IslT m Map
 lexGtSet = unsafeCoerce go where
   go :: Set -> Set -> IslT m Map
   go set1 set2 =
@@ -710,7 +711,7 @@ lexGtSet = unsafeCoerce go where
 
 foreign import ccall "isl_set_lex_le_set" c_lexLeSet :: Set -> Set -> IO Map
 
-lexLeSet :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Map
+lexLeSet :: forall m s_set1 s_set2. MonadIO m => Set %1 -> Set %1 -> IslT m Map
 lexLeSet = unsafeCoerce go where
   go :: Set -> Set -> IslT m Map
   go set1 set2 =
@@ -719,7 +720,7 @@ lexLeSet = unsafeCoerce go where
 
 foreign import ccall "isl_set_lex_lt_set" c_lexLtSet :: Set -> Set -> IO Map
 
-lexLtSet :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Map
+lexLtSet :: forall m s_set1 s_set2. MonadIO m => Set %1 -> Set %1 -> IslT m Map
 lexLtSet = unsafeCoerce go where
   go :: Set -> Set -> IslT m Map
   go set1 set2 =
@@ -728,7 +729,7 @@ lexLtSet = unsafeCoerce go where
 
 foreign import ccall "isl_set_project_onto_map" c_projectOntoMap :: Set -> DimType -> C.CUInt -> C.CUInt -> IO Map
 
-projectOntoMap :: forall m. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Map
+projectOntoMap :: forall m s_set. MonadIO m => Set %1 -> DimType -> Int -> Int -> IslT m Map
 projectOntoMap = unsafeCoerce go where
   go :: Set -> DimType -> Int -> Int -> IslT m Map
   go set typ first n =
@@ -737,7 +738,7 @@ projectOntoMap = unsafeCoerce go where
 
 foreign import ccall "isl_set_wrapped_domain_map" c_wrappedDomainMap :: Set -> IO Map
 
-wrappedDomainMap :: forall m. MonadIO m => Set %1 -> IslT m Map
+wrappedDomainMap :: forall m s_set. MonadIO m => Set %1 -> IslT m Map
 wrappedDomainMap = unsafeCoerce go where
   go :: Set -> IslT m Map
   go set =
@@ -746,7 +747,7 @@ wrappedDomainMap = unsafeCoerce go where
 
 foreign import ccall "isl_set_bounded_simple_hull" c_boundedSimpleHull :: Set -> IO BasicSet
 
-boundedSimpleHull :: forall m. MonadIO m => Set %1 -> IslT m BasicSet
+boundedSimpleHull :: forall m s_set. MonadIO m => Set %1 -> IslT m BasicSet
 boundedSimpleHull = unsafeCoerce go where
   go :: Set -> IslT m BasicSet
   go set =
@@ -755,7 +756,7 @@ boundedSimpleHull = unsafeCoerce go where
 
 foreign import ccall "isl_set_coefficients" c_coefficients :: Set -> IO BasicSet
 
-coefficients :: forall m. MonadIO m => Set %1 -> IslT m BasicSet
+coefficients :: forall m s_set. MonadIO m => Set %1 -> IslT m BasicSet
 coefficients = unsafeCoerce go where
   go :: Set -> IslT m BasicSet
   go set =
@@ -764,7 +765,7 @@ coefficients = unsafeCoerce go where
 
 foreign import ccall "isl_set_convex_hull" c_convexHull :: Set -> IO BasicSet
 
-convexHull :: forall m. MonadIO m => Set %1 -> IslT m BasicSet
+convexHull :: forall m s_set. MonadIO m => Set %1 -> IslT m BasicSet
 convexHull = unsafeCoerce go where
   go :: Set -> IslT m BasicSet
   go set =
@@ -773,7 +774,7 @@ convexHull = unsafeCoerce go where
 
 foreign import ccall "isl_set_plain_unshifted_simple_hull" c_plainUnshiftedSimpleHull :: Set -> IO BasicSet
 
-plainUnshiftedSimpleHull :: forall m. MonadIO m => Set %1 -> IslT m BasicSet
+plainUnshiftedSimpleHull :: forall m s_set. MonadIO m => Set %1 -> IslT m BasicSet
 plainUnshiftedSimpleHull = unsafeCoerce go where
   go :: Set -> IslT m BasicSet
   go set =
@@ -782,7 +783,7 @@ plainUnshiftedSimpleHull = unsafeCoerce go where
 
 foreign import ccall "isl_set_simple_hull" c_simpleHull :: Set -> IO BasicSet
 
-simpleHull :: forall m. MonadIO m => Set %1 -> IslT m BasicSet
+simpleHull :: forall m s_set. MonadIO m => Set %1 -> IslT m BasicSet
 simpleHull = unsafeCoerce go where
   go :: Set -> IslT m BasicSet
   go set =
@@ -791,30 +792,30 @@ simpleHull = unsafeCoerce go where
 
 foreign import ccall "isl_set_solutions" c_solutions :: Set -> IO BasicSet
 
-solutions :: forall m. MonadIO m => Set %1 -> IslT m BasicSet
+solutions :: forall m s_set. MonadIO m => Set %1 -> IslT m BasicSet
 solutions = unsafeCoerce go where
   go :: Set -> IslT m BasicSet
   go set =
     unsafeIslFromIO $ \_ -> c_solutions set
 
 
-foreign import ccall "isl_set_count_val" c_countVal :: SetRef -> IO Val
+foreign import ccall "isl_set_count_val" c_countVal :: SetRef s_set -> IO Val
 
-countVal :: MonadIO m => SetRef -> IslT m Val
+countVal :: MonadIO m => SetRef s_set -> IslT m Val
 countVal set =
     unsafeIslFromIO $ \_ -> c_countVal set
 
 
-foreign import ccall "isl_set_plain_get_val_if_fixed" c_plainGetValIfFixed :: SetRef -> DimType -> C.CUInt -> IO Val
+foreign import ccall "isl_set_plain_get_val_if_fixed" c_plainGetValIfFixed :: SetRef s_set -> DimType -> C.CUInt -> IO Val
 
-plainGetValIfFixed :: MonadIO m => SetRef -> DimType -> Int -> IslT m Val
+plainGetValIfFixed :: MonadIO m => SetRef s_set -> DimType -> Int -> IslT m Val
 plainGetValIfFixed set typ pos =
     unsafeIslFromIO $ \_ -> c_plainGetValIfFixed set typ (fromIntegral pos)
 
 
 foreign import ccall "isl_set_dim_max" c_dimMax :: Set -> C.CInt -> IO PwAff
 
-dimMax :: forall m. MonadIO m => Set %1 -> Int -> IslT m PwAff
+dimMax :: forall m s_set. MonadIO m => Set %1 -> Int -> IslT m PwAff
 dimMax = unsafeCoerce go where
   go :: Set -> Int -> IslT m PwAff
   go set pos =
@@ -823,7 +824,7 @@ dimMax = unsafeCoerce go where
 
 foreign import ccall "isl_set_dim_min" c_dimMin :: Set -> C.CInt -> IO PwAff
 
-dimMin :: forall m. MonadIO m => Set %1 -> Int -> IslT m PwAff
+dimMin :: forall m s_set. MonadIO m => Set %1 -> Int -> IslT m PwAff
 dimMin = unsafeCoerce go where
   go :: Set -> Int -> IslT m PwAff
   go set pos =
@@ -832,7 +833,7 @@ dimMin = unsafeCoerce go where
 
 foreign import ccall "isl_set_param_pw_aff_on_domain_id" c_paramPwAffOnDomainId :: Set -> Id -> IO PwAff
 
-paramPwAffOnDomainId :: forall m. MonadIO m => Set %1 -> Id %1 -> IslT m PwAff
+paramPwAffOnDomainId :: forall m s_domain s_id. MonadIO m => Set %1 -> Id %1 -> IslT m PwAff
 paramPwAffOnDomainId = unsafeCoerce go where
   go :: Set -> Id -> IslT m PwAff
   go domain id =
@@ -841,107 +842,107 @@ paramPwAffOnDomainId = unsafeCoerce go where
 
 foreign import ccall "isl_set_pw_aff_on_domain_val" c_pwAffOnDomainVal :: Set -> Val -> IO PwAff
 
-pwAffOnDomainVal :: forall m. MonadIO m => Set %1 -> Val %1 -> IslT m PwAff
+pwAffOnDomainVal :: forall m s_domain s_v. MonadIO m => Set %1 -> Val %1 -> IslT m PwAff
 pwAffOnDomainVal = unsafeCoerce go where
   go :: Set -> Val -> IslT m PwAff
   go domain v =
     unsafeIslFromIO $ \_ -> c_pwAffOnDomainVal domain v
 
 
-foreign import ccall "isl_set_get_dim_id" c_getDimId :: SetRef -> DimType -> C.CUInt -> IO Id
+foreign import ccall "isl_set_get_dim_id" c_getDimId :: SetRef s_set -> DimType -> C.CUInt -> IO Id
 
-getDimId :: MonadIO m => SetRef -> DimType -> Int -> IslT m Id
+getDimId :: MonadIO m => SetRef s_set -> DimType -> Int -> IslT m Id
 getDimId set typ pos =
     unsafeIslFromIO $ \_ -> c_getDimId set typ (fromIntegral pos)
 
 
-foreign import ccall "isl_set_get_tuple_id" c_getTupleId :: SetRef -> IO Id
+foreign import ccall "isl_set_get_tuple_id" c_getTupleId :: SetRef s_set -> IO Id
 
-getTupleId :: MonadIO m => SetRef -> IslT m Id
+getTupleId :: MonadIO m => SetRef s_set -> IslT m Id
 getTupleId set =
     unsafeIslFromIO $ \_ -> c_getTupleId set
 
 
-foreign import ccall "isl_set_to_str" c_toStr :: SetRef -> IO C.CString
+foreign import ccall "isl_set_to_str" c_toStr :: SetRef s_set -> IO C.CString
 
-toStr :: SetRef -> String
+toStr :: SetRef s_set -> String
 toStr set =
     let !r = unsafePerformIO $ C.peekCString =<< c_toStr set in r
 
 
-foreign import ccall "isl_set_involves_locals" c_involvesLocals :: SetRef -> IO C.CInt
+foreign import ccall "isl_set_involves_locals" c_involvesLocals :: SetRef s_set -> IO C.CInt
 
-involvesLocals :: SetRef -> Int
+involvesLocals :: SetRef s_set -> Int
 involvesLocals set =
     let !r = unsafePerformIO $ fromIntegral <$> c_involvesLocals set in r
 
 
-foreign import ccall "isl_set_n_basic_set" c_nBasicSet :: SetRef -> IO C.CInt
+foreign import ccall "isl_set_n_basic_set" c_nBasicSet :: SetRef s_set -> IO C.CInt
 
-nBasicSet :: SetRef -> Int
+nBasicSet :: SetRef s_set -> Int
 nBasicSet set =
     let !r = unsafePerformIO $ fromIntegral <$> c_nBasicSet set in r
 
 
-foreign import ccall "isl_set_tuple_dim" c_tupleDim :: SetRef -> IO C.CInt
+foreign import ccall "isl_set_tuple_dim" c_tupleDim :: SetRef s_set -> IO C.CInt
 
-tupleDim :: SetRef -> Int
+tupleDim :: SetRef s_set -> Int
 tupleDim set =
     let !r = unsafePerformIO $ fromIntegral <$> c_tupleDim set in r
 
 
-foreign import ccall "isl_set_is_disjoint" c_isDisjoint :: SetRef -> SetRef -> IO C.CBool
+foreign import ccall "isl_set_is_disjoint" c_isDisjoint :: SetRef s_set1 -> SetRef s_set2 -> IO C.CBool
 
-isDisjoint :: SetRef -> SetRef -> Bool
+isDisjoint :: SetRef s_set1 -> SetRef s_set2 -> Bool
 isDisjoint set1 set2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isDisjoint set1 set2 in r
 
 
-foreign import ccall "isl_set_is_empty" c_isEmpty :: SetRef -> IO C.CBool
+foreign import ccall "isl_set_is_empty" c_isEmpty :: SetRef s_set -> IO C.CBool
 
-isEmpty :: SetRef -> Bool
+isEmpty :: SetRef s_set -> Bool
 isEmpty set =
     let !r = unsafePerformIO $ M.toBool <$> c_isEmpty set in r
 
 
-foreign import ccall "isl_set_is_equal" c_isEqual :: SetRef -> SetRef -> IO C.CBool
+foreign import ccall "isl_set_is_equal" c_isEqual :: SetRef s_set1 -> SetRef s_set2 -> IO C.CBool
 
-isEqual :: SetRef -> SetRef -> Bool
+isEqual :: SetRef s_set1 -> SetRef s_set2 -> Bool
 isEqual set1 set2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isEqual set1 set2 in r
 
 
-foreign import ccall "isl_set_is_singleton" c_isSingleton :: SetRef -> IO C.CBool
+foreign import ccall "isl_set_is_singleton" c_isSingleton :: SetRef s_set -> IO C.CBool
 
-isSingleton :: SetRef -> Bool
+isSingleton :: SetRef s_set -> Bool
 isSingleton set =
     let !r = unsafePerformIO $ M.toBool <$> c_isSingleton set in r
 
 
-foreign import ccall "isl_set_is_strict_subset" c_isStrictSubset :: SetRef -> SetRef -> IO C.CBool
+foreign import ccall "isl_set_is_strict_subset" c_isStrictSubset :: SetRef s_set1 -> SetRef s_set2 -> IO C.CBool
 
-isStrictSubset :: SetRef -> SetRef -> Bool
+isStrictSubset :: SetRef s_set1 -> SetRef s_set2 -> Bool
 isStrictSubset set1 set2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isStrictSubset set1 set2 in r
 
 
-foreign import ccall "isl_set_is_subset" c_isSubset :: SetRef -> SetRef -> IO C.CBool
+foreign import ccall "isl_set_is_subset" c_isSubset :: SetRef s_set1 -> SetRef s_set2 -> IO C.CBool
 
-isSubset :: SetRef -> SetRef -> Bool
+isSubset :: SetRef s_set1 -> SetRef s_set2 -> Bool
 isSubset set1 set2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isSubset set1 set2 in r
 
 
-foreign import ccall "isl_set_is_wrapping" c_isWrapping :: SetRef -> IO C.CBool
+foreign import ccall "isl_set_is_wrapping" c_isWrapping :: SetRef s_set -> IO C.CBool
 
-isWrapping :: SetRef -> Bool
+isWrapping :: SetRef s_set -> Bool
 isWrapping set =
     let !r = unsafePerformIO $ M.toBool <$> c_isWrapping set in r
 
 
 foreign import ccall "isl_set_apply" c_apply :: Set -> Map -> IO Set
 
-apply :: forall m. MonadIO m => Set %1 -> Map %1 -> IslT m Set
+apply :: forall m s_set s_map. MonadIO m => Set %1 -> Map %1 -> IslT m Set
 apply = unsafeCoerce go where
   go :: Set -> Map -> IslT m Set
   go set map =
@@ -950,7 +951,7 @@ apply = unsafeCoerce go where
 
 foreign import ccall "isl_set_coalesce" c_coalesce :: Set -> IO Set
 
-coalesce :: forall m. MonadIO m => Set %1 -> IslT m Set
+coalesce :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 coalesce = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -959,7 +960,7 @@ coalesce = unsafeCoerce go where
 
 foreign import ccall "isl_set_complement" c_complement :: Set -> IO Set
 
-complement :: forall m. MonadIO m => Set %1 -> IslT m Set
+complement :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 complement = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -968,7 +969,7 @@ complement = unsafeCoerce go where
 
 foreign import ccall "isl_set_detect_equalities" c_detectEqualities :: Set -> IO Set
 
-detectEqualities :: forall m. MonadIO m => Set %1 -> IslT m Set
+detectEqualities :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 detectEqualities = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -977,7 +978,7 @@ detectEqualities = unsafeCoerce go where
 
 foreign import ccall "isl_set_drop_unused_params" c_dropUnusedParams :: Set -> IO Set
 
-dropUnusedParams :: forall m. MonadIO m => Set %1 -> IslT m Set
+dropUnusedParams :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 dropUnusedParams = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -986,7 +987,7 @@ dropUnusedParams = unsafeCoerce go where
 
 foreign import ccall "isl_set_empty" c_empty :: Space -> IO Set
 
-empty :: forall m. MonadIO m => Space %1 -> IslT m Set
+empty :: forall m s_space. MonadIO m => Space %1 -> IslT m Set
 empty = unsafeCoerce go where
   go :: Space -> IslT m Set
   go space =
@@ -995,7 +996,7 @@ empty = unsafeCoerce go where
 
 foreign import ccall "isl_set_flatten" c_flatten :: Set -> IO Set
 
-flatten :: forall m. MonadIO m => Set %1 -> IslT m Set
+flatten :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 flatten = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -1004,7 +1005,7 @@ flatten = unsafeCoerce go where
 
 foreign import ccall "isl_set_gist" c_gist :: Set -> Set -> IO Set
 
-gist :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Set
+gist :: forall m s_set s_context. MonadIO m => Set %1 -> Set %1 -> IslT m Set
 gist = unsafeCoerce go where
   go :: Set -> Set -> IslT m Set
   go set context =
@@ -1013,7 +1014,7 @@ gist = unsafeCoerce go where
 
 foreign import ccall "isl_set_gist_params" c_gistParams :: Set -> Set -> IO Set
 
-gistParams :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Set
+gistParams :: forall m s_set s_context. MonadIO m => Set %1 -> Set %1 -> IslT m Set
 gistParams = unsafeCoerce go where
   go :: Set -> Set -> IslT m Set
   go set context =
@@ -1022,7 +1023,7 @@ gistParams = unsafeCoerce go where
 
 foreign import ccall "isl_set_intersect" c_intersect :: Set -> Set -> IO Set
 
-intersect :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Set
+intersect :: forall m s_set1 s_set2. MonadIO m => Set %1 -> Set %1 -> IslT m Set
 intersect = unsafeCoerce go where
   go :: Set -> Set -> IslT m Set
   go set1 set2 =
@@ -1031,7 +1032,7 @@ intersect = unsafeCoerce go where
 
 foreign import ccall "isl_set_intersect_params" c_intersectParams :: Set -> Set -> IO Set
 
-intersectParams :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Set
+intersectParams :: forall m s_set s_params. MonadIO m => Set %1 -> Set %1 -> IslT m Set
 intersectParams = unsafeCoerce go where
   go :: Set -> Set -> IslT m Set
   go set params =
@@ -1040,7 +1041,7 @@ intersectParams = unsafeCoerce go where
 
 foreign import ccall "isl_set_lexmax" c_lexmax :: Set -> IO Set
 
-lexmax :: forall m. MonadIO m => Set %1 -> IslT m Set
+lexmax :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 lexmax = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -1049,7 +1050,7 @@ lexmax = unsafeCoerce go where
 
 foreign import ccall "isl_set_lexmin" c_lexmin :: Set -> IO Set
 
-lexmin :: forall m. MonadIO m => Set %1 -> IslT m Set
+lexmin :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 lexmin = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -1058,7 +1059,7 @@ lexmin = unsafeCoerce go where
 
 foreign import ccall "isl_set_params" c_params :: Set -> IO Set
 
-params :: forall m. MonadIO m => Set %1 -> IslT m Set
+params :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 params = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -1067,7 +1068,7 @@ params = unsafeCoerce go where
 
 foreign import ccall "isl_set_product" c_product :: Set -> Set -> IO Set
 
-product :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Set
+product :: forall m s_set1 s_set2. MonadIO m => Set %1 -> Set %1 -> IslT m Set
 product = unsafeCoerce go where
   go :: Set -> Set -> IslT m Set
   go set1 set2 =
@@ -1076,7 +1077,7 @@ product = unsafeCoerce go where
 
 foreign import ccall "isl_set_project_out_all_params" c_projectOutAllParams :: Set -> IO Set
 
-projectOutAllParams :: forall m. MonadIO m => Set %1 -> IslT m Set
+projectOutAllParams :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 projectOutAllParams = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
@@ -1085,7 +1086,7 @@ projectOutAllParams = unsafeCoerce go where
 
 foreign import ccall "isl_set_subtract" c_subtract :: Set -> Set -> IO Set
 
-subtract :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Set
+subtract :: forall m s_set1 s_set2. MonadIO m => Set %1 -> Set %1 -> IslT m Set
 subtract = unsafeCoerce go where
   go :: Set -> Set -> IslT m Set
   go set1 set2 =
@@ -1094,7 +1095,7 @@ subtract = unsafeCoerce go where
 
 foreign import ccall "isl_set_union" c_union :: Set -> Set -> IO Set
 
-union :: forall m. MonadIO m => Set %1 -> Set %1 -> IslT m Set
+union :: forall m s_set1 s_set2. MonadIO m => Set %1 -> Set %1 -> IslT m Set
 union = unsafeCoerce go where
   go :: Set -> Set -> IslT m Set
   go set1 set2 =
@@ -1103,7 +1104,7 @@ union = unsafeCoerce go where
 
 foreign import ccall "isl_set_universe" c_universe :: Space -> IO Set
 
-universe :: forall m. MonadIO m => Space %1 -> IslT m Set
+universe :: forall m s_space. MonadIO m => Space %1 -> IslT m Set
 universe = unsafeCoerce go where
   go :: Space -> IslT m Set
   go space =
@@ -1112,23 +1113,23 @@ universe = unsafeCoerce go where
 
 foreign import ccall "isl_set_wrapped_reverse" c_wrappedReverse :: Set -> IO Set
 
-wrappedReverse :: forall m. MonadIO m => Set %1 -> IslT m Set
+wrappedReverse :: forall m s_set. MonadIO m => Set %1 -> IslT m Set
 wrappedReverse = unsafeCoerce go where
   go :: Set -> IslT m Set
   go set =
     unsafeIslFromIO $ \_ -> c_wrappedReverse set
 
 
-foreign import ccall "isl_set_get_space" c_getSpace :: SetRef -> IO Space
+foreign import ccall "isl_set_get_space" c_getSpace :: SetRef s_set -> IO Space
 
-getSpace :: MonadIO m => SetRef -> IslT m Space
+getSpace :: MonadIO m => SetRef s_set -> IslT m Space
 getSpace set =
     unsafeIslFromIO $ \_ -> c_getSpace set
 
 
 foreign import ccall "isl_set_identity" c_identity :: Set -> IO Map
 
-identity :: forall m. MonadIO m => Set %1 -> IslT m Map
+identity :: forall m s_set. MonadIO m => Set %1 -> IslT m Map
 identity = unsafeCoerce go where
   go :: Set -> IslT m Map
   go set =
@@ -1137,7 +1138,7 @@ identity = unsafeCoerce go where
 
 foreign import ccall "isl_set_insert_domain" c_insertDomain :: Set -> Space -> IO Map
 
-insertDomain :: forall m. MonadIO m => Set %1 -> Space %1 -> IslT m Map
+insertDomain :: forall m s_set s_domain. MonadIO m => Set %1 -> Space %1 -> IslT m Map
 insertDomain = unsafeCoerce go where
   go :: Set -> Space -> IslT m Map
   go set domain =
@@ -1146,7 +1147,7 @@ insertDomain = unsafeCoerce go where
 
 foreign import ccall "isl_set_translation" c_translation :: Set -> IO Map
 
-translation :: forall m. MonadIO m => Set %1 -> IslT m Map
+translation :: forall m s_deltas. MonadIO m => Set %1 -> IslT m Map
 translation = unsafeCoerce go where
   go :: Set -> IslT m Map
   go deltas =
@@ -1155,7 +1156,7 @@ translation = unsafeCoerce go where
 
 foreign import ccall "isl_set_unwrap" c_unwrap :: Set -> IO Map
 
-unwrap :: forall m. MonadIO m => Set %1 -> IslT m Map
+unwrap :: forall m s_set. MonadIO m => Set %1 -> IslT m Map
 unwrap = unsafeCoerce go where
   go :: Set -> IslT m Map
   go set =
@@ -1164,7 +1165,7 @@ unwrap = unsafeCoerce go where
 
 foreign import ccall "isl_set_affine_hull" c_affineHull :: Set -> IO BasicSet
 
-affineHull :: forall m. MonadIO m => Set %1 -> IslT m BasicSet
+affineHull :: forall m s_set. MonadIO m => Set %1 -> IslT m BasicSet
 affineHull = unsafeCoerce go where
   go :: Set -> IslT m BasicSet
   go set =
@@ -1173,7 +1174,7 @@ affineHull = unsafeCoerce go where
 
 foreign import ccall "isl_set_polyhedral_hull" c_polyhedralHull :: Set -> IO BasicSet
 
-polyhedralHull :: forall m. MonadIO m => Set %1 -> IslT m BasicSet
+polyhedralHull :: forall m s_set. MonadIO m => Set %1 -> IslT m BasicSet
 polyhedralHull = unsafeCoerce go where
   go :: Set -> IslT m BasicSet
   go set =
@@ -1182,7 +1183,7 @@ polyhedralHull = unsafeCoerce go where
 
 foreign import ccall "isl_set_sample" c_sample :: Set -> IO BasicSet
 
-sample :: forall m. MonadIO m => Set %1 -> IslT m BasicSet
+sample :: forall m s_set. MonadIO m => Set %1 -> IslT m BasicSet
 sample = unsafeCoerce go where
   go :: Set -> IslT m BasicSet
   go set =
@@ -1191,7 +1192,7 @@ sample = unsafeCoerce go where
 
 foreign import ccall "isl_set_unshifted_simple_hull" c_unshiftedSimpleHull :: Set -> IO BasicSet
 
-unshiftedSimpleHull :: forall m. MonadIO m => Set %1 -> IslT m BasicSet
+unshiftedSimpleHull :: forall m s_set. MonadIO m => Set %1 -> IslT m BasicSet
 unshiftedSimpleHull = unsafeCoerce go where
   go :: Set -> IslT m BasicSet
   go set =
@@ -1200,7 +1201,7 @@ unshiftedSimpleHull = unsafeCoerce go where
 
 foreign import ccall "isl_set_dim_max_val" c_dimMaxVal :: Set -> C.CInt -> IO Val
 
-dimMaxVal :: forall m. MonadIO m => Set %1 -> Int -> IslT m Val
+dimMaxVal :: forall m s_set. MonadIO m => Set %1 -> Int -> IslT m Val
 dimMaxVal = unsafeCoerce go where
   go :: Set -> Int -> IslT m Val
   go set pos =
@@ -1209,37 +1210,37 @@ dimMaxVal = unsafeCoerce go where
 
 foreign import ccall "isl_set_dim_min_val" c_dimMinVal :: Set -> C.CInt -> IO Val
 
-dimMinVal :: forall m. MonadIO m => Set %1 -> Int -> IslT m Val
+dimMinVal :: forall m s_set. MonadIO m => Set %1 -> Int -> IslT m Val
 dimMinVal = unsafeCoerce go where
   go :: Set -> Int -> IslT m Val
   go set pos =
     unsafeIslFromIO $ \_ -> c_dimMinVal set (fromIntegral pos)
 
 
-foreign import ccall "isl_set_get_stride" c_getStride :: SetRef -> C.CInt -> IO Val
+foreign import ccall "isl_set_get_stride" c_getStride :: SetRef s_set -> C.CInt -> IO Val
 
-getStride :: MonadIO m => SetRef -> Int -> IslT m Val
+getStride :: MonadIO m => SetRef s_set -> Int -> IslT m Val
 getStride set pos =
     unsafeIslFromIO $ \_ -> c_getStride set (fromIntegral pos)
 
 
-foreign import ccall "isl_set_max_val" c_maxVal :: SetRef -> AffRef -> IO Val
+foreign import ccall "isl_set_max_val" c_maxVal :: SetRef s_set -> AffRef s_obj -> IO Val
 
-maxVal :: MonadIO m => SetRef -> AffRef -> IslT m Val
+maxVal :: MonadIO m => SetRef s_set -> AffRef s_obj -> IslT m Val
 maxVal set obj =
     unsafeIslFromIO $ \_ -> c_maxVal set obj
 
 
-foreign import ccall "isl_set_min_val" c_minVal :: SetRef -> AffRef -> IO Val
+foreign import ccall "isl_set_min_val" c_minVal :: SetRef s_set -> AffRef s_obj -> IO Val
 
-minVal :: MonadIO m => SetRef -> AffRef -> IslT m Val
+minVal :: MonadIO m => SetRef s_set -> AffRef s_obj -> IslT m Val
 minVal set obj =
     unsafeIslFromIO $ \_ -> c_minVal set obj
 
 
 foreign import ccall "isl_set_indicator_function" c_indicatorFunction :: Set -> IO PwAff
 
-indicatorFunction :: forall m. MonadIO m => Set %1 -> IslT m PwAff
+indicatorFunction :: forall m s_set. MonadIO m => Set %1 -> IslT m PwAff
 indicatorFunction = unsafeCoerce go where
   go :: Set -> IslT m PwAff
   go set =
@@ -1248,7 +1249,7 @@ indicatorFunction = unsafeCoerce go where
 
 foreign import ccall "isl_set_to_union_set" c_toUnionSet :: Set -> IO UnionSet
 
-toUnionSet :: forall m. MonadIO m => Set %1 -> IslT m UnionSet
+toUnionSet :: forall m s_set. MonadIO m => Set %1 -> IslT m UnionSet
 toUnionSet = unsafeCoerce go where
   go :: Set -> IslT m UnionSet
   go set =
@@ -1257,7 +1258,7 @@ toUnionSet = unsafeCoerce go where
 
 foreign import ccall "isl_set_as_pw_multi_aff" c_asPwMultiAff :: Set -> IO PwMultiAff
 
-asPwMultiAff :: forall m. MonadIO m => Set %1 -> IslT m PwMultiAff
+asPwMultiAff :: forall m s_set. MonadIO m => Set %1 -> IslT m PwMultiAff
 asPwMultiAff = unsafeCoerce go where
   go :: Set -> IslT m PwMultiAff
   go set =
@@ -1266,7 +1267,7 @@ asPwMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_set_lexmax_pw_multi_aff" c_lexmaxPwMultiAff :: Set -> IO PwMultiAff
 
-lexmaxPwMultiAff :: forall m. MonadIO m => Set %1 -> IslT m PwMultiAff
+lexmaxPwMultiAff :: forall m s_set. MonadIO m => Set %1 -> IslT m PwMultiAff
 lexmaxPwMultiAff = unsafeCoerce go where
   go :: Set -> IslT m PwMultiAff
   go set =
@@ -1275,7 +1276,7 @@ lexmaxPwMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_set_lexmin_pw_multi_aff" c_lexminPwMultiAff :: Set -> IO PwMultiAff
 
-lexminPwMultiAff :: forall m. MonadIO m => Set %1 -> IslT m PwMultiAff
+lexminPwMultiAff :: forall m s_set. MonadIO m => Set %1 -> IslT m PwMultiAff
 lexminPwMultiAff = unsafeCoerce go where
   go :: Set -> IslT m PwMultiAff
   go set =
@@ -1284,7 +1285,7 @@ lexminPwMultiAff = unsafeCoerce go where
 
 foreign import ccall "isl_set_from_basic_set" c_fromBasicSet :: BasicSet -> IO Set
 
-fromBasicSet :: forall m. MonadIO m => BasicSet %1 -> IslT m Set
+fromBasicSet :: forall m s_bset. MonadIO m => BasicSet %1 -> IslT m Set
 fromBasicSet = unsafeCoerce go where
   go :: BasicSet -> IslT m Set
   go bset =

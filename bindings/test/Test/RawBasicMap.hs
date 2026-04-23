@@ -47,10 +47,9 @@ tests = testGroup "Isl.BasicMap"
   , testCase "foreachConstraint" $ do
       let r = runIslTest $ Isl.do
             bm <- BM.readFromStr "{ [i] -> [j] : 0 <= i <= 5 and j = i }"
-            Ur n <- Isl.queryM_ bm (\bmRef ->
-              unsafeIslFromIO $ \_ -> do
-                cs <- BM.foreachConstraint bmRef $ \_ -> return ()
-                return (Ur (length cs)))
+            Ur n <- Isl.queryM_ bm (\bmRef -> Isl.do
+              Ur cs <- BM.foreachConstraint bmRef (\_ -> Isl.pure (Ur ()))
+              Isl.pure (Ur (length cs)))
             Isl.pure (Ur n)
       assertBool "should have constraints" (r >= 2)
 

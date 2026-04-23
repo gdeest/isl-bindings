@@ -75,9 +75,10 @@ import GHC.Generics (Generic)
 import Unsafe.Coerce (unsafeCoerce)
 
 import qualified Isl.Types as Isl
+import qualified Isl.Types.Raw as IslR
 import Isl.Types (Ctx(..))
 import Isl.Types.Internal (Consumable(..), Borrow(..))
-import Isl.Monad.Internal (IslT(..), Ur(..), unsafeIslFromIO)
+import Isl.Monad.Internal (Isl, IslT(..), Ur(..), unsafeIslFromIO)
 import Isl.Linear (freeM)
 import qualified Isl.Linear as Isl
 import qualified Isl.Aff as Aff
@@ -266,7 +267,7 @@ conjunctionHasFloorDiv = any go
 -- ISL extraction (ISL object -> Haskell)
 -- =========================================================================
 
-extractAffExprIO :: Int -> Int -> Isl.AffRef -> IO (Expr SetIx)
+extractAffExprIO :: Int -> Int -> Isl.AffRef s -> IO (Expr SetIx)
 extractAffExprIO nParams nIn affR = do
   paramCoeffs <- forM [0 .. nParams - 1] $ \i -> do
     c <- Aff.affGetCoefficientSi affR Isl.islDimParam (fromIntegral i)
@@ -278,7 +279,7 @@ extractAffExprIO nParams nIn affR = do
   let allCoeffs = filter (\(c, _) -> c /= 0) (paramCoeffs ++ inCoeffs)
   return $ rebuildExpr allCoeffs constant
 
-extractSetAffExprIO :: Int -> Int -> Isl.AffRef -> IO (Expr SetIx)
+extractSetAffExprIO :: Int -> Int -> Isl.AffRef s -> IO (Expr SetIx)
 extractSetAffExprIO nParams nDims affR = do
   paramCoeffs <- forM [0 .. nParams - 1] $ \i -> do
     c <- Aff.affGetCoefficientSi affR Isl.islDimParam (fromIntegral i)
@@ -294,7 +295,7 @@ extractSetAffExprIO nParams nDims affR = do
 -- Div-aware extraction
 -- =========================================================================
 
-extractSetDivs :: Isl.BasicSetRef -> Int -> Int -> IO [Expr SetIx]
+extractSetDivs :: Isl.BasicSetRef s -> Int -> Int -> IO [Expr SetIx]
 extractSetDivs bsRef nDims nParams = do
   let nDivs = BS.dim bsRef Isl.islDimDiv
   go 0 nDivs []
@@ -305,12 +306,12 @@ extractSetDivs bsRef nDims nParams = do
           expr <- extractOneSetDiv bsRef nDims nParams (reverse acc) i
           go (i + 1) nDivs (expr : acc)
 
-extractOneSetDiv :: Isl.BasicSetRef -> Int -> Int -> [Expr SetIx] -> Int -> IO (Expr SetIx)
+extractOneSetDiv :: Isl.BasicSetRef s -> Int -> Int -> [Expr SetIx] -> Int -> IO (Expr SetIx)
 extractOneSetDiv bsRef nDims nParams earlierDivs divIdx = do
   aff <- BS.c_getDiv bsRef (fromIntegral divIdx)
-  let !affR = Isl.AffRef (Isl.unAff aff)
+  let !affR = IslR.AffRef (Isl.unAff aff)
   denomVal <- Aff.c_getDenominatorVal affR
-  let !denom = fromIntegral $ Val.getNumSi (Isl.ValRef (Isl.unVal denomVal))
+  let !denom = fromIntegral $ Val.getNumSi (IslR.ValRef (Isl.unVal denomVal))
   consume denomVal
   dimCoeffs <- forM [0 .. nDims - 1] $ \i -> do
     c <- Aff.affGetCoefficientSi affR Isl.islDimIn (fromIntegral i)
@@ -327,7 +328,7 @@ extractOneSetDiv bsRef nDims nParams earlierDivs divIdx = do
       innerExpr = rebuildExprWithDivs allTerms constVal
   return $ FloorDiv innerExpr denom
 
-extractMapDivs :: Isl.BasicMapRef -> Int -> Int -> Int -> IO [Expr MapIx]
+extractMapDivs :: Isl.BasicMapRef s -> Int -> Int -> Int -> IO [Expr MapIx]
 extractMapDivs bmRef nIn nOut nParams = do
   let nDivs = BM.dim bmRef Isl.islDimDiv
   go 0 nDivs []
@@ -338,12 +339,12 @@ extractMapDivs bmRef nIn nOut nParams = do
           expr <- extractOneMapDiv bmRef nIn nOut nParams (reverse acc) i
           go (i + 1) nDivs (expr : acc)
 
-extractOneMapDiv :: Isl.BasicMapRef -> Int -> Int -> Int -> [Expr MapIx] -> Int -> IO (Expr MapIx)
+extractOneMapDiv :: Isl.BasicMapRef s -> Int -> Int -> Int -> [Expr MapIx] -> Int -> IO (Expr MapIx)
 extractOneMapDiv bmRef nIn nOut nParams earlierDivs divIdx = do
   aff <- BM.c_getDiv bmRef (fromIntegral divIdx)
-  let !affR = Isl.AffRef (Isl.unAff aff)
+  let !affR = IslR.AffRef (Isl.unAff aff)
   denomVal <- Aff.c_getDenominatorVal affR
-  let !denom = fromIntegral $ Val.getNumSi (Isl.ValRef (Isl.unVal denomVal))
+  let !denom = fromIntegral $ Val.getNumSi (IslR.ValRef (Isl.unVal denomVal))
   consume denomVal
   inCoeffs <- forM [0 .. nIn - 1] $ \i -> do
     c <- Aff.affGetCoefficientSi affR Isl.islDimIn (fromIntegral i)
@@ -363,7 +364,7 @@ extractOneMapDiv bmRef nIn nOut nParams earlierDivs divIdx = do
       innerExpr = rebuildExprWithDivs allTerms constVal
   return $ FloorDiv innerExpr denom
 
-extractSetConstraint :: Int -> Int -> [Expr SetIx] -> Isl.ConstraintRef -> IO (Constraint SetIx)
+extractSetConstraint :: Int -> Int -> [Expr SetIx] -> Isl.ConstraintRef s -> IO (Constraint SetIx)
 extractSetConstraint nParams nDims divExprs cRef = do
   let !isEq = Constraint.isEquality cRef
   paramCoeffs <- forM [0 .. nParams - 1] $ \i -> do
@@ -382,7 +383,7 @@ extractSetConstraint nParams nDims divExprs cRef = do
     then EqualityConstraint expr
     else InequalityConstraint expr
 
-extractMapConstraint :: Int -> Int -> Int -> [Expr MapIx] -> Isl.ConstraintRef -> IO (Constraint MapIx)
+extractMapConstraint :: Int -> Int -> Int -> [Expr MapIx] -> Isl.ConstraintRef s -> IO (Constraint MapIx)
 extractMapConstraint nParams nIn nOut divExprs cRef = do
   let !isEq = Constraint.isEquality cRef
   paramCoeffs <- forM [0 .. nParams - 1] $ \i -> do
@@ -486,7 +487,11 @@ addSetConstraint :: forall m. MonadIO m => Isl.BasicSet %1 -> Constraint SetIx -
 addSetConstraint = unsafeCoerce goAdd where
   goAdd :: Isl.BasicSet -> Constraint SetIx -> IslT m Isl.BasicSet
   goAdd bs constraint = Isl.do
-    let !(ref, bs') = borrow bs (\r -> r)
+    -- Internal use: treat bs's pointer as a ref of arbitrary region while
+    -- the owned bs stays live below. Safe because bs isn't consumed until
+    -- BS.addConstraint at the end of the branch.
+    let ref = unsafeCoerce bs :: Isl.BasicSetRef ()
+        bs' = bs
     sp <- BS.getSpace ref
     ls <- LS.fromSpace sp
     let e = case constraint of
@@ -521,7 +526,10 @@ addMapConstraint :: forall m. MonadIO m => Isl.BasicMap %1 -> Constraint MapIx -
 addMapConstraint = unsafeCoerce goAdd where
   goAdd :: Isl.BasicMap -> Constraint MapIx -> IslT m Isl.BasicMap
   goAdd bm constraint = Isl.do
-    let !(ref, bm') = borrow bm (\r -> r)
+    -- Internal use: treat bm's pointer as a ref of arbitrary region while
+    -- the owned bm stays live below.
+    let ref = unsafeCoerce bm :: Isl.BasicMapRef ()
+        bm' = bm
     sp <- BM.getSpace ref
     ls <- LS.fromSpace sp
     let e = case constraint of
@@ -614,7 +622,9 @@ buildMultiAff paramNames nIn nOut exprs = Isl.do
     setOneAff = unsafeCoerce go where
       go :: Isl.MultiAff -> (Int, Expr SetIx) -> IslT m Isl.MultiAff
       go ma (j, expr) = Isl.do
-        let !(ref, ma') = borrow ma (\r -> r)
+        -- Internal: treat ma as a ref for getDomainSpace; ma stays live.
+        let ref = unsafeCoerce ma :: Isl.MultiAffRef ()
+            ma' = ma
         domSp <- MA.getDomainSpace ref
         ls <- LS.fromSpace domSp
         aff <- exprToSetAff ls expr
@@ -626,62 +636,64 @@ buildMultiAff paramNames nIn nOut exprs = Isl.do
 
 -- | Decompose an ISL BasicSet into its constraints.
 decomposeBasicSet :: MonadIO m
-  => Int               -- ^ Number of set dimensions
-  -> Int               -- ^ Number of parameters
-  -> Isl.BasicSetRef   -- ^ Borrowed reference
+  => Int                 -- ^ Number of set dimensions
+  -> Int                 -- ^ Number of parameters
+  -> Isl.BasicSetRef s   -- ^ Borrowed reference
   -> IslT m (Conjunction SetIx)
-decomposeBasicSet nDims nParams bsRef =
-  unsafeIslFromIO $ \_ -> do
-    divExprs <- extractSetDivs bsRef nDims nParams
-    constraints <- BS.foreachConstraint bsRef $ \cRef ->
-      extractSetConstraint nParams nDims divExprs cRef
-    return (Conjunction constraints)
+decomposeBasicSet nDims nParams bsRef = unsafeIslFromIO $ \_ -> do
+  divExprs <- extractSetDivs bsRef nDims nParams
+  Ur constraints <- runIO $ BS.foreachConstraint bsRef $ \cRef -> IslT $ \_ -> do
+    c <- extractSetConstraint nParams nDims divExprs cRef
+    return (Ur c)
+  return (Conjunction constraints)
 
 -- | Decompose an ISL BasicMap into its constraints.
 decomposeBasicMap :: MonadIO m
-  => Int               -- ^ Number of input dimensions
-  -> Int               -- ^ Number of output dimensions
-  -> Int               -- ^ Number of parameters
-  -> Isl.BasicMapRef   -- ^ Borrowed reference
+  => Int                 -- ^ Number of input dimensions
+  -> Int                 -- ^ Number of output dimensions
+  -> Int                 -- ^ Number of parameters
+  -> Isl.BasicMapRef s   -- ^ Borrowed reference
   -> IslT m (Conjunction MapIx)
-decomposeBasicMap nIn nOut nParams bmRef =
-  unsafeIslFromIO $ \_ -> do
-    divExprs <- extractMapDivs bmRef nIn nOut nParams
-    constraints <- BM.foreachConstraint bmRef $ \cRef ->
-      extractMapConstraint nParams nIn nOut divExprs cRef
-    return (Conjunction constraints)
+decomposeBasicMap nIn nOut nParams bmRef = unsafeIslFromIO $ \_ -> do
+  divExprs <- extractMapDivs bmRef nIn nOut nParams
+  Ur constraints <- runIO $ BM.foreachConstraint bmRef $ \cRef -> IslT $ \_ -> do
+    c <- extractMapConstraint nParams nIn nOut divExprs cRef
+    return (Ur c)
+  return (Conjunction constraints)
 
 -- | Decompose an ISL Set (union of basic sets) into a list of conjunctions.
 decomposeSet :: MonadIO m
-  => Int -> Int -> Isl.SetRef -> IslT m [Conjunction SetIx]
-decomposeSet nDims nParams setRef =
-  unsafeIslFromIO $ \_ ->
-    S.foreachBasicSet setRef $ \bsRef -> do
-      divExprs <- extractSetDivs bsRef nDims nParams
-      constraints <- BS.foreachConstraint bsRef $ \cRef ->
-        extractSetConstraint nParams nDims divExprs cRef
-      return (Conjunction constraints)
+  => Int -> Int -> Isl.SetRef s -> IslT m [Conjunction SetIx]
+decomposeSet nDims nParams setRef = unsafeIslFromIO $ \_ -> do
+  Ur conjs <- runIO $ S.foreachBasicSet setRef $ \bsRef -> IslT $ \_ -> do
+    divExprs <- extractSetDivs bsRef nDims nParams
+    Ur constraints <- runIO $ BS.foreachConstraint bsRef $ \cRef -> IslT $ \_ -> do
+      c <- extractSetConstraint nParams nDims divExprs cRef
+      return (Ur c)
+    return (Ur (Conjunction constraints))
+  return conjs
 
 -- | Decompose an ISL Map (union of basic maps) into a list of conjunctions.
 decomposeMap :: MonadIO m
-  => Int -> Int -> Int -> Isl.MapRef -> IslT m [Conjunction MapIx]
-decomposeMap nIn nOut nParams mapRef =
-  unsafeIslFromIO $ \_ ->
-    M.foreachBasicMap mapRef $ \bmRef -> do
-      divExprs <- extractMapDivs bmRef nIn nOut nParams
-      constraints <- BM.foreachConstraint bmRef $ \cRef ->
-        extractMapConstraint nParams nIn nOut divExprs cRef
-      return (Conjunction constraints)
+  => Int -> Int -> Int -> Isl.MapRef s -> IslT m [Conjunction MapIx]
+decomposeMap nIn nOut nParams mapRef = unsafeIslFromIO $ \_ -> do
+  Ur conjs <- runIO $ M.foreachBasicMap mapRef $ \bmRef -> IslT $ \_ -> do
+    divExprs <- extractMapDivs bmRef nIn nOut nParams
+    Ur constraints <- runIO $ BM.foreachConstraint bmRef $ \cRef -> IslT $ \_ -> do
+      c <- extractMapConstraint nParams nIn nOut divExprs cRef
+      return (Ur c)
+    return (Ur (Conjunction constraints))
+  return conjs
 
 -- | Decompose an ISL MultiAff into its output expressions.
 decomposeMultiAff :: MonadIO m
-  => Int -> Int -> Isl.MultiAffRef -> IslT m [Expr SetIx]
+  => Int -> Int -> Isl.MultiAffRef s -> IslT m [Expr SetIx]
 decomposeMultiAff nParams nIn maRef =
   unsafeIslFromIO $ \_ -> do
     let nOut = MA.dim maRef Isl.islDimOut
     forM [0 .. nOut - 1] $ \j -> do
       aff <- MA.multiAffGetAffCopy maRef (fromIntegral j)
-      let affR = Isl.AffRef (Isl.unAff aff)
+      let affR = IslR.AffRef (Isl.unAff aff)
       expr <- extractAffExprIO nParams nIn affR
       consume aff
       return expr
@@ -759,30 +771,31 @@ buildUnionMapFromNamed nm = Isl.do
 
 -- | Decompose an ISL UnionMap into per-space NamedMaps.
 decomposeUnionMapNamed :: MonadIO m
-  => Isl.UnionMapRef -> IslT m [NamedMap]
-decomposeUnionMapNamed ref =
-  unsafeIslFromIO $ \_ ->
-    UM.foreachMap ref $ \mRef -> do
-      space <- runIO $ M.getSpace mRef
-      let spRef = Isl.SpaceRef (Isl.unSpace space)
-          nIn  = Space.dim spRef Isl.islDimIn
-          nOut = Space.dim spRef Isl.islDimOut
-          nParams = Space.dim spRef Isl.islDimParam
-      domainName <- Space.spaceGetTupleName space Isl.islDimIn
-      rangeName  <- Space.spaceGetTupleName space Isl.islDimOut
-      paramNames <- forM [0 .. nParams - 1] $ \i ->
-        Space.spaceGetDimName space Isl.islDimParam i
-      consume space
-      conjunctions <- M.foreachBasicMap mRef $ \bmRef -> do
-        divExprs <- extractMapDivs bmRef nIn nOut nParams
-        constraints <- BM.foreachConstraint bmRef $ \cRef ->
-          extractMapConstraint nParams nIn nOut divExprs cRef
-        return (Conjunction constraints)
-      return NamedMap
-        { nmDomainName = domainName
-        , nmRangeName  = rangeName
-        , nmParams     = catMaybes paramNames
-        , nmNIn        = nIn
-        , nmNOut       = nOut
-        , nmConjs      = conjunctions
-        }
+  => Isl.UnionMapRef s -> IslT m [NamedMap]
+decomposeUnionMapNamed ref = unsafeIslFromIO $ \_ -> do
+  Ur nms <- runIO $ UM.foreachMap ref $ \mRef -> IslT $ \ctx -> do
+    space <- unIslT (M.getSpace mRef) ctx
+    let spRef = IslR.SpaceRef (Isl.unSpace space)
+        nIn  = Space.dim spRef Isl.islDimIn
+        nOut = Space.dim spRef Isl.islDimOut
+        nParams = Space.dim spRef Isl.islDimParam
+        domainName = Space.spaceGetTupleNameRef spRef Isl.islDimIn
+        rangeName  = Space.spaceGetTupleNameRef spRef Isl.islDimOut
+        paramNames = [ Space.spaceGetDimNameRef spRef Isl.islDimParam i
+                     | i <- [0 .. nParams - 1] ]
+    consume space
+    Ur conjunctions <- runIO $ M.foreachBasicMap mRef $ \bmRef -> IslT $ \_ -> do
+      divExprs <- extractMapDivs bmRef nIn nOut nParams
+      Ur constraints <- runIO $ BM.foreachConstraint bmRef $ \cRef -> IslT $ \_ -> do
+        c <- extractMapConstraint nParams nIn nOut divExprs cRef
+        return (Ur c)
+      return (Ur (Conjunction constraints))
+    return $ Ur NamedMap
+      { nmDomainName = domainName
+      , nmRangeName  = rangeName
+      , nmParams     = catMaybes paramNames
+      , nmNIn        = nIn
+      , nmNOut       = nOut
+      , nmConjs      = conjunctions
+      }
+  return nms

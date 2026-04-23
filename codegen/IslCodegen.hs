@@ -527,9 +527,18 @@ toMonadicGiveDecl (ISLFunction annots t name params) hsName = do
         map (stripLinear . wrapperParamTypeMonadic) (zip filteredParams filteredParamsInfo)
         ++ ["IslT m " ++ hsRetOwnedType]
 
+      -- Collect region type variables from ref params so they can be
+      -- listed in the explicit forall (GHC doesn't auto-quantify free
+      -- tyvars when an explicit forall is present).
+      refVars = [ "s_" ++ paramName p
+                | (p, ti) <- zip filteredParams filteredParamsInfo
+                , isJust (hsRefType ti)
+                ]
+      foralled = unwords ("m" : refVars)
+
       exportCall
         | hasLinearParam = unlines
-          [ hsName ++ " :: forall m. MonadIO m => " ++ hsTypeStr
+          [ hsName ++ " :: forall " ++ foralled ++ ". MonadIO m => " ++ hsTypeStr
           , hsName ++ " = unsafeCoerce go where"
           , "  go :: " ++ nonLinearTypeStr
           , case wrapperParams of
@@ -552,33 +561,35 @@ toMonadicGiveDecl (ISLFunction annots t name params) hsName = do
 -- | FFI param type: type used in the foreign import declaration.
 -- For PureQuery: all ISL ptrs are Ref (isl_keep).
 -- For MonadicGive: isl_take → owned, isl_keep → Ref.
+-- Each Ref carries its own region parameter (derived from the param name)
+-- so callers can pass refs from independent borrow scopes.
 ffiParamType :: GenStrategy -> (ISLParam, TypeInfo) -> String
-ffiParamType PureQuery (_, ti) =
+ffiParamType PureQuery (ISLParam _ _ pname, ti) =
   case hsRefType ti of
-    Just ref -> ref        -- ISL pointer → Ref type
-    Nothing  -> cType ti   -- primitive → C type
-ffiParamType MonadicGive (ISLParam annots _ _, ti) =
+    Just ref -> ref ++ " s_" ++ pname   -- ISL pointer → Ref type (region-indexed)
+    Nothing  -> cType ti                 -- primitive → C type
+ffiParamType MonadicGive (ISLParam annots _ pname, ti) =
   case hsRefType ti of
     Just ref
-      | ISL_TAKE `elem` annots -> cType ti  -- isl_take → owned type
-      | otherwise              -> ref       -- isl_keep → Ref type
+      | ISL_TAKE `elem` annots -> cType ti              -- isl_take → owned type
+      | otherwise              -> ref ++ " s_" ++ pname -- isl_keep → Ref type (region-indexed)
     Nothing -> cType ti
 ffiParamType _ (_, ti) = cType ti
 
 -- | Wrapper param type for pure query signatures.
 wrapperParamTypePure :: (ISLParam, TypeInfo) -> String
-wrapperParamTypePure (_, ti) =
+wrapperParamTypePure (ISLParam _ _ pname, ti) =
   case hsRefType ti of
-    Just ref -> ref         -- ISL pointer → Ref type (unrestricted)
-    Nothing  -> hsType ti   -- primitive → Haskell type
+    Just ref -> ref ++ " s_" ++ pname  -- ISL pointer → Ref type (region-indexed)
+    Nothing  -> hsType ti              -- primitive → Haskell type
 
 -- | Wrapper param type for monadic signatures.
 wrapperParamTypeMonadic :: (ISLParam, TypeInfo) -> String
-wrapperParamTypeMonadic (ISLParam annots islType _, ti) =
+wrapperParamTypeMonadic (ISLParam annots islType pname, ti) =
   case hsRefType ti of
     Just ref
-      | ISL_TAKE `elem` annots -> hsType ti ++ " %1"  -- linear owned
-      | otherwise              -> ref                  -- unrestricted Ref
+      | ISL_TAKE `elem` annots -> hsType ti ++ " %1"       -- linear owned
+      | otherwise              -> ref ++ " s_" ++ pname    -- region-indexed Ref
     Nothing
       | islType == CHAR_PTR    -> "String"
       | otherwise              -> hsType ti
@@ -648,7 +659,8 @@ writeModule outPath name functions = do
       , ""
       , "module Isl." ++ name ++ ".Generated where"
       , ""
-      , "import Isl.Types"
+      , "import Isl.Types (DimType(..))"
+      , "import Isl.Types.Raw"
       , "import Isl.Types.Internal (Consumable(..), Borrow(..), Dupable(..))"
       , "import Isl.Monad.Internal"
       , "import Control.Monad.IO.Class (MonadIO)"

@@ -73,10 +73,9 @@ tests = testGroup "Isl.BasicSet"
   , testCase "foreachConstraint enumerates constraints" $ do
       let r = runIslTest $ Isl.do
             bs <- BS.readFromStr "{ [i] : 0 <= i <= 5 }"
-            Ur n <- Isl.queryM_ bs (\bsRef ->
-              unsafeIslFromIO $ \_ -> do
-                cs <- BS.foreachConstraint bsRef $ \_ -> return ()
-                return (Ur (length cs)))
+            Ur n <- Isl.queryM_ bs (\bsRef -> Isl.do
+              Ur cs <- BS.foreachConstraint bsRef (\_ -> Isl.pure (Ur ()))
+              Isl.pure (Ur (length cs)))
             Isl.pure (Ur n)
       assertBool "should have at least 2 constraints" (r >= 2)
   ]

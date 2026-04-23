@@ -8,7 +8,8 @@
 
 module Isl.LocalSpace.Generated where
 
-import Isl.Types
+import Isl.Types (DimType(..))
+import Isl.Types.Raw
 import Isl.Types.Internal (Consumable(..), Borrow(..), Dupable(..))
 import Isl.Monad.Internal
 import Control.Monad.IO.Class (MonadIO)
@@ -21,16 +22,16 @@ import Foreign.Marshal.Utils as M
 import System.IO.Unsafe
 import Unsafe.Coerce (unsafeCoerce)
 
-foreign import ccall "isl_local_space_dim" c_dim :: LocalSpaceRef -> DimType -> IO C.CInt
+foreign import ccall "isl_local_space_dim" c_dim :: LocalSpaceRef s_ls -> DimType -> IO C.CInt
 
-dim :: LocalSpaceRef -> DimType -> Int
+dim :: LocalSpaceRef s_ls -> DimType -> Int
 dim ls typ =
     let !r = unsafePerformIO $ fromIntegral <$> c_dim ls typ in r
 
 
-foreign import ccall "isl_local_space_find_dim_by_name" c_findDimByName :: LocalSpaceRef -> DimType -> C.CString -> IO C.CInt
+foreign import ccall "isl_local_space_find_dim_by_name" c_findDimByName :: LocalSpaceRef s_ls -> DimType -> C.CString -> IO C.CInt
 
-findDimByName :: LocalSpaceRef -> DimType -> String -> Int
+findDimByName :: LocalSpaceRef s_ls -> DimType -> String -> Int
 findDimByName ls typ name =
     let !r = unsafePerformIO $ do
           name_c <- C.newCString name
@@ -38,88 +39,88 @@ findDimByName ls typ name =
     in r
 
 
-foreign import ccall "isl_local_space_dump" c_dump :: LocalSpaceRef -> IO ()
+foreign import ccall "isl_local_space_dump" c_dump :: LocalSpaceRef s_ls -> IO ()
 
-dump :: LocalSpaceRef -> ()
+dump :: LocalSpaceRef s_ls -> ()
 dump ls =
     let !r = unsafePerformIO $ c_dump ls in r
 
 
-foreign import ccall "isl_local_space_get_dim_name" c_getDimName :: LocalSpaceRef -> DimType -> C.CUInt -> IO C.CString
+foreign import ccall "isl_local_space_get_dim_name" c_getDimName :: LocalSpaceRef s_ls -> DimType -> C.CUInt -> IO C.CString
 
-getDimName :: LocalSpaceRef -> DimType -> Int -> String
+getDimName :: LocalSpaceRef s_ls -> DimType -> Int -> String
 getDimName ls typ pos =
     let !r = unsafePerformIO $ C.peekCString =<< c_getDimName ls typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_local_space_has_dim_id" c_hasDimId :: LocalSpaceRef -> DimType -> C.CUInt -> IO C.CBool
+foreign import ccall "isl_local_space_has_dim_id" c_hasDimId :: LocalSpaceRef s_ls -> DimType -> C.CUInt -> IO C.CBool
 
-hasDimId :: LocalSpaceRef -> DimType -> Int -> Bool
+hasDimId :: LocalSpaceRef s_ls -> DimType -> Int -> Bool
 hasDimId ls typ pos =
     let !r = unsafePerformIO $ M.toBool <$> c_hasDimId ls typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_local_space_has_dim_name" c_hasDimName :: LocalSpaceRef -> DimType -> C.CUInt -> IO C.CBool
+foreign import ccall "isl_local_space_has_dim_name" c_hasDimName :: LocalSpaceRef s_ls -> DimType -> C.CUInt -> IO C.CBool
 
-hasDimName :: LocalSpaceRef -> DimType -> Int -> Bool
+hasDimName :: LocalSpaceRef s_ls -> DimType -> Int -> Bool
 hasDimName ls typ pos =
     let !r = unsafePerformIO $ M.toBool <$> c_hasDimName ls typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_local_space_is_equal" c_isEqual :: LocalSpaceRef -> LocalSpaceRef -> IO C.CBool
+foreign import ccall "isl_local_space_is_equal" c_isEqual :: LocalSpaceRef s_ls1 -> LocalSpaceRef s_ls2 -> IO C.CBool
 
-isEqual :: LocalSpaceRef -> LocalSpaceRef -> Bool
+isEqual :: LocalSpaceRef s_ls1 -> LocalSpaceRef s_ls2 -> Bool
 isEqual ls1 ls2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isEqual ls1 ls2 in r
 
 
-foreign import ccall "isl_local_space_is_params" c_isParams :: LocalSpaceRef -> IO C.CBool
+foreign import ccall "isl_local_space_is_params" c_isParams :: LocalSpaceRef s_ls -> IO C.CBool
 
-isParams :: LocalSpaceRef -> Bool
+isParams :: LocalSpaceRef s_ls -> Bool
 isParams ls =
     let !r = unsafePerformIO $ M.toBool <$> c_isParams ls in r
 
 
-foreign import ccall "isl_local_space_is_set" c_isSet :: LocalSpaceRef -> IO C.CBool
+foreign import ccall "isl_local_space_is_set" c_isSet :: LocalSpaceRef s_ls -> IO C.CBool
 
-isSet :: LocalSpaceRef -> Bool
+isSet :: LocalSpaceRef s_ls -> Bool
 isSet ls =
     let !r = unsafePerformIO $ M.toBool <$> c_isSet ls in r
 
 
-foreign import ccall "isl_local_space_get_space" c_getSpace :: LocalSpaceRef -> IO Space
+foreign import ccall "isl_local_space_get_space" c_getSpace :: LocalSpaceRef s_ls -> IO Space
 
-getSpace :: MonadIO m => LocalSpaceRef -> IslT m Space
+getSpace :: MonadIO m => LocalSpaceRef s_ls -> IslT m Space
 getSpace ls =
     unsafeIslFromIO $ \_ -> c_getSpace ls
 
 
 foreign import ccall "isl_local_space_lifting" c_lifting :: LocalSpace -> IO BasicMap
 
-lifting :: forall m. MonadIO m => LocalSpace %1 -> IslT m BasicMap
+lifting :: forall m s_ls. MonadIO m => LocalSpace %1 -> IslT m BasicMap
 lifting = unsafeCoerce go where
   go :: LocalSpace -> IslT m BasicMap
   go ls =
     unsafeIslFromIO $ \_ -> c_lifting ls
 
 
-foreign import ccall "isl_local_space_get_div" c_getDiv :: LocalSpaceRef -> C.CInt -> IO Aff
+foreign import ccall "isl_local_space_get_div" c_getDiv :: LocalSpaceRef s_ls -> C.CInt -> IO Aff
 
-getDiv :: MonadIO m => LocalSpaceRef -> Int -> IslT m Aff
+getDiv :: MonadIO m => LocalSpaceRef s_ls -> Int -> IslT m Aff
 getDiv ls pos =
     unsafeIslFromIO $ \_ -> c_getDiv ls (fromIntegral pos)
 
 
-foreign import ccall "isl_local_space_get_dim_id" c_getDimId :: LocalSpaceRef -> DimType -> C.CUInt -> IO Id
+foreign import ccall "isl_local_space_get_dim_id" c_getDimId :: LocalSpaceRef s_ls -> DimType -> C.CUInt -> IO Id
 
-getDimId :: MonadIO m => LocalSpaceRef -> DimType -> Int -> IslT m Id
+getDimId :: MonadIO m => LocalSpaceRef s_ls -> DimType -> Int -> IslT m Id
 getDimId ls typ pos =
     unsafeIslFromIO $ \_ -> c_getDimId ls typ (fromIntegral pos)
 
 
 foreign import ccall "isl_local_space_add_dims" c_addDims :: LocalSpace -> DimType -> C.CUInt -> IO LocalSpace
 
-addDims :: forall m. MonadIO m => LocalSpace %1 -> DimType -> Int -> IslT m LocalSpace
+addDims :: forall m s_ls. MonadIO m => LocalSpace %1 -> DimType -> Int -> IslT m LocalSpace
 addDims = unsafeCoerce go where
   go :: LocalSpace -> DimType -> Int -> IslT m LocalSpace
   go ls typ n =
@@ -128,7 +129,7 @@ addDims = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_domain" c_domain :: LocalSpace -> IO LocalSpace
 
-domain :: forall m. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
+domain :: forall m s_ls. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
 domain = unsafeCoerce go where
   go :: LocalSpace -> IslT m LocalSpace
   go ls =
@@ -137,7 +138,7 @@ domain = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_drop_dims" c_dropDims :: LocalSpace -> DimType -> C.CUInt -> C.CUInt -> IO LocalSpace
 
-dropDims :: forall m. MonadIO m => LocalSpace %1 -> DimType -> Int -> Int -> IslT m LocalSpace
+dropDims :: forall m s_ls. MonadIO m => LocalSpace %1 -> DimType -> Int -> Int -> IslT m LocalSpace
 dropDims = unsafeCoerce go where
   go :: LocalSpace -> DimType -> Int -> Int -> IslT m LocalSpace
   go ls typ first n =
@@ -146,7 +147,7 @@ dropDims = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_flatten_domain" c_flattenDomain :: LocalSpace -> IO LocalSpace
 
-flattenDomain :: forall m. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
+flattenDomain :: forall m s_ls. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
 flattenDomain = unsafeCoerce go where
   go :: LocalSpace -> IslT m LocalSpace
   go ls =
@@ -155,7 +156,7 @@ flattenDomain = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_flatten_range" c_flattenRange :: LocalSpace -> IO LocalSpace
 
-flattenRange :: forall m. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
+flattenRange :: forall m s_ls. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
 flattenRange = unsafeCoerce go where
   go :: LocalSpace -> IslT m LocalSpace
   go ls =
@@ -164,7 +165,7 @@ flattenRange = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_from_domain" c_fromDomain :: LocalSpace -> IO LocalSpace
 
-fromDomain :: forall m. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
+fromDomain :: forall m s_ls. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
 fromDomain = unsafeCoerce go where
   go :: LocalSpace -> IslT m LocalSpace
   go ls =
@@ -173,7 +174,7 @@ fromDomain = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_from_space" c_fromSpace :: Space -> IO LocalSpace
 
-fromSpace :: forall m. MonadIO m => Space %1 -> IslT m LocalSpace
+fromSpace :: forall m s_space. MonadIO m => Space %1 -> IslT m LocalSpace
 fromSpace = unsafeCoerce go where
   go :: Space -> IslT m LocalSpace
   go space =
@@ -182,7 +183,7 @@ fromSpace = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_insert_dims" c_insertDims :: LocalSpace -> DimType -> C.CUInt -> C.CUInt -> IO LocalSpace
 
-insertDims :: forall m. MonadIO m => LocalSpace %1 -> DimType -> Int -> Int -> IslT m LocalSpace
+insertDims :: forall m s_ls. MonadIO m => LocalSpace %1 -> DimType -> Int -> Int -> IslT m LocalSpace
 insertDims = unsafeCoerce go where
   go :: LocalSpace -> DimType -> Int -> Int -> IslT m LocalSpace
   go ls typ first n =
@@ -191,7 +192,7 @@ insertDims = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_intersect" c_intersect :: LocalSpace -> LocalSpace -> IO LocalSpace
 
-intersect :: forall m. MonadIO m => LocalSpace %1 -> LocalSpace %1 -> IslT m LocalSpace
+intersect :: forall m s_ls1 s_ls2. MonadIO m => LocalSpace %1 -> LocalSpace %1 -> IslT m LocalSpace
 intersect = unsafeCoerce go where
   go :: LocalSpace -> LocalSpace -> IslT m LocalSpace
   go ls1 ls2 =
@@ -200,7 +201,7 @@ intersect = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_range" c_range :: LocalSpace -> IO LocalSpace
 
-range :: forall m. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
+range :: forall m s_ls. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
 range = unsafeCoerce go where
   go :: LocalSpace -> IslT m LocalSpace
   go ls =
@@ -209,7 +210,7 @@ range = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_set_dim_id" c_setDimId :: LocalSpace -> DimType -> C.CUInt -> Id -> IO LocalSpace
 
-setDimId :: forall m. MonadIO m => LocalSpace %1 -> DimType -> Int -> Id %1 -> IslT m LocalSpace
+setDimId :: forall m s_ls s_id. MonadIO m => LocalSpace %1 -> DimType -> Int -> Id %1 -> IslT m LocalSpace
 setDimId = unsafeCoerce go where
   go :: LocalSpace -> DimType -> Int -> Id -> IslT m LocalSpace
   go ls typ pos id =
@@ -218,7 +219,7 @@ setDimId = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_set_dim_name" c_setDimName :: LocalSpace -> DimType -> C.CUInt -> C.CString -> IO LocalSpace
 
-setDimName :: forall m. MonadIO m => LocalSpace %1 -> DimType -> Int -> String -> IslT m LocalSpace
+setDimName :: forall m s_ls. MonadIO m => LocalSpace %1 -> DimType -> Int -> String -> IslT m LocalSpace
 setDimName = unsafeCoerce go where
   go :: LocalSpace -> DimType -> Int -> String -> IslT m LocalSpace
   go ls typ pos s =
@@ -229,7 +230,7 @@ setDimName = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_set_from_params" c_setFromParams :: LocalSpace -> IO LocalSpace
 
-setFromParams :: forall m. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
+setFromParams :: forall m s_ls. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
 setFromParams = unsafeCoerce go where
   go :: LocalSpace -> IslT m LocalSpace
   go ls =
@@ -238,7 +239,7 @@ setFromParams = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_set_tuple_id" c_setTupleId :: LocalSpace -> DimType -> Id -> IO LocalSpace
 
-setTupleId :: forall m. MonadIO m => LocalSpace %1 -> DimType -> Id %1 -> IslT m LocalSpace
+setTupleId :: forall m s_ls s_id. MonadIO m => LocalSpace %1 -> DimType -> Id %1 -> IslT m LocalSpace
 setTupleId = unsafeCoerce go where
   go :: LocalSpace -> DimType -> Id -> IslT m LocalSpace
   go ls typ id =
@@ -247,7 +248,7 @@ setTupleId = unsafeCoerce go where
 
 foreign import ccall "isl_local_space_wrap" c_wrap :: LocalSpace -> IO LocalSpace
 
-wrap :: forall m. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
+wrap :: forall m s_ls. MonadIO m => LocalSpace %1 -> IslT m LocalSpace
 wrap = unsafeCoerce go where
   go :: LocalSpace -> IslT m LocalSpace
   go ls =

@@ -8,7 +8,8 @@
 
 module Isl.Constraint.Generated where
 
-import Isl.Types
+import Isl.Types (DimType(..))
+import Isl.Types.Raw
 import Isl.Types.Internal (Consumable(..), Borrow(..), Dupable(..))
 import Isl.Monad.Internal
 import Control.Monad.IO.Class (MonadIO)
@@ -21,135 +22,135 @@ import Foreign.Marshal.Utils as M
 import System.IO.Unsafe
 import Unsafe.Coerce (unsafeCoerce)
 
-foreign import ccall "isl_constraint_cmp_last_non_zero" c_cmpLastNonZero :: ConstraintRef -> ConstraintRef -> IO C.CInt
+foreign import ccall "isl_constraint_cmp_last_non_zero" c_cmpLastNonZero :: ConstraintRef s_c1 -> ConstraintRef s_c2 -> IO C.CInt
 
-cmpLastNonZero :: ConstraintRef -> ConstraintRef -> Int
+cmpLastNonZero :: ConstraintRef s_c1 -> ConstraintRef s_c2 -> Int
 cmpLastNonZero c1 c2 =
     let !r = unsafePerformIO $ fromIntegral <$> c_cmpLastNonZero c1 c2 in r
 
 
-foreign import ccall "isl_constraint_dim" c_dim :: ConstraintRef -> DimType -> IO C.CInt
+foreign import ccall "isl_constraint_dim" c_dim :: ConstraintRef s_constraint -> DimType -> IO C.CInt
 
-dim :: ConstraintRef -> DimType -> Int
+dim :: ConstraintRef s_constraint -> DimType -> Int
 dim constraint typ =
     let !r = unsafePerformIO $ fromIntegral <$> c_dim constraint typ in r
 
 
-foreign import ccall "isl_constraint_involves_dims" c_involvesDims :: ConstraintRef -> DimType -> C.CUInt -> C.CUInt -> IO C.CInt
+foreign import ccall "isl_constraint_involves_dims" c_involvesDims :: ConstraintRef s_constraint -> DimType -> C.CUInt -> C.CUInt -> IO C.CInt
 
-involvesDims :: ConstraintRef -> DimType -> Int -> Int -> Int
+involvesDims :: ConstraintRef s_constraint -> DimType -> Int -> Int -> Int
 involvesDims constraint typ first n =
     let !r = unsafePerformIO $ fromIntegral <$> c_involvesDims constraint typ (fromIntegral first) (fromIntegral n) in r
 
 
-foreign import ccall "isl_constraint_plain_cmp" c_plainCmp :: ConstraintRef -> ConstraintRef -> IO C.CInt
+foreign import ccall "isl_constraint_plain_cmp" c_plainCmp :: ConstraintRef s_c1 -> ConstraintRef s_c2 -> IO C.CInt
 
-plainCmp :: ConstraintRef -> ConstraintRef -> Int
+plainCmp :: ConstraintRef s_c1 -> ConstraintRef s_c2 -> Int
 plainCmp c1 c2 =
     let !r = unsafePerformIO $ fromIntegral <$> c_plainCmp c1 c2 in r
 
 
-foreign import ccall "isl_constraint_dump" c_dump :: ConstraintRef -> IO ()
+foreign import ccall "isl_constraint_dump" c_dump :: ConstraintRef s_c -> IO ()
 
-dump :: ConstraintRef -> ()
+dump :: ConstraintRef s_c -> ()
 dump c =
     let !r = unsafePerformIO $ c_dump c in r
 
 
-foreign import ccall "isl_constraint_get_dim_name" c_getDimName :: ConstraintRef -> DimType -> C.CUInt -> IO C.CString
+foreign import ccall "isl_constraint_get_dim_name" c_getDimName :: ConstraintRef s_constraint -> DimType -> C.CUInt -> IO C.CString
 
-getDimName :: ConstraintRef -> DimType -> Int -> String
+getDimName :: ConstraintRef s_constraint -> DimType -> Int -> String
 getDimName constraint typ pos =
     let !r = unsafePerformIO $ C.peekCString =<< c_getDimName constraint typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_constraint_is_div_constraint" c_isDivConstraint :: ConstraintRef -> IO C.CBool
+foreign import ccall "isl_constraint_is_div_constraint" c_isDivConstraint :: ConstraintRef s_constraint -> IO C.CBool
 
-isDivConstraint :: ConstraintRef -> Bool
+isDivConstraint :: ConstraintRef s_constraint -> Bool
 isDivConstraint constraint =
     let !r = unsafePerformIO $ M.toBool <$> c_isDivConstraint constraint in r
 
 
-foreign import ccall "isl_constraint_is_equal" c_isEqual :: ConstraintRef -> ConstraintRef -> IO C.CBool
+foreign import ccall "isl_constraint_is_equal" c_isEqual :: ConstraintRef s_constraint1 -> ConstraintRef s_constraint2 -> IO C.CBool
 
-isEqual :: ConstraintRef -> ConstraintRef -> Bool
+isEqual :: ConstraintRef s_constraint1 -> ConstraintRef s_constraint2 -> Bool
 isEqual constraint1 constraint2 =
     let !r = unsafePerformIO $ M.toBool <$> c_isEqual constraint1 constraint2 in r
 
 
-foreign import ccall "isl_constraint_is_equality" c_isEquality :: ConstraintRef -> IO C.CBool
+foreign import ccall "isl_constraint_is_equality" c_isEquality :: ConstraintRef s_constraint -> IO C.CBool
 
-isEquality :: ConstraintRef -> Bool
+isEquality :: ConstraintRef s_constraint -> Bool
 isEquality constraint =
     let !r = unsafePerformIO $ M.toBool <$> c_isEquality constraint in r
 
 
-foreign import ccall "isl_constraint_is_lower_bound" c_isLowerBound :: ConstraintRef -> DimType -> C.CUInt -> IO C.CBool
+foreign import ccall "isl_constraint_is_lower_bound" c_isLowerBound :: ConstraintRef s_constraint -> DimType -> C.CUInt -> IO C.CBool
 
-isLowerBound :: ConstraintRef -> DimType -> Int -> Bool
+isLowerBound :: ConstraintRef s_constraint -> DimType -> Int -> Bool
 isLowerBound constraint typ pos =
     let !r = unsafePerformIO $ M.toBool <$> c_isLowerBound constraint typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_constraint_is_upper_bound" c_isUpperBound :: ConstraintRef -> DimType -> C.CUInt -> IO C.CBool
+foreign import ccall "isl_constraint_is_upper_bound" c_isUpperBound :: ConstraintRef s_constraint -> DimType -> C.CUInt -> IO C.CBool
 
-isUpperBound :: ConstraintRef -> DimType -> Int -> Bool
+isUpperBound :: ConstraintRef s_constraint -> DimType -> Int -> Bool
 isUpperBound constraint typ pos =
     let !r = unsafePerformIO $ M.toBool <$> c_isUpperBound constraint typ (fromIntegral pos) in r
 
 
-foreign import ccall "isl_constraint_get_space" c_getSpace :: ConstraintRef -> IO Space
+foreign import ccall "isl_constraint_get_space" c_getSpace :: ConstraintRef s_constraint -> IO Space
 
-getSpace :: MonadIO m => ConstraintRef -> IslT m Space
+getSpace :: MonadIO m => ConstraintRef s_constraint -> IslT m Space
 getSpace constraint =
     unsafeIslFromIO $ \_ -> c_getSpace constraint
 
 
-foreign import ccall "isl_constraint_get_coefficient_val" c_getCoefficientVal :: ConstraintRef -> DimType -> C.CInt -> IO Val
+foreign import ccall "isl_constraint_get_coefficient_val" c_getCoefficientVal :: ConstraintRef s_constraint -> DimType -> C.CInt -> IO Val
 
-getCoefficientVal :: MonadIO m => ConstraintRef -> DimType -> Int -> IslT m Val
+getCoefficientVal :: MonadIO m => ConstraintRef s_constraint -> DimType -> Int -> IslT m Val
 getCoefficientVal constraint typ pos =
     unsafeIslFromIO $ \_ -> c_getCoefficientVal constraint typ (fromIntegral pos)
 
 
-foreign import ccall "isl_constraint_get_constant_val" c_getConstantVal :: ConstraintRef -> IO Val
+foreign import ccall "isl_constraint_get_constant_val" c_getConstantVal :: ConstraintRef s_constraint -> IO Val
 
-getConstantVal :: MonadIO m => ConstraintRef -> IslT m Val
+getConstantVal :: MonadIO m => ConstraintRef s_constraint -> IslT m Val
 getConstantVal constraint =
     unsafeIslFromIO $ \_ -> c_getConstantVal constraint
 
 
-foreign import ccall "isl_constraint_get_aff" c_getAff :: ConstraintRef -> IO Aff
+foreign import ccall "isl_constraint_get_aff" c_getAff :: ConstraintRef s_constraint -> IO Aff
 
-getAff :: MonadIO m => ConstraintRef -> IslT m Aff
+getAff :: MonadIO m => ConstraintRef s_constraint -> IslT m Aff
 getAff constraint =
     unsafeIslFromIO $ \_ -> c_getAff constraint
 
 
-foreign import ccall "isl_constraint_get_bound" c_getBound :: ConstraintRef -> DimType -> C.CInt -> IO Aff
+foreign import ccall "isl_constraint_get_bound" c_getBound :: ConstraintRef s_constraint -> DimType -> C.CInt -> IO Aff
 
-getBound :: MonadIO m => ConstraintRef -> DimType -> Int -> IslT m Aff
+getBound :: MonadIO m => ConstraintRef s_constraint -> DimType -> Int -> IslT m Aff
 getBound constraint typ pos =
     unsafeIslFromIO $ \_ -> c_getBound constraint typ (fromIntegral pos)
 
 
-foreign import ccall "isl_constraint_get_div" c_getDiv :: ConstraintRef -> C.CInt -> IO Aff
+foreign import ccall "isl_constraint_get_div" c_getDiv :: ConstraintRef s_constraint -> C.CInt -> IO Aff
 
-getDiv :: MonadIO m => ConstraintRef -> Int -> IslT m Aff
+getDiv :: MonadIO m => ConstraintRef s_constraint -> Int -> IslT m Aff
 getDiv constraint pos =
     unsafeIslFromIO $ \_ -> c_getDiv constraint (fromIntegral pos)
 
 
-foreign import ccall "isl_constraint_get_local_space" c_getLocalSpace :: ConstraintRef -> IO LocalSpace
+foreign import ccall "isl_constraint_get_local_space" c_getLocalSpace :: ConstraintRef s_constraint -> IO LocalSpace
 
-getLocalSpace :: MonadIO m => ConstraintRef -> IslT m LocalSpace
+getLocalSpace :: MonadIO m => ConstraintRef s_constraint -> IslT m LocalSpace
 getLocalSpace constraint =
     unsafeIslFromIO $ \_ -> c_getLocalSpace constraint
 
 
 foreign import ccall "isl_constraint_alloc_equality" c_allocEquality :: LocalSpace -> IO Constraint
 
-allocEquality :: forall m. MonadIO m => LocalSpace %1 -> IslT m Constraint
+allocEquality :: forall m s_ls. MonadIO m => LocalSpace %1 -> IslT m Constraint
 allocEquality = unsafeCoerce go where
   go :: LocalSpace -> IslT m Constraint
   go ls =
@@ -158,7 +159,7 @@ allocEquality = unsafeCoerce go where
 
 foreign import ccall "isl_constraint_alloc_inequality" c_allocInequality :: LocalSpace -> IO Constraint
 
-allocInequality :: forall m. MonadIO m => LocalSpace %1 -> IslT m Constraint
+allocInequality :: forall m s_ls. MonadIO m => LocalSpace %1 -> IslT m Constraint
 allocInequality = unsafeCoerce go where
   go :: LocalSpace -> IslT m Constraint
   go ls =
@@ -167,7 +168,7 @@ allocInequality = unsafeCoerce go where
 
 foreign import ccall "isl_constraint_negate" c_negate :: Constraint -> IO Constraint
 
-negate :: forall m. MonadIO m => Constraint %1 -> IslT m Constraint
+negate :: forall m s_constraint. MonadIO m => Constraint %1 -> IslT m Constraint
 negate = unsafeCoerce go where
   go :: Constraint -> IslT m Constraint
   go constraint =
@@ -176,7 +177,7 @@ negate = unsafeCoerce go where
 
 foreign import ccall "isl_constraint_set_coefficient_si" c_setCoefficientSi :: Constraint -> DimType -> C.CInt -> C.CInt -> IO Constraint
 
-setCoefficientSi :: forall m. MonadIO m => Constraint %1 -> DimType -> Int -> Int -> IslT m Constraint
+setCoefficientSi :: forall m s_constraint. MonadIO m => Constraint %1 -> DimType -> Int -> Int -> IslT m Constraint
 setCoefficientSi = unsafeCoerce go where
   go :: Constraint -> DimType -> Int -> Int -> IslT m Constraint
   go constraint typ pos v =
@@ -185,7 +186,7 @@ setCoefficientSi = unsafeCoerce go where
 
 foreign import ccall "isl_constraint_set_coefficient_val" c_setCoefficientVal :: Constraint -> DimType -> C.CInt -> Val -> IO Constraint
 
-setCoefficientVal :: forall m. MonadIO m => Constraint %1 -> DimType -> Int -> Val %1 -> IslT m Constraint
+setCoefficientVal :: forall m s_constraint s_v. MonadIO m => Constraint %1 -> DimType -> Int -> Val %1 -> IslT m Constraint
 setCoefficientVal = unsafeCoerce go where
   go :: Constraint -> DimType -> Int -> Val -> IslT m Constraint
   go constraint typ pos v =
@@ -194,7 +195,7 @@ setCoefficientVal = unsafeCoerce go where
 
 foreign import ccall "isl_constraint_set_constant_si" c_setConstantSi :: Constraint -> C.CInt -> IO Constraint
 
-setConstantSi :: forall m. MonadIO m => Constraint %1 -> Int -> IslT m Constraint
+setConstantSi :: forall m s_constraint. MonadIO m => Constraint %1 -> Int -> IslT m Constraint
 setConstantSi = unsafeCoerce go where
   go :: Constraint -> Int -> IslT m Constraint
   go constraint v =
@@ -203,7 +204,7 @@ setConstantSi = unsafeCoerce go where
 
 foreign import ccall "isl_constraint_set_constant_val" c_setConstantVal :: Constraint -> Val -> IO Constraint
 
-setConstantVal :: forall m. MonadIO m => Constraint %1 -> Val %1 -> IslT m Constraint
+setConstantVal :: forall m s_constraint s_v. MonadIO m => Constraint %1 -> Val %1 -> IslT m Constraint
 setConstantVal = unsafeCoerce go where
   go :: Constraint -> Val -> IslT m Constraint
   go constraint v =
@@ -212,7 +213,7 @@ setConstantVal = unsafeCoerce go where
 
 foreign import ccall "isl_equality_alloc" c_equalityAlloc :: LocalSpace -> IO Constraint
 
-equalityAlloc :: forall m. MonadIO m => LocalSpace %1 -> IslT m Constraint
+equalityAlloc :: forall m s_ls. MonadIO m => LocalSpace %1 -> IslT m Constraint
 equalityAlloc = unsafeCoerce go where
   go :: LocalSpace -> IslT m Constraint
   go ls =
@@ -221,7 +222,7 @@ equalityAlloc = unsafeCoerce go where
 
 foreign import ccall "isl_equality_from_aff" c_equalityFromAff :: Aff -> IO Constraint
 
-equalityFromAff :: forall m. MonadIO m => Aff %1 -> IslT m Constraint
+equalityFromAff :: forall m s_aff. MonadIO m => Aff %1 -> IslT m Constraint
 equalityFromAff = unsafeCoerce go where
   go :: Aff -> IslT m Constraint
   go aff =
@@ -230,7 +231,7 @@ equalityFromAff = unsafeCoerce go where
 
 foreign import ccall "isl_inequality_alloc" c_inequalityAlloc :: LocalSpace -> IO Constraint
 
-inequalityAlloc :: forall m. MonadIO m => LocalSpace %1 -> IslT m Constraint
+inequalityAlloc :: forall m s_ls. MonadIO m => LocalSpace %1 -> IslT m Constraint
 inequalityAlloc = unsafeCoerce go where
   go :: LocalSpace -> IslT m Constraint
   go ls =
@@ -239,7 +240,7 @@ inequalityAlloc = unsafeCoerce go where
 
 foreign import ccall "isl_inequality_from_aff" c_inequalityFromAff :: Aff -> IO Constraint
 
-inequalityFromAff :: forall m. MonadIO m => Aff %1 -> IslT m Constraint
+inequalityFromAff :: forall m s_aff. MonadIO m => Aff %1 -> IslT m Constraint
 inequalityFromAff = unsafeCoerce go where
   go :: Aff -> IslT m Constraint
   go aff =

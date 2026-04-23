@@ -80,10 +80,9 @@ tests = testGroup "Isl.Set"
   , testCase "foreachBasicSet enumerates disjuncts" $ do
       let r = runIslTest $ Isl.do
             s <- S.readFromStr "{ [i] : 0 <= i <= 3 or 7 <= i <= 10 }"
-            Ur count <- queryM_ s (\sRef ->
-              unsafeIslFromIO $ \_ -> do
-                cs <- S.foreachBasicSet sRef $ \_ -> return ()
-                return (Ur (length cs)))
+            Ur count <- queryM_ s (\sRef -> Isl.do
+              Ur cs <- S.foreachBasicSet sRef (\_ -> Isl.pure (Ur ()))
+              Isl.pure (Ur (length cs)))
             Isl.pure (Ur count)
       assertBool "should have at least 2 basic sets" (r >= 2)
   ]

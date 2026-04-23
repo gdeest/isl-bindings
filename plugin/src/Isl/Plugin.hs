@@ -72,6 +72,8 @@ import Data.List (elemIndex)
 import Data.Foldable (foldlM)
 import Control.Exception (evaluate)
 import System.IO.Unsafe (unsafePerformIO)
+import Unsafe.Coerce (unsafeCoerce)
+import Foreign.Ptr (nullPtr)
 import Data.IORef (IORef, newIORef, readIORef, atomicModifyIORef')
 import qualified Data.Set as Set
 
@@ -80,7 +82,7 @@ import qualified Isl.Linear as IslL
 import Isl.Linear (Both(..), queryM_, urWrap)
 import qualified Isl.Unsafe as IslU
 import Control.DeepSeq (NFData, rnf)
-import Isl.Monad (IslT, Ur(..), withIslCtx)
+import Isl.Monad (IslT, Isl, Ur(..), withIslCtx, unsafeIslFromIO)
 import qualified Isl.BasicSet as BS
 import qualified Isl.BasicMap as BM
 import qualified Isl.Set as S
@@ -127,40 +129,42 @@ duplicateN !n !s
       in a : duplicateN (n - 1) b
 
 -- | Construct a SetRef from an owned Set (for PureQuery functions).
-setRef :: Isl.Set -> Isl.SetRef
-setRef (Isl.Set p) = Isl.SetRef p
+-- Plugin-internal escape hatch; the caller is responsible for keeping
+-- the owned value alive while the ref is in use.
+setRef :: Isl.Set -> IslU.SetRef s
+setRef (Isl.Set p) = IslU.SetRef p
 
 -- | Construct a MapRef from an owned Map.
-mapRef :: Isl.Map -> Isl.MapRef
-mapRef (Isl.Map p) = Isl.MapRef p
+mapRef :: Isl.Map -> IslU.MapRef s
+mapRef (Isl.Map p) = IslU.MapRef p
 
 -- | Construct a BasicSetRef from an owned BasicSet.
-basicSetRef :: Isl.BasicSet -> Isl.BasicSetRef
-basicSetRef (Isl.BasicSet p) = Isl.BasicSetRef p
+basicSetRef :: Isl.BasicSet -> IslU.BasicSetRef s
+basicSetRef (Isl.BasicSet p) = IslU.BasicSetRef p
 
 -- | Construct a BasicMapRef from an owned BasicMap.
-basicMapRef :: Isl.BasicMap -> Isl.BasicMapRef
-basicMapRef (Isl.BasicMap p) = Isl.BasicMapRef p
+basicMapRef :: Isl.BasicMap -> IslU.BasicMapRef s
+basicMapRef (Isl.BasicMap p) = IslU.BasicMapRef p
 
 -- | Construct a ConstraintRef from an owned Constraint.
-constraintRef :: Isl.Constraint -> Isl.ConstraintRef
-constraintRef (Isl.Constraint p) = Isl.ConstraintRef p
+constraintRef :: Isl.Constraint -> IslU.ConstraintRef s
+constraintRef (Isl.Constraint p) = IslU.ConstraintRef p
 
 -- | Construct a ValRef from an owned Val.
-valRef :: Isl.Val -> Isl.ValRef
-valRef (Isl.Val p) = Isl.ValRef p
+valRef :: Isl.Val -> IslU.ValRef s
+valRef (Isl.Val p) = IslU.ValRef p
 
 -- | Construct an AffRef from an owned Aff.
-affRef :: Isl.Aff -> Isl.AffRef
-affRef (Isl.Aff p) = Isl.AffRef p
+affRef :: Isl.Aff -> IslU.AffRef s
+affRef (Isl.Aff p) = IslU.AffRef p
 
 -- | Construct a MultiAffRef from an owned MultiAff.
-multiAffRef :: Isl.MultiAff -> Isl.MultiAffRef
-multiAffRef (Isl.MultiAff p) = Isl.MultiAffRef p
+multiAffRef :: Isl.MultiAff -> IslU.MultiAffRef s
+multiAffRef (Isl.MultiAff p) = IslU.MultiAffRef p
 
 -- | Construct a PwAffRef from an owned PwAff.
-pwAffRef :: Isl.PwAff -> Isl.PwAffRef
-pwAffRef (Isl.PwAff p) = Isl.PwAffRef p
+pwAffRef :: Isl.PwAff -> IslU.PwAffRef s
+pwAffRef (Isl.PwAff p) = IslU.PwAffRef p
 
 -- * Plugin entry point
 
@@ -1906,10 +1910,12 @@ rewriteSetDimOpt env isMax _re _givens args = case args of
                   if isMax then S.dimMax s (fromIntegral d)
                            else S.dimMin s (fromIntegral d)
                 -- Decompose PwAff into pieces: each piece is (Set domain, Aff expression)
-                pieces = unsafePerformIO $ PA.foreachPiece (pwAffRef pa) $ \domSetRef affRef -> do
-                  let domCs = decomposeIslSet env paramNames nDims domSetRef
-                      expr  = decomposeIslAff ctx nDims nParams affRef
-                  pure (domCs, expr)
+                pieces = unsafePerformIO $ do
+                  Ur ps <- runPluginIsl $ PA.foreachPiece (pwAffRef pa) $ \domSetRef affRef -> unsafeIslFromIO $ \_ -> do
+                    let domCs = decomposeIslSet env paramNames nDims domSetRef
+                        expr  = decomposeIslAff ctx nDims nParams affRef
+                    pure (Ur (domCs, expr))
+                  pure ps
                 -- Build result: list of tuples (domain constraints, expression)
                 -- Domain is a disjunction of conjunctions; flatten to one entry per conjunction
                 flatPieces = [(conj, expr) | (domDisj, expr) <- pieces, conj <- domDisj]
@@ -1935,21 +1941,38 @@ rewriteSetDimOpt env isMax _re _givens args = case args of
 
 -- * Decomposing ISL results back to value-level constraints
 
-decomposeIslSet :: IslPluginEnv -> [String] -> Int -> Isl.SetRef -> [[Constraint SetIx]]
+decomposeIslSet :: IslPluginEnv -> [String] -> Int -> IslU.SetRef s -> [[Constraint SetIx]]
 decomposeIslSet _env paramNames nDims sRef =
   let nParams = length paramNames
-  in unsafePerformIO $ S.foreachBasicSet sRef $ \bsRef -> do
-       divExprs <- extractSetDivs bsRef nDims nParams
-       BS.foreachConstraint bsRef $ \cRef ->
-         extractSetConstraint nParams nDims divExprs cRef
+  in unsafePerformIO $ do
+       Ur result <- runPluginIsl $
+         S.foreachBasicSet sRef $ \bsRef -> unsafeIslFromIO $ \_ -> do
+           divExprs <- extractSetDivs bsRef nDims nParams
+           Ur cs <- runPluginIsl $ BS.foreachConstraint bsRef $ \cRef -> unsafeIslFromIO $ \_ -> do
+             c <- extractSetConstraint nParams nDims divExprs cRef
+             return (Ur c)
+           return (Ur cs)
+       pure result
 
-decomposeIslMap :: IslPluginEnv -> [String] -> Int -> Int -> Isl.MapRef -> [[Constraint MapIx]]
+decomposeIslMap :: IslPluginEnv -> [String] -> Int -> Int -> IslU.MapRef s -> [[Constraint MapIx]]
 decomposeIslMap _env paramNames nIn nOut mRef =
   let nParams = length paramNames
-  in unsafePerformIO $ M.foreachBasicMap mRef $ \bmRef -> do
-       divExprs <- extractMapDivs bmRef nIn nOut nParams
-       BM.foreachConstraint bmRef $ \cRef ->
-         extractMapConstraint nParams nIn nOut divExprs cRef
+  in unsafePerformIO $ do
+       Ur result <- runPluginIsl $
+         M.foreachBasicMap mRef $ \bmRef -> unsafeIslFromIO $ \_ -> do
+           divExprs <- extractMapDivs bmRef nIn nOut nParams
+           Ur cs <- runPluginIsl $ BM.foreachConstraint bmRef $ \cRef -> unsafeIslFromIO $ \_ -> do
+             c <- extractMapConstraint nParams nIn nOut divExprs cRef
+             return (Ur c)
+           return (Ur cs)
+       pure result
+
+-- | Run an 'Isl' action in raw IO, bypassing the NFData deep-force in
+-- 'withIslCtx'. Safe for plugin decomposition: the results are pure ADT
+-- values that the caller inspects via 'unsafePerformIO' anyway.
+-- Coerces through the 'IslT' newtype representation @Ctx -> IO a@.
+runPluginIsl :: Isl (Ur a) -> IO (Ur a)
+runPluginIsl act = (unsafeCoerce act :: Isl.Ctx -> IO (Ur a)) (Isl.Ctx nullPtr)
 
 -- * Lifting value-level constraints to GHC types
 
@@ -2097,14 +2120,19 @@ buildMultiAff ctx nParams nIn nOut paramNames exprs =
     space  <- IslL.foldM (\sp (i, name) -> Space.setDimName sp Isl.islDimParam i name)
                      space0 (zip [0..] paramNames)
     ma0 <- MA.zero space
-    result <- IslL.foldM (\ma (j, expr) -> IslL.do
-      Both (Ur maRef) ma' <- IslL.query ma (\r -> r)
-      domSpace <- MA.getDomainSpace maRef
-      ls       <- LS.fromSpace domSpace
-      aff      <- exprToSetAff ls expr
-      MA.setAff ma' (fromIntegral j) aff
-      ) ma0 (zip [0..] exprs)
+    result <- IslL.foldM goSetAff ma0 (zip [0..] exprs)
     urWrap result
+  where
+    goSetAff :: Isl.MultiAff %1 -> (Int, Expr SetIx) -> IslT IO Isl.MultiAff
+    goSetAff = unsafeCoerce go where
+      go :: Isl.MultiAff -> (Int, Expr SetIx) -> IslT IO Isl.MultiAff
+      go ma (j, expr) = IslL.do
+        -- Plugin-internal: treat ma's Ptr as a ref while ma stays live.
+        let maRef = unsafeCoerce ma :: IslU.MultiAffRef ()
+        domSpace <- MA.getDomainSpace maRef
+        ls       <- LS.fromSpace domSpace
+        aff      <- exprToSetAff ls expr
+        MA.setAff ma (fromIntegral j) aff
 
 -- | Extract output expressions from an ISL MultiAff.
 decomposeIslMultiAff :: Isl.Ctx -> Int -> Int -> Isl.MultiAff -> [Expr SetIx]
@@ -2130,7 +2158,7 @@ decomposeOneAff ctx nIn nParams ma j = unsafePerformIO $ do
 
 -- | Extract an Expr SetIx from a standalone Aff (used for PwAff pieces).
 -- The Aff uses isl_dim_in for set dimensions.
-decomposeIslAff :: Isl.Ctx -> Int -> Int -> Isl.AffRef -> Expr SetIx
+decomposeIslAff :: Isl.Ctx -> Int -> Int -> IslU.AffRef s -> Expr SetIx
 decomposeIslAff _ctx nDims nParams ar = unsafePerformIO $ do
   dimCoeffs <- mapM (\i -> do
     v <- Aff.affGetCoefficientSi ar Isl.islDimIn i

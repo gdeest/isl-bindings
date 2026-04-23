@@ -7,10 +7,10 @@ module Isl.MultiAff
   ) where
 
 import Foreign.C.Types
-import Isl.Types
+import Isl.Types.Raw
 import Isl.MultiAff.Generated
 
 -- | Get a copy of the aff for output dimension @pos@.
 -- The returned Aff is a fresh copy (caller must free).
 foreign import ccall "isl_multi_aff_get_aff"
-  multiAffGetAffCopy :: MultiAffRef -> CInt -> IO Aff
+  multiAffGetAffCopy :: MultiAffRef s -> CInt -> IO Aff
