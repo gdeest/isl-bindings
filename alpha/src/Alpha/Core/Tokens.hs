@@ -4,6 +4,7 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE LinearTypes #-}
 {-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE FlexibleContexts #-}
 
@@ -265,7 +266,7 @@ materializeNamedMap nm = Isl.do
 -- to keep the linearity discipline in one place.
 withTwoSets
   :: Isl.Set %1 -> Isl.Set %1
-  -> (Isl.SetRef -> Isl.SetRef -> Bool)
+  -> (forall sA sB. Isl.SetRef sA -> Isl.SetRef sB -> Bool)
   -> IslT IO (Ur Bool)
 withTwoSets a b pred_ =
   queryM_ a (\aR -> query_ b (\bR -> pred_ aR bR))
