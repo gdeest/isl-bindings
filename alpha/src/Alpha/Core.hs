@@ -35,6 +35,7 @@ module Alpha.Core
     -- * Declarations
   , VarDecl(..)
   , SomeVarDecl(..)
+  , varDeclProxy
     -- * Equations
   , SomeEquation(..)
     -- * Systems
@@ -47,7 +48,7 @@ module Alpha.Core
   ) where
 
 import Data.Kind    (Type)
-import Data.Proxy   (Proxy)
+import Data.Proxy   (Proxy(..))
 import GHC.TypeLits (KnownSymbol, Symbol)
 
 import Alpha.Codegen.COp  (BinOp(..), UnaryOp(..), ReduceOp(..))
@@ -175,18 +176,30 @@ data SomeVarDecl sys where
               -> VarDecl sys v dom
               -> SomeVarDecl sys
 
+-- | Recover the type-level name proxy from a 'VarDecl'.  Useful when a
+-- walker has the 'VarDecl' in hand and needs the 'Proxy v' for
+-- 'symbolVal' without re-introducing a separate field.
+varDeclProxy :: VarDecl sys v dom -> Proxy v
+varDeclProxy _ = Proxy
+
 -- ═══════════════════════════════════════════════════════════════════════
 -- §4. Equations
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | An equation: a body 'Expr sys dom a' bound to variable @v@.  The
--- 'Named dom IslSet' field must match the one stored in @v@'s
--- 'VarDecl' (the elaborator enforces this); carrying it locally keeps
--- walkers that have only the equation in hand self-contained.
+-- | An equation: a body 'Expr sys dom a' bound to variable @v@.
+--
+-- __Invariant (pinned by construction).__  The body's @dom@ skolem is
+-- the same skolem as the declared variable's 'vdDom'; the 'VarDecl'
+-- field carries both the 'Proxy' @v@ (via its type) and the
+-- 'Named dom IslSet' (via 'vdDom').  A transform that rebuilds an
+-- equation must therefore pass in the original 'VarDecl' (or a fresh
+-- one sharing the same 'Named dom IslSet' skolem); it is impossible
+-- for the body's domain to drift from the declared one without a
+-- compile-time error.  What used to be a convention between two
+-- independent fields is now a type-level equality.
 data SomeEquation sys a where
   SomeEquation :: KnownSymbol v
-               => Proxy v
-               -> Named dom IslSet
+               => VarDecl sys v dom
                -> Expr sys dom a
                -> SomeEquation sys a
 
