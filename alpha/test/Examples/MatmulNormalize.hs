@@ -28,7 +28,7 @@ module Examples.MatmulNormalize
 
 import Data.Proxy (Proxy(..))
 
-import Alpha.Core
+import Alpha.Surface.Core
   ( BinOp(..)
   , Decl(..)
   , DeclList(..)

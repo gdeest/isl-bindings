@@ -58,7 +58,7 @@ module Alpha.Transform.Domain
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownNat, KnownSymbol, Nat, Symbol, symbolVal)
 
-import Alpha.Core (System, VarDecl)
+import Alpha.Surface.Core (System, VarDecl)
 import Alpha.Transform.Types (TransformError(..))
 import Isl.TypeLevel.Constraint (TConstraint)
 import Isl.Typed.Params (KnownSymbols, Length)

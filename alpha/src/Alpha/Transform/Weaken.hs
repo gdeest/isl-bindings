@@ -10,10 +10,10 @@
 --
 -- 'weakenExpr' narrows an expression's declared domain phantom from
 -- @dInner@ to any @dOuter@ with @dOuter ⊆ dInner@.  Implemented as a
--- wrap in a @'Alpha.Core.Dep' \@identityMap@ node — see the Transform
+-- wrap in a @'Alpha.Surface.Core.Dep' \@identityMap@ node — see the Transform
 -- polarity block in "Alpha.Transform.Types" for why a recursive
--- phantom rewrite is unsound on 'Alpha.Core.Reduce' and
--- 'Alpha.Core.Case'.
+-- phantom rewrite is unsound on 'Alpha.Surface.Core.Reduce' and
+-- 'Alpha.Surface.Core.Case'.
 --
 -- The subset obligation is discharged at runtime via
 -- @'islImageSubsetCheckS'@ against the identity map string; on success
@@ -30,7 +30,7 @@ import Data.List (intercalate)
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownNat, Nat, Symbol, natVal, type (+))
 
-import Alpha.Core (Expr(..), VarDecl)
+import Alpha.Surface.Core (Expr(..), VarDecl)
 import Isl.TypeLevel.Constraint (TConstraint)
 import qualified Isl.Typed.Constraints as TC
 import Isl.Typed.Constraints (Constraint(EqualityConstraint), MapIx(InDim, OutDim))

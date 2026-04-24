@@ -775,7 +775,7 @@ solveOne env = \case
           _ -> traceReifyFail >> pure Deferred
 
   -- Partitions = IslCovers + pairwise disjointness within the
-  -- ambient.  Used by 'Alpha.Core.Case' to enforce that each point
+  -- ambient.  Used by 'Alpha.Surface.Core.Case' to enforce that each point
   -- in the recurrence domain is defined by exactly one branch — see
   -- v5.2 in @doc/alpha-implementation.md@ (retires D22).
   --

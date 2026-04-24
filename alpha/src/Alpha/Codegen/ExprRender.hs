@@ -47,7 +47,7 @@ import qualified Isl.Set as RS
 import qualified Isl.PwAff as PA
 import qualified Isl.Val as Val
 
-import Alpha.Core
+import Alpha.Surface.Core
 import Alpha.Codegen.COp
 import Alpha.Allocation (EqStorage(..))
 import Alpha.Scalar
@@ -93,7 +93,7 @@ renderEquationMacro
   => String                -- statement macro name (used for #define)
   -> String                -- logical array name (used for LHS write)
   -> Int                   -- number of output dimensions
-  -> Alpha.Core.Expr ps pctx decls n d a  -- equation (or branch) body
+  -> Alpha.Surface.Core.Expr ps pctx decls n d a  -- equation (or branch) body
   -> RenderCtx
   -> Either RenderErr String        -- complete #define line
 renderEquationMacro macroName lhsName nOutDims body ctx = do
@@ -145,7 +145,7 @@ reduceOpToC ReduceMax  desc lhs  bc =
 -- 'RENonStandardMapConstraint' from 'extractSubscripts').
 renderExprToC
   :: forall ps pctx decls n (d :: DomTag ps n) a.
-     RenderCtx -> Alpha.Core.Expr ps pctx decls n d a -> Either RenderErr String
+     RenderCtx -> Alpha.Surface.Core.Expr ps pctx decls n d a -> Either RenderErr String
 
 renderExprToC ctx (Var (Proxy :: Proxy name)) =
   let varName = symbolVal (Proxy @name)
@@ -168,7 +168,7 @@ renderExprToC ctx (PMap op e) = do
   pure (renderUnaryOp sfx op s)
 
 renderExprToC ctx
-  (Dep (Proxy :: Proxy mapCs) (inner :: Alpha.Core.Expr ps pctx decls no dInner a)) = do
+  (Dep (Proxy :: Proxy mapCs) (inner :: Alpha.Surface.Core.Expr ps pctx decls no dInner a)) = do
   let ni  = length (rcIterVars ctx)
       cs  = reifySTConstraintsMapSplit ni
               (knownConstraints @ps @(n + no) @mapCs)

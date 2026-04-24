@@ -40,7 +40,7 @@ import Isl.TypeLevel.Reflection
 import Isl.TypeLevel.Sing
   ( knownConstraints, reifySTConstraintsMapSplit )
 
-import Alpha.Core
+import Alpha.Surface.Core
 
 
 -- ═══════════════════════════════════════════════════════════════════════

@@ -682,7 +682,7 @@ islImageSubsetCheckSPctx mapStr _ _ _ =
 --
 -- Returns a plain @'Bool'@ rather than a 'Maybe' 'Dict' because
 -- non-emptiness is not itself a dispatch-class obligation in
--- "Alpha.Core"; the transform translates a 'False' result into
+-- "Alpha.Surface.Core"; the transform translates a 'False' result into
 -- @'EmptyResultDomain'@ on the 'Left' path.
 islNonEmpty
   :: forall ps n d.

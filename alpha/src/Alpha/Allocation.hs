@@ -47,7 +47,7 @@ import GHC.TypeLits (KnownSymbol, Symbol, symbolVal)
 import qualified Alpha.Polyhedral.Contraction as C
 import Isl.Typed.Constraints (NamedSet(..))
 
-import Alpha.Core (VarDecl(..), Lookup)
+import Alpha.Surface.Core (VarDecl(..), Lookup)
 
 
 -- ═══════════════════════════════════════════════════════════════════════

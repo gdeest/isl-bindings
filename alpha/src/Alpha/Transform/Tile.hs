@@ -26,7 +26,7 @@ import Data.Kind (Type)
 import GHC.TypeLits
   ( KnownNat, KnownSymbol, Nat, Symbol, type (+) )
 
-import Alpha.Core
+import Alpha.Surface.Core
 import Alpha.Transform.Reindex (reindex, TransformError(..))
 import Alpha.TypeLevel.Tiling
   ( CountJust

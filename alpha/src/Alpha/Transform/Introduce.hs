@@ -24,7 +24,7 @@ import Data.Type.Equality ((:~:)(Refl))
 import GHC.TypeLits
   ( KnownNat, KnownSymbol, Nat, Symbol, natVal, symbolVal, sameSymbol, type (+) )
 
-import Alpha.Core
+import Alpha.Surface.Core
 import Alpha.Core.Lemmas
   ( withDefinesAllIntroduce, introduceDecls, introduceEqList
   , withIntroduce, withIntroduceDecl )

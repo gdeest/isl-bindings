@@ -17,7 +17,7 @@
 -- correct types.
 --
 -- Zero 'unsafeCoerce' in the walker — all phantom-type changes
--- live in the trusted seal modules ("Alpha.Core", "Isl.TypeLevel.Sing",
+-- live in the trusted seal modules ("Alpha.Surface.Core", "Isl.TypeLevel.Sing",
 -- "Isl.TypeLevel.Reflection").
 module Alpha.Transform.Reindex
   ( reindex
@@ -29,7 +29,7 @@ import Data.Proxy (Proxy(..))
 import GHC.TypeLits
   ( KnownNat, KnownSymbol, Nat, Symbol, natVal, symbolVal, type (+) )
 
-import Alpha.Core
+import Alpha.Surface.Core
 import Alpha.Core.Lemmas
   (withReplaceDecl, replaceDeclList, withDefinesAllReplace, withReplaceDeclConcat)
 import Alpha.Transform.Types

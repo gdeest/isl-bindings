@@ -39,7 +39,7 @@ import Isl.Types (AstNode(..), Ctx)
 import Isl.AstBuild (astBuildAlloc, astBuildNodeFromScheduleMap, CNode(..), walkAstNode, astNodeFree)
 
 import Isl.TypeLevel.Reflection (DomTag, reflectDomConstraints)
-import Alpha.Core
+import Alpha.Surface.Core
 import Alpha.Lower (lowerSystem, logicalName)
 import Alpha.Schedule (Schedule(..), EqSchedule(..), DimAnnotation(..))
 import Alpha.Allocation (Allocation(..), EqStorage(..))
@@ -277,7 +277,7 @@ renderOneEq
      KnownSymbols ps
   => String
   -> Int
-  -> Alpha.Core.Expr ps pctx decls n d a
+  -> Alpha.Surface.Core.Expr ps pctx decls n d a
   -> Schedule
   -> Map.Map String EqStorage
   -> [String]
@@ -324,7 +324,7 @@ renderWithStmtName
   => String  -- macro / stmt name (key into stmtArgs)
   -> String  -- logical array name (LHS of the write)
   -> Int     -- output dims
-  -> Alpha.Core.Expr ps pctx decls n d a
+  -> Alpha.Surface.Core.Expr ps pctx decls n d a
   -> Map.Map String EqStorage
   -> [String]
   -> Map.Map String [String]
@@ -370,9 +370,9 @@ data ReduceInfo = ReduceInfo
 extractReduceInfo
   :: forall ps pctx decls n d a.
      String  -- logical array name (equation name)
-  -> Alpha.Core.Expr ps pctx decls n d a
+  -> Alpha.Surface.Core.Expr ps pctx decls n d a
   -> Maybe ReduceInfo
-extractReduceInfo eqName (Reduce op _ (_inner :: Alpha.Core.Expr ps pctx decls nBody dBody a)) =
+extractReduceInfo eqName (Reduce op _ (_inner :: Alpha.Surface.Core.Expr ps pctx decls nBody dBody a)) =
   let nRed = fromIntegral (natVal (Proxy @nBody)) - fromIntegral (natVal (Proxy @n))
       bodyCs = reflectDomConstraints @ps @nBody @dBody
   in Just (ReduceInfo op nRed [C.Conjunction bodyCs] eqName)

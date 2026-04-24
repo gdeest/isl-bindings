@@ -36,7 +36,7 @@ import System.Process (system)
 import Isl.Typed.Params (KnownSymbols, symbolVals)
 import Isl.Monad (Ur(..), runIslT)
 import qualified Isl.Linear as Isl
-import Alpha.Core (System, pattern System, Decls(..))
+import Alpha.Surface.Core (System, pattern System, Decls(..))
 import Alpha.Codegen (codegen, CodegenError)
 import Alpha.Codegen.FunctionMapping
   ( CFunctionMapping(..), ArgPassing(..), declListNames, declListBoundsM )

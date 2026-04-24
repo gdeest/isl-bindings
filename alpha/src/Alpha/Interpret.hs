@@ -47,7 +47,7 @@ import Isl.TypeLevel.Reflection (DomTag, EffectiveDomTag, KnownDom, domToSet, ch
 import Isl.TypeLevel.Sing
   ( KnownConstraints, knownConstraints, reifySTConstraintsSet )
 
-import Alpha.Core
+import Alpha.Surface.Core
 import Alpha.Scalar
   ( ScalarDesc(..), AlphaScalar, scalarDesc
   , HsInterp(..), evalBinOp, evalUnaryOp, evalReduceOp )

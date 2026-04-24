@@ -30,7 +30,7 @@ import qualified Isl.UnionMap as UM
 import Isl.Monad (IslT, Ur(..), runIslT)
 import Isl.Linear (query_, freeM, dupM)
 import qualified Isl.Linear as Isl
-import Alpha.Core (System, pattern System)
+import Alpha.Surface.Core (System, pattern System)
 import Alpha.Lower (lowerSystem)
 import Alpha.Schedule
   ( Schedule(..), EqSchedule(..), DimAnnotation(..) )

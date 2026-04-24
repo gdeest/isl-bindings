@@ -26,8 +26,8 @@ library
                    , Alpha.Core.Lemmas
                    , Alpha.Core.Named
                    , Alpha.Core.Tokens
-                   , Alpha.Core.V2
                    , Alpha.Surface
+                   , Alpha.Surface.Core
                    , Alpha.Lower
                    , Alpha.Schedule
                    , Alpha.Allocation

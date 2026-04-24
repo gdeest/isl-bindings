@@ -26,7 +26,7 @@ import Isl.Typed.Params (KnownSymbols)
 import Isl.TypeLevel.Reflection (reflectDomConstraints)
 import Isl.Monad (IslT, Ur(..))
 import qualified Isl.Linear as Isl
-import Alpha.Core
+import Alpha.Surface.Core
   ( DeclName, DeclDims, DeclDomTag
   , DeclList(..), Decl(..), Decls(..), System, pattern System )
 import Alpha.Codegen.ExprRender (extractOneBound, extractBoundsISLM, BoundErr)

@@ -33,7 +33,7 @@ import qualified Isl.Space as Space
 import Isl.Monad (IslT, Ur(..), runIslT)
 import Isl.Linear (query_, freeM, dupM)
 import qualified Isl.Linear as Isl
-import Alpha.Core (System, pattern System, eqListNames)
+import Alpha.Surface.Core (System, pattern System, eqListNames)
 import Alpha.Lower (lowerSystem)
 import Alpha.Schedule (Schedule(..), schedEntries)
 import Alpha.Allocation (Allocation(..), EqStorage(..))

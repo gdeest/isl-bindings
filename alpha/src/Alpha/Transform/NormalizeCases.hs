@@ -26,7 +26,7 @@
 -- * @'Reduce' _ _ (… 'Case' …)@ — the inner Case lives in body-dim
 --   @nBody@, not @n@; lifting would require introducing auxiliary
 --   equations for per-branch partial reductions (out of scope,
---   see 'Alpha.Core.Case' Haddock).
+--   see 'Alpha.Surface.Core.Case' Haddock).
 --
 -- The pass is best-effort: the return type is
 -- @'Either' 'TransformError'@ for uniformity with sibling transforms,
@@ -40,7 +40,7 @@ module Alpha.Transform.NormalizeCases
 import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownNat)
 
-import Alpha.Core
+import Alpha.Surface.Core
   ( Expr(..), Branches(..), EqList(..), Equation(..), System(..)
   , BinOp, UnaryOp, VarDecl )
 import Alpha.Transform.Types (TransformError(..))

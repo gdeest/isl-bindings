@@ -48,7 +48,7 @@ module Negative.Cases
 import Control.Exception (evaluate)
 import Data.Proxy (Proxy(..))
 
-import Alpha.Core
+import Alpha.Surface.Core
   ( Decl(..)
   , DeclList(..)
   , Decls(..)
@@ -422,7 +422,7 @@ forceBadHeat3DOutOfBoundsNeighbor () = do
 -- Negative #11: 'IslPartitions' rejects a coverage gap
 -- ═══════════════════════════════════════════════════════════════════════
 --
--- v5.2 introduced 'IslPartitions' on 'Alpha.Core.Case': the branch
+-- v5.2 introduced 'IslPartitions' on 'Alpha.Surface.Core.Case': the branch
 -- domains must cover the ambient AND be pairwise disjoint within it.
 -- This test exercises the coverage half with the same domains as
 -- 'forceBadCholeskyCoverageGap' — ambient 'LowerTri', branches just

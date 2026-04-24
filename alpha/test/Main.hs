@@ -60,7 +60,7 @@ import Alpha.Codegen.ExprRender
   ( extractOneBound, extractBoundsISLM, BoundErr(..)
   , RenderCtx(..), renderExprToC
   , extractSubscripts, RenderErr(..) )
-import qualified Alpha.Core as Core
+import qualified Alpha.Surface.Core as Core
 import Isl.Monad (runIslT, Ur(..))
 import qualified Alpha.Codegen.Compile as Untyped
 import Alpha.Scalar

@@ -68,8 +68,8 @@ module Alpha.Surface
   , IxListLength
   , IdentityHeadIds
   , DomsToLitList, AppendCs
-    -- * Re-exports from Alpha.Core (for system construction)
-  , module Alpha.Core
+    -- * Re-exports from Alpha.Surface.Core (for system construction)
+  , module Alpha.Surface.Core
   ) where
 
 import Data.Kind (Type)
@@ -91,7 +91,7 @@ import Isl.TypeLevel.Reflection
   , IslImageSubsetD, IslPartitionsD, LiteralBranchesU
   , KnownDom, LitPrepend, MapLitPrepend, withPartitionsD )
 
-import Alpha.Core
+import Alpha.Surface.Core
 import Alpha.Scalar (AlphaScalar)
 
 
