@@ -13,16 +13,21 @@
 -- under 'SanityCheck' to exercise the ISL re-check twin.
 module ElaborateSpec (tests) where
 
+import Data.Int (Int32)
+
 import Test.Tasty
 import Test.Tasty.HUnit
 
 import qualified Alpha.Core as Core
 import Alpha.Core.Tokens (ElabMode(..))
+import Alpha.Scalar (CNumType(..))
 import Alpha.Surface.Elaborate (elaborate)
 
 import qualified Examples.Copy1D as Copy1D
 import qualified Examples.Heat3DElsewhere as H3E
+import qualified Examples.IntRowMax as IRM
 import qualified Examples.Matmul as Matmul
+import qualified Examples.NeedsPctx as NPX
 import qualified Examples.Zero1D as Zero1D
 
 
@@ -47,6 +52,37 @@ tests = testGroup "Alpha.Surface.Elaborate"
   , testCase "Heat3DElsewhere (Case) elaborates under TrustPlugin" $
       elaborate @'["N"] @'[] @_ @_ @_ @Double
                 TrustPlugin H3E.heat3DElsewhere (assertElabOk "Heat3DElsewhere")
+
+    -- Per-decl scalar reflection: an Int32 surface must produce
+    -- 'CInt32' in every VarDecl.vdScalar, not the former hardcoded
+    -- 'CFloat64' default.  Regression check for the papered-over stub
+    -- in 'Alpha.Surface.Elaborate.installDecls'.
+  , testCase "IntRowMax vdScalar is CInt32 (per-decl scalar reflection)" $
+      elaborate @'["N"] @'[] @IRM.IntRowMaxInputs @IRM.IntRowMaxOutputs
+                @IRM.IntRowMaxLocals @Int32
+                TrustPlugin IRM.intRowMax $ \result -> case result of
+        Left err -> assertFailure ("IntRowMax returned Left: " ++ show err)
+        Right sys ->
+          let scalars =
+                [ Core.vdScalar vd | Core.SomeVarDecl _ vd <- Core.sysInputs sys ]
+                ++
+                [ Core.vdScalar vd | Core.SomeVarDecl _ vd <- Core.sysOutputs sys ]
+          in assertEqual "all decls CInt32" (replicate (length scalars) CInt32) scalars
+
+    -- Non-trivial pctx: NeedsPctx carries '[N >= 1]', and its body
+    -- obligation (x[N-1] in [0, N-1]) only holds under that pctx.
+    -- Elaborating under SanityCheck re-checks via ISL using the
+    -- materialised pctx: if the old 'emptyParamIslSet' stub were still
+    -- in place, the re-check would reject the obligation (ISL would
+    -- see an empty pctx, counterexample N=0).  Both modes must pass.
+  , testCase "NeedsPctx elaborates under TrustPlugin (non-trivial pctx)" $
+      elaborate @'["N"] @NPX.NeedsPctxPctx @NPX.NeedsPctxInputs
+                @NPX.NeedsPctxOutputs @NPX.NeedsPctxLocals @Double
+                TrustPlugin NPX.needsPctx (assertElabOk "NeedsPctx")
+  , testCase "NeedsPctx elaborates under SanityCheck (pctx materialised)" $
+      elaborate @'["N"] @NPX.NeedsPctxPctx @NPX.NeedsPctxInputs
+                @NPX.NeedsPctxOutputs @NPX.NeedsPctxLocals @Double
+                SanityCheck NPX.needsPctx (assertElabOk "NeedsPctx")
   ]
   where
     assertElabOk label result = case result of

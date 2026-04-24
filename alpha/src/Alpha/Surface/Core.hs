@@ -154,6 +154,7 @@ data System ps pctx inputs outputs locals where
     :: forall ps pctx inputs outputs locals defined.
        ( KnownSymbols ps
        , IslNonEmpty ps 0 pctx
+       , KnownConstraints ps 0 pctx
        , DefinesAllExactlyOnce (outputs ++ locals) defined )
     => Decls  ps inputs outputs locals
     -> EqList ps pctx (inputs ++ outputs ++ locals) defined
@@ -260,6 +261,7 @@ data Decl ps d where
   MkDecl :: ( KnownSymbol (DeclName d)
             , KnownNat (DeclDims d)
             , KnownDom ps (DeclDims d) (DeclDomTag d)
+            , AlphaScalar (DeclType d)
             ) => Decl ps d
 
 

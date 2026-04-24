@@ -70,13 +70,15 @@ import           Alpha.Core.Tokens
 import qualified Alpha.Scalar          as Scalar
 
 import           Isl.Typed.Constraints  (NamedMap(..), NamedSet(..), Conjunction(..))
+import qualified Isl.Typed.Constraints as C
 import           Isl.Typed.Params       (KnownSymbols, symbolVals)
 import           Isl.TypeLevel.Constraint (LiftPctxN)
 import           Isl.TypeLevel.Reflection
   ( Append, DomTag, EffectiveDomTag, IslImageSubsetD, IslPartitionsD
   , KnownDom, LitPrepend, MapLitPrepend, reflectDomConjunctions )
 import           Isl.TypeLevel.Sing
-  ( KnownConstraints, knownConstraints, reifySTConstraintsMapSplit )
+  ( KnownConstraints, knownConstraints
+  , reifySTConstraintsMap, reifySTConstraintsMapSplit, reifySTConstraintsSet )
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -119,12 +121,12 @@ elaborate
   -> (forall sys. Either ElabError (Core.System sys a) -> r)
   -> r
 elaborate mode (Surface.System (Surface.Decls ins outs locs) eqs) k =
-  name2 (symbolVals @ps) (emptyParamIslSet (symbolVals @ps)) $
+  name2 (symbolVals @ps) (paramIslSet @ps @pctx (symbolVals @ps)) $
     \(namedPs   :: Named sys [String])
      (namedPctx :: Named sys IslSet) ->
-      installDecls @ps @sys [] ins  $ \env1 inEntries  ->
-      installDecls @ps @sys env1 outs $ \env2 outEntries ->
-      installDecls @ps @sys env2 locs $ \env3 locEntries ->
+      installDecls @ps @pctx @sys [] ins  $ \env1 inEntries  ->
+      installDecls @ps @pctx @sys env1 outs $ \env2 outEntries ->
+      installDecls @ps @pctx @sys env2 locs $ \env3 locEntries ->
         case walkEquations @ps @pctx @sys @_ @_ @a mode env3 eqs of
           Left err   -> k (Left err)
           Right sEqs ->
@@ -143,16 +145,54 @@ elaborate mode (Surface.System (Surface.Decls ins outs locs) eqs) k =
                      , Core.sysTotality  = Core.SomeDefinesAll tot
                      })
 
--- | Placeholder 'IslSet' carrying the system's declared parameters
--- with a trivially-true (empty) constraint.  A future revision
--- materialises the actual 'pctx' list.
-emptyParamIslSet :: [String] -> IslSet
-emptyParamIslSet params = NamedSet
+-- | Materialise the system's parameter-context constraint list
+-- @pctx :: [TConstraint ps 0]@ into a zero-dim 'IslSet' over @ps@.
+--
+-- Mirrors the pattern used for per-variable domains in 'installDecls'
+-- (conjunction of reflected constraints) but at dimension 0: every
+-- TConstraint in @pctx@ reduces to a predicate on the parameters
+-- alone, and the resulting set lives in the @[ps] -> { [] : ... }@
+-- space.
+--
+-- This is the SanityCheck hinge: re-checks downstream call
+-- 'buildBasicSet' on maps/domains that are all parameter-indexed by
+-- this @pctx@.  Leaving it empty (as the prior 'emptyParamIslSet'
+-- did) would silently let ISL re-verify obligations under a weaker
+-- parameter context than the plugin used, defeating the regression
+-- net.
+paramIslSet
+  :: forall ps pctx.
+     (KnownConstraints ps 0 pctx)
+  => [String] -> IslSet
+paramIslSet params = NamedSet
   { nsName   = Just "__pctx"
   , nsParams = params
   , nsNDims  = 0
-  , nsConjs  = [Conjunction []]
+  , nsConjs  = [Conjunction (pctxSetCs @ps @pctx)]
   }
+
+-- | Reflect the type-level @pctx@ as parameter-only 'SetIx' constraints.
+-- Since @pctx :: [TConstraint ps 0]@ never references dim indices, the
+-- same reflected list is a valid conjunction in every dim-@n@ set space
+-- (params are dim-count-independent in 'SetIx').  Folding this into
+-- each per-node 'NamedSet' gives ISL the pctx under which the plugin
+-- dispatched the obligation, so 'SanityCheck' re-checks under the
+-- correct parameter context.
+pctxSetCs
+  :: forall ps pctx.
+     (KnownConstraints ps 0 pctx)
+  => [C.Constraint C.SetIx]
+pctxSetCs = reifySTConstraintsSet (knownConstraints @ps @0 @pctx)
+
+-- | 'MapIx' counterpart of 'pctxSetCs'.  Parameter references in
+-- 'MapIx' are @MapParam i@, independent of the (nIn, nOut) split — so
+-- folding this into every per-node 'NamedMap' is sound regardless of
+-- the map's input/output dim partition.
+pctxMapCs
+  :: forall ps pctx.
+     (KnownConstraints ps 0 pctx)
+  => [C.Constraint C.MapIx]
+pctxMapCs = reifySTConstraintsMap (knownConstraints @ps @0 @pctx)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -164,8 +204,8 @@ emptyParamIslSet params = NamedSet
 -- 'name'.  Accumulates 'SomeVarDecl sys' for the outer 'Core.System'
 -- slot-lists and 'SomeVarRef sys' entries for the body walker.
 installDecls
-  :: forall ps sys decls r.
-     KnownSymbols ps
+  :: forall ps pctx sys decls r.
+     (KnownSymbols ps, KnownConstraints ps 0 pctx)
   => VarEnv sys
   -> Surface.DeclList ps decls
   -> ( VarEnv sys -> [(String, Core.SomeVarDecl sys)] -> r )
@@ -174,13 +214,17 @@ installDecls env Surface.Nil k = k env []
 installDecls env ((Surface.MkDecl :: Surface.Decl ps d) Surface.:> rest) k =
   let nm   = symbolVal (Proxy @(Surface.DeclName d))
       dims = fromIntegral (natVal (Proxy @(Surface.DeclDims d))) :: Int
-      -- Phase-scaffold scalar: the surface's DeclType is not reflected
-      -- to a runtime 'CNumType' here yet; 'CFloat64' is the lenient
-      -- default for float-heavy examples.  A proper reflection needs
-      -- a 'KnownScalar' class on 'Surface.MkDecl'.
-      scalar = Scalar.CFloat64
-      conjs  = reflectDomConjunctions
-                 @ps @(Surface.DeclDims d) @(Surface.DeclDomTag d)
+      -- Surface.MkDecl carries AlphaScalar (DeclType d) in its context,
+      -- so pattern-matching brings the dict into scope and we can
+      -- reflect the declared scalar to its runtime 'CNumType' tag.
+      scalar  = Scalar.scalarCNumType @(Surface.DeclType d)
+      -- Fold pctx (parameter-only) into the domain conjunction: every
+      -- declared variable lives under the system's parameter context,
+      -- so the domain ISL set should reflect that.  The pctx encoding
+      -- uses only 'SetParam' references, independent of @dims@.
+      domConjs = reflectDomConjunctions
+                   @ps @(Surface.DeclDims d) @(Surface.DeclDomTag d)
+      conjs  = fmap (foldPctxIntoSet (pctxSetCs @ps @pctx)) domConjs
       islSet = NamedSet
         { nsName   = Just nm
         , nsParams = symbolVals @ps
@@ -198,8 +242,16 @@ installDecls env ((Surface.MkDecl :: Surface.Decl ps d) Surface.:> rest) k =
                      , Core.vdDom    = namedDom
                      }
            entry = (nm, Core.SomeVarDecl pv vdecl)
-       in installDecls @ps @sys ((nm, vref) : env) rest $ \env' entries ->
+       in installDecls @ps @pctx @sys ((nm, vref) : env) rest $ \env' entries ->
             k env' (entry : entries)
+
+-- | Prepend parameter-only pctx constraints onto a set conjunction.
+foldPctxIntoSet :: [C.Constraint C.SetIx] -> Conjunction C.SetIx -> Conjunction C.SetIx
+foldPctxIntoSet px (Conjunction cs) = Conjunction (px ++ cs)
+
+-- | Prepend parameter-only pctx constraints onto a map conjunction.
+foldPctxIntoMap :: [C.Constraint C.MapIx] -> Conjunction C.MapIx -> Conjunction C.MapIx
+foldPctxIntoMap px (Conjunction cs) = Conjunction (px ++ cs)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -212,7 +264,9 @@ installDecls env ((Surface.MkDecl :: Surface.Decl ps d) Surface.:> rest) k =
 -- against that domain, and pack with the declaration.
 walkEquations
   :: forall ps pctx sys decls defined a.
-     (KnownSymbols ps, Scalar.AlphaScalar a)
+     ( KnownSymbols ps
+     , KnownConstraints ps 0 pctx
+     , Scalar.AlphaScalar a )
   => ElabMode
   -> VarEnv sys
   -> Surface.EqList ps pctx decls defined
@@ -261,7 +315,8 @@ someEqName (Core.SomeEquation (Core.VarDecl { Core.vdName = n }) _) = n
 -- internally and re-enter 'walkExprAt' with the new ambient.
 walkExprAt
   :: forall ps pctx sys dom a n d decls.
-     KnownSymbols ps
+     ( KnownSymbols ps
+     , KnownConstraints ps 0 pctx )
   => ElabMode
   -> Named dom IslSet
   -> VarEnv sys
@@ -320,6 +375,7 @@ walkExprAt mode namedDom env (Surface.Case branches) =
 walkDep
   :: forall ps pctx sys dom ni dOuter no mapCs dInner a decls.
      ( KnownSymbols ps
+     , KnownConstraints ps 0 pctx
      , KnownNat ni, KnownNat no
      , KnownDom ps ni dOuter
      , KnownDom ps no dInner
@@ -336,8 +392,11 @@ walkDep
 walkDep mode namedDom env inner =
   let nIn  = fromIntegral (natVal (Proxy @ni)) :: Int
       nOut = fromIntegral (natVal (Proxy @no)) :: Int
-      -- 'dInner' is the accessed array's declared domain.
-      srcConjs = reflectDomConjunctions @ps @no @dInner
+      -- 'dInner' is the accessed array's declared domain.  Fold pctx
+      -- into the set/map conjunctions so 'SanityCheck' re-runs ISL
+      -- under the same parameter context the plugin used.
+      srcConjs = fmap (foldPctxIntoSet (pctxSetCs @ps @pctx))
+                   (reflectDomConjunctions @ps @no @dInner)
       srcSet   = NamedSet
         { nsName   = Nothing
         , nsParams = symbolVals @ps
@@ -348,9 +407,10 @@ walkDep mode namedDom env inner =
       -- input (iteration / outer) and ni..ni+no-1 as output (array
       -- / inner).  That matches the new Core.Dep polarity
       -- (@m : dom → src@, so nIn=ni, nOut=no).
-      mapConjs = [Conjunction
-                    (reifySTConstraintsMapSplit nIn
-                      (knownConstraints @ps @(ni + no) @mapCs))]
+      mapConjs = [foldPctxIntoMap (pctxMapCs @ps @pctx)
+                    (Conjunction
+                       (reifySTConstraintsMapSplit nIn
+                         (knownConstraints @ps @(ni + no) @mapCs)))]
       depMap   = NamedMap
         { nmDomainName = Nothing
         , nmRangeName  = Nothing
@@ -385,6 +445,7 @@ walkDep mode namedDom env inner =
 walkReduce
   :: forall ps pctx sys dom n d nBody projCs dBody a decls.
      ( KnownSymbols ps
+     , KnownConstraints ps 0 pctx
      , KnownNat n, KnownNat nBody
      , KnownDom ps n d
      , KnownDom ps nBody dBody
@@ -402,7 +463,9 @@ walkReduce
 walkReduce mode namedDom env op bodyE0 =
   let nR   = fromIntegral (natVal (Proxy @n))     :: Int
       nB   = fromIntegral (natVal (Proxy @nBody)) :: Int
-      bodyConjs = reflectDomConjunctions @ps @nBody @dBody
+      -- Fold pctx into body / projection sets for SanityCheck parity.
+      bodyConjs = fmap (foldPctxIntoSet (pctxSetCs @ps @pctx))
+                    (reflectDomConjunctions @ps @nBody @dBody)
       bodySet   = NamedSet
         { nsName   = Nothing
         , nsParams = symbolVals @ps
@@ -410,9 +473,10 @@ walkReduce mode namedDom env op bodyE0 =
         , nsConjs  = bodyConjs
         }
       -- Projection map: input nBody dims, output n dims.
-      projConjs = [Conjunction
-                     (reifySTConstraintsMapSplit nB
-                       (knownConstraints @ps @(nBody + n) @projCs))]
+      projConjs = [foldPctxIntoMap (pctxMapCs @ps @pctx)
+                     (Conjunction
+                        (reifySTConstraintsMapSplit nB
+                          (knownConstraints @ps @(nBody + n) @projCs)))]
       projMap   = NamedMap
         { nmDomainName = Nothing
         , nmRangeName  = Nothing
@@ -451,6 +515,7 @@ walkReduce mode namedDom env op bodyE0 =
 walkCase
   :: forall ps pctx sys dom n (amb :: DomTag ps n) branchDoms a decls.
      ( KnownSymbols ps
+     , KnownConstraints ps 0 pctx
      , KnownNat n
      , KnownDom ps n amb
      , IslPartitionsD ps n
@@ -507,6 +572,7 @@ data PreCaseBranches sys dom bs a where
 collectBranches
   :: forall ps pctx sys dom n (amb :: DomTag ps n) branchDoms a decls.
      ( KnownSymbols ps
+     , KnownConstraints ps 0 pctx
      , KnownNat n
      , KnownDom ps n amb )
   => ElabMode
@@ -523,7 +589,8 @@ collectBranches mode namedDom env
   (Surface.BCons (Proxy :: Proxy dBranch)
                  (body :: Surface.Expr ps pctx decls n (EffectiveDomTag dBranch amb) a)
                  rest) k =
-  let brConjs = reflectDomConjunctions @ps @n @(EffectiveDomTag dBranch amb)
+  let brConjs = fmap (foldPctxIntoSet (pctxSetCs @ps @pctx))
+                  (reflectDomConjunctions @ps @n @(EffectiveDomTag dBranch amb))
       brSet   = NamedSet
         { nsName   = Nothing
         , nsParams = symbolVals @ps

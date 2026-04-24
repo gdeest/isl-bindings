@@ -49,6 +49,8 @@ import Isl.TypeLevel.Sing
   , liftConstraintsMap, withKnownConstraints
   )
 
+import Alpha.Scalar (AlphaScalar)
+
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §1. Public API
@@ -81,6 +83,7 @@ introduce
             (IslMultiAffToMap ps newN sourceN mapExprs))
          (LitPrepend (LiftPctxN newN pctx) ('Literal newDomCs))
          (LitPrepend (LiftPctxN sourceN pctx) ('Literal sourceDomCs))
+     , AlphaScalar a
      )
   => System ps pctx inputs outputs locals
   -> Either TransformError
@@ -133,6 +136,8 @@ introduceImpl
          (LitPrepend (LiftPctxN sourceN pctx) ('Literal sourceDomCs))
      , DefinesAllExactlyOnce (outputs ++ locals) defined
      , IslNonEmpty ps 0 pctx
+     , KnownConstraints ps 0 pctx
+     , AlphaScalar a
      )
   => Decls ps inputs outputs locals
   -> EqList ps pctx (OldDecls ps inputs outputs locals) defined

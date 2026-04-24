@@ -299,6 +299,7 @@ reindexImpl
      , KnownExprs ps newN mapExprs
      , DefinesAllExactlyOnce (outputs ++ locals) defined
      , IslNonEmpty ps 0 pctx
+     , KnownConstraints ps 0 pctx
      )
   => Decls ps inputs outputs locals
   -> EqList ps pctx (inputs ++ (outputs ++ locals)) defined

@@ -670,6 +670,7 @@ input :: forall (name :: Symbol) {scope :: [Symbol]} {ps} {a} {d :: DomE}.
          , KnownNat (Length scope)
          , KnownDom ps (Length scope)
              ('Literal (CompileDom ps scope (Length scope) d))
+         , AlphaScalar a
          )
       => DomExpr scope d -> Proxy a
       -> Decl ps ('VarDecl @ps @name @(Length scope)
@@ -682,6 +683,7 @@ output :: forall (name :: Symbol) {scope :: [Symbol]} {ps} {a} {d :: DomE}.
           , KnownNat (Length scope)
           , KnownDom ps (Length scope)
               ('Literal (CompileDom ps scope (Length scope) d))
+          , AlphaScalar a
           )
        => DomExpr scope d -> Proxy a
        -> Decl ps ('VarDecl @ps @name @(Length scope)
@@ -694,6 +696,7 @@ local :: forall (name :: Symbol) {scope :: [Symbol]} {ps} {a} {d :: DomE}.
          , KnownNat (Length scope)
          , KnownDom ps (Length scope)
              ('Literal (CompileDom ps scope (Length scope) d))
+         , AlphaScalar a
          )
       => DomExpr scope d -> Proxy a
       -> Decl ps ('VarDecl @ps @name @(Length scope)
@@ -719,6 +722,7 @@ def (Body body) = Defines (Proxy @name) body
 system :: forall ps pctx inputs outputs locals defined.
           ( KnownSymbols ps
           , IslNonEmpty ps 0 pctx
+          , KnownConstraints ps 0 pctx
           , DefinesAllExactlyOnce (outputs ++ locals) defined
           )
        => Decls  ps inputs outputs locals
