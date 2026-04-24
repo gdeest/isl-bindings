@@ -111,6 +111,7 @@ import qualified Reference.LU as RefLU
 import qualified Reference.Matmul as Ref
 
 import qualified TokensSpec
+import qualified ElaborateSpec
 
 
 -- | Run an IO action that internally constructs an Alpha term whose
@@ -178,6 +179,8 @@ testNeedsPctxBuilds = do
 main :: IO ()
 main = defaultMain $ testGroup "alpha-test"
   [ TokensSpec.tokensSpec
+
+  , ElaborateSpec.tests
 
   , testGroup "phase-A literal route"
       [ testCase "matmul value compiles and exists" $ do

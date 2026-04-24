@@ -1,12 +1,17 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE LinearTypes #-}
 {-# LANGUAGE QualifiedDo #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
 
 -- | Per-relation opaque proof tokens for the Alpha Core rewrite.
 --
@@ -38,14 +43,37 @@ module Alpha.Core.Tokens
   , checkImageSubset
   , checkPartition
   , checkDefinesAll
+    -- * Cash-in-plugin-dict helpers and debug-path twins
+    --
+    -- These are the narrow trust boundary used by
+    -- "Alpha.Surface.Elaborate".  Do not re-export from
+    -- "Alpha.Core" — they are *only* sound in the scope where a
+    -- plugin-discharged dict witnesses the corresponding ISL fact.
+  , SomeNamedSet(..)
+  , ElabMode(..)
+  , tokenizeImageSubset
+  , tokenizePartition
+  , tokenizeSubset
+  , tokenizeInScope
+  , axiomDomEq
+  , axiomScalarEq
+  , axiomBranchSubset
+  , checkAndTokenizeImageSubset
+  , checkAndTokenizePartition
+  , checkAndTokenizeSubset
   ) where
 
-import Control.DeepSeq  (NFData(..))
-import Data.Kind        (Type)
-import Data.List        (nub, sort, (\\))
-import GHC.TypeLits     (Symbol)
-import System.IO.Unsafe (unsafePerformIO)
-import Unsafe.Coerce    (unsafeCoerce)
+import Control.DeepSeq      (NFData(..))
+import Data.Kind            (Type)
+import Data.List            (nub, sort, (\\))
+import Data.Proxy           (Proxy)
+import Data.Type.Equality   ((:~:))
+import GHC.TypeLits         (Symbol)
+import System.IO.Unsafe     (unsafePerformIO)
+import Unsafe.Coerce        (unsafeCoerce)
+
+import qualified Alpha.Core.Named as Named
+import Alpha.Core.Named (Named)
 
 import Isl.Monad        (IslT, Ur(..), runIslT)
 import qualified Isl.Linear as Isl
@@ -62,6 +90,18 @@ import qualified Isl.Typed.Constraints as C (SetIx, MapIx)
 import qualified Isl.Map      as M
 import qualified Isl.Set      as S
 import qualified Isl.Space    as Space
+
+import GHC.TypeLits            (Nat, type (+))
+import Isl.TypeLevel.Constraint (TConstraint, LiftPctxN)
+import Isl.TypeLevel.Reflection
+  ( Append
+  , DomTag
+  , IslImageSubsetD
+  , IslPartitionsD
+  , IslSubsetD
+  , LitPrepend
+  , MapLitPrepend
+  )
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §1. Token types (all uninhabited — constructors unexported)
@@ -452,3 +492,280 @@ checkDefinesAll dcs eqs =
     firstDup (x:y:rest) | x == y    = Just x
                         | otherwise = firstDup (y:rest)
     firstDup _                      = Nothing
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §9. Plugin-dict cash-in helpers (NOT re-exported via Alpha.Core)
+-- ═══════════════════════════════════════════════════════════════════════
+--
+-- Each helper takes the plugin-discharged obligation as a /constraint/
+-- and returns the corresponding uninhabited token via 'mkToken'.  The
+-- constraint is structural evidence that the caller's scope has the
+-- fact already proved; no new unsafeCoerce is introduced here — all
+-- token fabrication goes through the existing 'mkToken' seal.
+--
+-- TRUST BOUNDARY.  The caller (currently only
+-- "Alpha.Surface.Elaborate") must have /materialised/ its 'Named'
+-- payloads so that they correspond to the same ISL content the
+-- plugin's dict is witnessing about.  The 'SanityCheck' variants
+-- below verify this correspondence at runtime for CI.
+
+-- | A 'Named' 'IslSet' with the skolem hidden.  Used by the partition
+-- helpers to accept a dynamic list of branch domains.
+data SomeNamedSet where
+  SomeNamedSet :: Named b IslSet -> SomeNamedSet
+
+-- | Elaboration mode.  'TrustPlugin' mints tokens via 'mkToken'
+-- straight from the plugin dict; 'SanityCheck' additionally runs the
+-- ISL-backed checker and fails if the plugin's claim disagrees.
+data ElabMode = TrustPlugin | SanityCheck
+  deriving (Eq, Show)
+
+
+-- | Cash in an @IslImageSubsetD@ plugin dict: mint the corresponding
+-- 'ImageSubset m src tgt' token.  The 'Named' arguments carry the
+-- materialised map/src/tgt payloads that the SanityCheck variant can
+-- re-verify; in TrustPlugin mode they only serve as structural shape
+-- evidence (the token itself is uninhabited).
+tokenizeImageSubset
+  :: forall (ps :: [Symbol]) (pctx :: [TConstraint ps 0])
+            (ni :: Nat) (no :: Nat)
+            (mapCs :: [TConstraint ps (ni + no)])
+            (dSrc :: DomTag ps ni) (dDst :: DomTag ps no)
+            m src tgt.
+     IslImageSubsetD ps ni no
+       (Append (LiftPctxN (ni + no) pctx) mapCs)
+       (LitPrepend (LiftPctxN ni pctx) dSrc)
+       (LitPrepend (LiftPctxN no pctx) dDst)
+  => Proxy pctx
+  -> Proxy mapCs
+  -> Proxy dSrc
+  -> Proxy dDst
+  -> Named m   IslMap
+  -> Named src IslSet
+  -> Named tgt IslSet
+  -> ImageSubset m src tgt
+tokenizeImageSubset _ _ _ _ _ _ _ = mkToken
+  -- TRUST: the IslImageSubsetD dict witnesses image(mapCs | dSrc) ⊆ dDst
+  -- at the fused-pctx obligation shape.  The elaborator passes Named
+  -- payloads built by materialising the same type-level structure.
+{-# INLINE tokenizeImageSubset #-}
+
+-- | Cash in an @IslPartitionsD@ plugin dict: mint the corresponding
+-- 'Partition dom bs' token.  The list of 'SomeNamedSet' carries the
+-- materialised branch domains (consumed by the SanityCheck twin).
+tokenizePartition
+  :: forall (ps :: [Symbol]) (pctx :: [TConstraint ps 0])
+            (n :: Nat)
+            (d :: DomTag ps n) (branches :: [DomTag ps n])
+            dom bs.
+     IslPartitionsD ps n
+       (LitPrepend (LiftPctxN n pctx) d)
+       (MapLitPrepend (LiftPctxN n pctx) branches)
+  => Proxy pctx
+  -> Proxy d
+  -> Proxy branches
+  -> Named dom IslSet
+  -> [SomeNamedSet]
+  -> Partition dom bs
+tokenizePartition _ _ _ _ _ = mkToken
+  -- TRUST: the IslPartitionsD dict witnesses that @branches@ partition
+  -- @d@ at the fused-pctx obligation shape.  The @bs@ type-level index
+  -- on the minted token is determined by the elaborator's recursion
+  -- over the surface branch list.
+{-# INLINE tokenizePartition #-}
+
+-- | Cash in an @IslSubsetD@ plugin dict: mint the corresponding
+-- 'Subset a b' token.
+tokenizeSubset
+  :: forall (ps :: [Symbol]) (pctx :: [TConstraint ps 0])
+            (n :: Nat)
+            (d1 :: DomTag ps n) (d2 :: DomTag ps n) a b.
+     IslSubsetD ps n
+       (LitPrepend (LiftPctxN n pctx) d1)
+       (LitPrepend (LiftPctxN n pctx) d2)
+  => Proxy pctx
+  -> Proxy d1
+  -> Proxy d2
+  -> Named a IslSet
+  -> Named b IslSet
+  -> Subset a b
+tokenizeSubset _ _ _ _ _ = mkToken
+  -- TRUST: the IslSubsetD dict witnesses d1 ⊆ d2 at the fused-pctx
+  -- shape.  Used by the Case elaborator to certify each branch's
+  -- effective domain is contained in the ambient.
+{-# INLINE tokenizeSubset #-}
+
+-- | Mint an 'InScope sys v' token.  Sound only when invoked by the
+-- elaborator immediately after installing the variable into the
+-- system skolem @sys@ — "v is declared in sys" is witnessed by the
+-- calling context, not by a plugin dict.
+tokenizeInScope :: forall sys v. Proxy v -> InScope sys v
+tokenizeInScope _ = mkToken
+  -- TRUST: caller (Alpha.Surface.Elaborate.installDecls) invokes this
+  -- exactly once per declared variable, inside the scope where the
+  -- VarDecl sys v _ has just been introduced.
+{-# INLINE tokenizeInScope #-}
+
+-- | Coerce between two 'Named' skolems labelling the /same/ IslSet
+-- content.  The equality witness is minted through 'mkToken' (unit
+-- coercion) — operationally inert because V2 identity is solely
+-- skolem-based and both skolems refer to the same payload.
+--
+-- Used by the elaborator's 'Var' case: a surface 'Var' references a
+-- declared variable whose V2 skolem is the @VarDecl@'s @dom@, but the
+-- enclosing Dep/Reduce/Case has installed a fresh @src@ skolem for
+-- the body's current ambient — the two skolems label the same ISL
+-- content (the plugin has structurally unified their DomTag phantoms),
+-- so this axiom bridges them without allocating a new 'Named' layer.
+--
+-- TRUST: only the elaborator invokes this, and only when the two
+-- 'Named' payloads are structurally equal.
+axiomDomEq :: forall d1 d2. Named d1 IslSet -> Named d2 IslSet -> d1 :~: d2
+axiomDomEq _ _ = mkToken
+{-# INLINE axiomDomEq #-}
+
+-- | Bridge a scalar-type mismatch between a surface equation's body
+-- type (@DeclType decl@) and the monomorphic @a@ the elaborator's
+-- caller chose for its result 'System sys a'.
+--
+-- The Surface 'Defines' constructor forces the body's scalar to match
+-- the declared variable's 'DeclType', but the Core 'System sys a' has
+-- one uniform @a@ across all equations.  The elaborator asserts that
+-- the caller's @a@ matches every equation's 'DeclType' (a contract of
+-- the 'elaborate' entry point) and closes the gap via this axiom.
+--
+-- TRUST: caller ('Alpha.Surface.Elaborate.elaborate') takes @a@ as an
+-- explicit type argument; any equation whose body's 'DeclType' is not
+-- @a@ violates the contract.  A future revision could replace this
+-- with per-equation scalar existentials in 'SomeEquation', eliminating
+-- the axiom.
+axiomScalarEq :: forall a b. a :~: b
+axiomScalarEq = mkToken
+{-# INLINE axiomScalarEq #-}
+
+-- | Given a 'Partition dom bs' witness and a chosen branch skolem
+-- @b@ known to be one of the @bs@ (by the caller's recursion over the
+-- Surface branch list at the same 'BCons' site that produced the
+-- 'Partition' token), mint the derived @Subset b dom@ fact.
+--
+-- This is a logical consequence of 'Partition' — a partition's
+-- branches are /individually/ subsets of the ambient — not a new ISL
+-- fact.  No additional ISL call is needed; 'mkToken' reuses the sole
+-- trust boundary in §4.
+--
+-- TRUST: caller (only "Alpha.Surface.Elaborate") applies this to a
+-- branch whose 'Named b IslSet' was minted at the /same/ 'BCons' walk
+-- that produced the 'Partition' token, so the @b@ is provably one of
+-- the @bs@ the partition covers.
+axiomBranchSubset
+  :: forall dom bs b.
+     Partition dom bs
+  -> Named b   IslSet
+  -> Named dom IslSet
+  -> Subset b dom
+axiomBranchSubset _ _ _ = mkToken
+{-# INLINE axiomBranchSubset #-}
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §10. Debug-path twins — run the ISL checker and mint on success
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | @SanityCheck@ variant of 'tokenizeImageSubset': calls the
+-- ISL-backed 'checkImageSubset' and returns its verdict.  In
+-- 'TrustPlugin' mode, this is identical to the type-level tokenize
+-- path (wraps 'mkToken' in @Right@).
+--
+-- The IslT wrapper is vestigial (the underlying checker uses its own
+-- internal 'runIslT'); the type is structured this way so that the
+-- elaborator can thread its 'IslT IO' context uniformly.
+checkAndTokenizeImageSubset
+  :: forall (ps :: [Symbol]) (pctx :: [TConstraint ps 0])
+            (ni :: Nat) (no :: Nat)
+            (mapCs :: [TConstraint ps (ni + no)])
+            (dSrc :: DomTag ps ni) (dDst :: DomTag ps no)
+            m src tgt.
+     IslImageSubsetD ps ni no
+       (Append (LiftPctxN (ni + no) pctx) mapCs)
+       (LitPrepend (LiftPctxN ni pctx) dSrc)
+       (LitPrepend (LiftPctxN no pctx) dDst)
+  => ElabMode
+  -> Proxy pctx
+  -> Proxy mapCs
+  -> Proxy dSrc
+  -> Proxy dDst
+  -> Named m   IslMap
+  -> Named src IslSet
+  -> Named tgt IslSet
+  -> IO (Either ElabError (ImageSubset m src tgt))
+checkAndTokenizeImageSubset TrustPlugin ppp pmc pSrc pDst nM nSrc nTgt =
+  pure (Right (tokenizeImageSubset @ps @pctx @ni @no @mapCs @dSrc @dDst
+                 ppp pmc pSrc pDst nM nSrc nTgt))
+checkAndTokenizeImageSubset SanityCheck _ _ _ _ nM nSrc nTgt =
+  -- Strip tuple names before the ISL check: ISL's isl_set_apply
+  -- compares spaces including tuple names, but the V2 skolem machinery
+  -- identifies sets/maps by skolem only — payloads that match
+  -- structurally but differ in tuple names must still pass.
+  checkImageSubset (stripMapNames (the' nM))
+                   (stripSetName (the' nSrc))
+                   (stripSetName (the' nTgt))
+
+-- | Sanity-check twin of 'tokenizePartition'.
+checkAndTokenizePartition
+  :: forall (ps :: [Symbol]) (pctx :: [TConstraint ps 0])
+            (n :: Nat)
+            (d :: DomTag ps n) (branches :: [DomTag ps n])
+            dom bs.
+     IslPartitionsD ps n
+       (LitPrepend (LiftPctxN n pctx) d)
+       (MapLitPrepend (LiftPctxN n pctx) branches)
+  => ElabMode
+  -> Proxy pctx
+  -> Proxy d
+  -> Proxy branches
+  -> Named dom IslSet
+  -> [SomeNamedSet]
+  -> IO (Either ElabError (Partition dom bs))
+checkAndTokenizePartition TrustPlugin pp pd pb nDom bs =
+  pure (Right (tokenizePartition @ps @pctx @n @d @branches @dom @bs
+                 pp pd pb nDom bs))
+checkAndTokenizePartition SanityCheck _ _ _ nDom bs =
+  checkPartition (stripSetName (the' nDom))
+                 (map (\(SomeNamedSet b) -> stripSetName (the' b)) bs)
+
+-- | Sanity-check twin of 'tokenizeSubset'.
+checkAndTokenizeSubset
+  :: forall (ps :: [Symbol]) (pctx :: [TConstraint ps 0])
+            (n :: Nat)
+            (d1 :: DomTag ps n) (d2 :: DomTag ps n) a b.
+     IslSubsetD ps n
+       (LitPrepend (LiftPctxN n pctx) d1)
+       (LitPrepend (LiftPctxN n pctx) d2)
+  => ElabMode
+  -> Proxy pctx
+  -> Proxy d1
+  -> Proxy d2
+  -> Named a IslSet
+  -> Named b IslSet
+  -> IO (Either ElabError (Subset a b))
+checkAndTokenizeSubset TrustPlugin pp pd1 pd2 nA nB =
+  pure (Right (tokenizeSubset @ps @pctx @n @d1 @d2 @a @b pp pd1 pd2 nA nB))
+checkAndTokenizeSubset SanityCheck _ _ _ nA nB =
+  checkSubset (stripSetName (the' nA)) (stripSetName (the' nB))
+
+-- | Local @the@ so the implementation doesn't need to re-export
+-- "Alpha.Core.Named".  The checkers take raw 'NamedSet'/'NamedMap';
+-- unwrap the skolem layer via the public projector.
+the' :: Named n a -> a
+the' = Named.the
+
+-- | Strip the set's tuple name.  Sanity-check path only: ISL compares
+-- spaces including tuple names, but V2 skolem identity is carried
+-- entirely by the type-level skolem; payloads with different
+-- declarative names can still refer to the same ISL set.
+stripSetName :: NamedSet -> NamedSet
+stripSetName ns = ns { nsName = Nothing }
+
+-- | Strip the map's domain/range tuple names.  Same motivation as
+-- 'stripSetName'.
+stripMapNames :: NamedMap -> NamedMap
+stripMapNames nm = nm { nmDomainName = Nothing, nmRangeName = Nothing }

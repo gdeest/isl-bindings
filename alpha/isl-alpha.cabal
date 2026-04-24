@@ -28,6 +28,7 @@ library
                    , Alpha.Core.Tokens
                    , Alpha.Surface
                    , Alpha.Surface.Core
+                   , Alpha.Surface.Elaborate
                    , Alpha.Lower
                    , Alpha.Schedule
                    , Alpha.Allocation
@@ -92,6 +93,7 @@ test-suite alpha-test
                    , Examples.SumIndex2D
                    , Examples.SumIndex2DSquare
                    , TokensSpec
+                   , ElaborateSpec
                    , Reference.Matmul
                    , Reference.Cholesky
                    , Reference.FloydWarshall

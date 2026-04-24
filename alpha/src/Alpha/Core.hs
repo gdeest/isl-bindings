@@ -111,12 +111,16 @@ data Expr sys dom a where
          -> Expr sys d a
          -> Expr sys d a
 
-  -- | Dependence: reindex a sub-expression on @src@ into @dom@ via
-  -- the map @m@.  Polarity: @image(m | src) ⊆ dom@; the token is the
-  -- elaborator's certificate of this inclusion.
+  -- | Dependence: reindex a sub-expression living on the accessed
+  -- array's domain @src@ into the iteration domain @dom@ via the
+  -- access map @m : dom → src@.  Polarity: @image(m | dom) ⊆ src@ —
+  -- every iteration point maps to a valid source point.  The token is
+  -- the elaborator's certificate of this inclusion; in Alpha semantics
+  -- the body on @src@ is the accessed array and the result on @dom@
+  -- is the current iteration domain.
   Dep    :: Named m   IslMap
          -> Named src IslSet
-         -> ImageSubset m src dom
+         -> ImageSubset m dom src
          -> Expr sys src a
          -> Expr sys dom a
 

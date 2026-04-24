@@ -1,0 +1,562 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE GADTs #-}
+{-# LANGUAGE KindSignatures #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# OPTIONS_GHC -fplugin=Isl.Plugin #-}
+
+-- | Surface-to-Core elaboration: cash in plugin dicts, mint GDP tokens.
+--
+-- Replaces the deleted @Alpha.Core.Bridge@.  Walks a plugin-typed
+-- 'Alpha.Surface.Core.System' and produces a GDP-indexed
+-- 'Alpha.Core.System' by calling the 'tokenize*' helpers in
+-- 'Alpha.Core.Tokens' at each polyhedral node.
+--
+-- = Trust boundary
+--
+-- The elaborator is the sole client of the 'tokenize*' / @axiom*@
+-- family from 'Alpha.Core.Tokens'.  Each call site cashes in a
+-- plugin-discharged obligation in the current constraint scope.  No
+-- 'unsafeCoerce' appears in this module; all trust goes through
+-- 'Alpha.Core.Tokens.mkToken'.
+--
+-- = Dep polarity
+--
+-- 'Alpha.Core.Dep's token is @ImageSubset m dom src@: the access map
+-- @m : dom → src@ sends iteration points into the accessed array's
+-- declared domain.  Surface's 'IslImageSubsetD' plugin dict proves
+-- @image(mapCs | dOuter) ⊆ dInner@ — binding dOuter→dom and
+-- dInner→src makes the two witnesses structurally identical, so the
+-- elaborator can cash in with no ISL work in 'TrustPlugin' mode.
+module Alpha.Surface.Elaborate
+  ( elaborate
+  , ElabMode(..)
+  , ElabError
+  ) where
+
+import Data.Kind             (Type)
+import Data.Proxy            (Proxy(..))
+import Data.Type.Equality    ((:~:)(Refl))
+import GHC.TypeLits
+  ( KnownNat, KnownSymbol, natVal, symbolVal, type (+) )
+import System.IO.Unsafe      (unsafePerformIO)
+
+import qualified Alpha.Core            as Core
+import qualified Alpha.Surface.Core    as Surface
+import           Alpha.Core.Named       (Named, name, name2, the)
+import           Alpha.Core.Tokens
+  ( ElabError(..)
+  , ElabMode(..)
+  , InScope
+  , IslMap
+  , IslSet
+  , Partition
+  , SomeNamedSet(..)
+  , axiomBranchSubset
+  , axiomDomEq
+  , axiomScalarEq
+  , checkAndTokenizeImageSubset
+  , checkAndTokenizePartition
+  , checkDefinesAll
+  , tokenizeInScope
+  )
+import qualified Alpha.Scalar          as Scalar
+
+import           Isl.Typed.Constraints  (NamedMap(..), NamedSet(..), Conjunction(..))
+import           Isl.Typed.Params       (KnownSymbols, symbolVals)
+import           Isl.TypeLevel.Constraint (LiftPctxN)
+import           Isl.TypeLevel.Reflection
+  ( Append, DomTag, EffectiveDomTag, IslImageSubsetD, IslPartitionsD
+  , KnownDom, LitPrepend, MapLitPrepend, reflectDomConjunctions )
+import           Isl.TypeLevel.Sing
+  ( KnownConstraints, knownConstraints, reifySTConstraintsMapSplit )
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §1. Environment
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | A variable reference resolved during elaboration: the symbol name
+-- at the type level, plus an 'InScope' token and the 'Named dom IslSet'
+-- payload that was installed at declaration time.
+data SomeVarRef sys where
+  SomeVarRef
+    :: forall sys v (dom :: Type).
+       KnownSymbol v
+    => Proxy v
+    -> InScope sys v
+    -> Named dom IslSet
+    -> SomeVarRef sys
+
+-- | Symbol → reference lookup.
+type VarEnv sys = [(String, SomeVarRef sys)]
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §2. Public entry point
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | Elaborate a Surface system to a Core system, minting GDP tokens
+-- by cashing in the plugin dicts attached to each Surface node.
+--
+-- The caller chooses the scalar @a@; every equation's @DeclType@ is
+-- asserted to match @a@ via 'axiomScalarEq' — a hard precondition of
+-- calling 'elaborate' polymorphically over surface systems whose
+-- declared-variable scalars might differ.  Typical callers pick @a@ to
+-- match the system's actual uniform scalar (e.g. @Double@ for matmul).
+elaborate
+  :: forall ps pctx inputs outputs locals a r.
+     (KnownSymbols ps, Scalar.AlphaScalar a)
+  => ElabMode
+  -> Surface.System ps pctx inputs outputs locals
+  -> (forall sys. Either ElabError (Core.System sys a) -> r)
+  -> r
+elaborate mode (Surface.System (Surface.Decls ins outs locs) eqs) k =
+  name2 (symbolVals @ps) (emptyParamIslSet (symbolVals @ps)) $
+    \(namedPs   :: Named sys [String])
+     (namedPctx :: Named sys IslSet) ->
+      installDecls @ps @sys [] ins  $ \env1 inEntries  ->
+      installDecls @ps @sys env1 outs $ \env2 outEntries ->
+      installDecls @ps @sys env2 locs $ \env3 locEntries ->
+        case walkEquations @ps @pctx @sys @_ @_ @a mode env3 eqs of
+          Left err   -> k (Left err)
+          Right sEqs ->
+            let dcNames = map fst outEntries ++ map fst locEntries
+                eqNames = map someEqName sEqs
+            in case checkDefinesAll @'[] @'[] dcNames eqNames of
+                 Left  err -> k (Left err)
+                 Right tot ->
+                   k (Right Core.System
+                     { Core.sysParams    = namedPs
+                     , Core.sysParamCs   = namedPctx
+                     , Core.sysInputs    = map snd inEntries
+                     , Core.sysOutputs   = map snd outEntries
+                     , Core.sysLocals    = map snd locEntries
+                     , Core.sysEqs       = sEqs
+                     , Core.sysTotality  = Core.SomeDefinesAll tot
+                     })
+
+-- | Placeholder 'IslSet' carrying the system's declared parameters
+-- with a trivially-true (empty) constraint.  A future revision
+-- materialises the actual 'pctx' list.
+emptyParamIslSet :: [String] -> IslSet
+emptyParamIslSet params = NamedSet
+  { nsName   = Just "__pctx"
+  , nsParams = params
+  , nsNDims  = 0
+  , nsConjs  = [Conjunction []]
+  }
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §3. Declaration installation
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | Walk a surface 'Surface.DeclList', installing each declared
+-- variable into the environment with a fresh domain skolem minted via
+-- 'name'.  Accumulates 'SomeVarDecl sys' for the outer 'Core.System'
+-- slot-lists and 'SomeVarRef sys' entries for the body walker.
+installDecls
+  :: forall ps sys decls r.
+     KnownSymbols ps
+  => VarEnv sys
+  -> Surface.DeclList ps decls
+  -> ( VarEnv sys -> [(String, Core.SomeVarDecl sys)] -> r )
+  -> r
+installDecls env Surface.Nil k = k env []
+installDecls env ((Surface.MkDecl :: Surface.Decl ps d) Surface.:> rest) k =
+  let nm   = symbolVal (Proxy @(Surface.DeclName d))
+      dims = fromIntegral (natVal (Proxy @(Surface.DeclDims d))) :: Int
+      -- Phase-scaffold scalar: the surface's DeclType is not reflected
+      -- to a runtime 'CNumType' here yet; 'CFloat64' is the lenient
+      -- default for float-heavy examples.  A proper reflection needs
+      -- a 'KnownScalar' class on 'Surface.MkDecl'.
+      scalar = Scalar.CFloat64
+      conjs  = reflectDomConjunctions
+                 @ps @(Surface.DeclDims d) @(Surface.DeclDomTag d)
+      islSet = NamedSet
+        { nsName   = Just nm
+        , nsParams = symbolVals @ps
+        , nsNDims  = dims
+        , nsConjs  = conjs
+        }
+  in name islSet $ \(namedDom :: Named dom IslSet) ->
+       let pv    = Proxy @(Surface.DeclName d)
+           tok   = tokenizeInScope @sys pv
+           vref  = SomeVarRef pv tok namedDom
+           vdecl = Core.VarDecl
+                     { Core.vdName   = nm
+                     , Core.vdDims   = dims
+                     , Core.vdScalar = scalar
+                     , Core.vdDom    = namedDom
+                     }
+           entry = (nm, Core.SomeVarDecl pv vdecl)
+       in installDecls @ps @sys ((nm, vref) : env) rest $ \env' entries ->
+            k env' (entry : entries)
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §4. Equation walker
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | Walk the surface 'Surface.EqList' producing a list of Core
+-- 'SomeEquation sys a'.  For each equation: look up the declared
+-- variable (to recover its VarDecl + Named domain), walk the body
+-- against that domain, and pack with the declaration.
+walkEquations
+  :: forall ps pctx sys decls defined a.
+     (KnownSymbols ps, Scalar.AlphaScalar a)
+  => ElabMode
+  -> VarEnv sys
+  -> Surface.EqList ps pctx decls defined
+  -> Either ElabError [Core.SomeEquation sys a]
+walkEquations _    _   Surface.EqNil = Right []
+walkEquations mode env (Surface.Defines (Proxy :: Proxy nm) body Surface.:& rest) =
+  let nmS = symbolVal (Proxy @nm)
+  in case lookup nmS env of
+       Nothing -> Left (MissingDef nmS)
+       Just (SomeVarRef (pv :: Proxy v) tok (namedDom :: Named dom IslSet)) -> do
+         bodyE <- walkExprAt @ps @pctx @sys @dom mode namedDom env (coerceBody body)
+         let vdecl :: Core.VarDecl sys v dom
+             vdecl = Core.VarDecl
+                       { Core.vdName   = nmS
+                       , Core.vdDims   = dimsOfNamed namedDom
+                       , Core.vdScalar = Scalar.scalarCNumType @a
+                       , Core.vdDom    = namedDom
+                       }
+             _ = tok
+             _ = pv
+         eqs <- walkEquations @ps @pctx @sys @decls @_ @a mode env rest
+         pure (Core.SomeEquation vdecl bodyE : eqs)
+  where
+    coerceBody
+      :: forall n_ d_ b.
+         Surface.Expr ps pctx decls n_ d_ b
+      -> Surface.Expr ps pctx decls n_ d_ a
+    coerceBody e = case axiomScalarEq @b @a of Refl -> e
+
+-- | Extract the runtime dimension count from a 'Named dom IslSet'.
+dimsOfNamed :: Named dom IslSet -> Int
+dimsOfNamed = nsNDims . the
+
+-- | Recover the defined-var name from a 'Core.SomeEquation'.
+someEqName :: forall sys a. Core.SomeEquation sys a -> String
+someEqName (Core.SomeEquation (Core.VarDecl { Core.vdName = n }) _) = n
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §5. Expression walker
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | Walk a surface expression whose output domain skolem is known by
+-- the caller.  Direct-style (not CPS) because Pw/PMap need both
+-- operands on the same domain; Dep/Reduce/Case install fresh skolems
+-- internally and re-enter 'walkExprAt' with the new ambient.
+walkExprAt
+  :: forall ps pctx sys dom a n d decls.
+     KnownSymbols ps
+  => ElabMode
+  -> Named dom IslSet
+  -> VarEnv sys
+  -> Surface.Expr ps pctx decls n d a
+  -> Either ElabError (Core.Expr sys dom a)
+walkExprAt _mode namedDom env (Surface.Var (Proxy :: Proxy nm)) =
+  case lookup (symbolVal (Proxy @nm)) env of
+    Nothing -> Left (MissingDef (symbolVal (Proxy @nm)))
+    Just (SomeVarRef (pv :: Proxy v) tok (namedVarDom :: Named varDom IslSet)) ->
+      -- Surface 'Var' produces an expr on the variable's /declared/
+      -- domain; Core 'Var' does the same.  The enclosing context has
+      -- installed a fresh 'dom' skolem whose IslSet coincides with the
+      -- variable's declared domain (the surface typing guarantees
+      -- structural equality).  Bridge via 'axiomDomEq'.
+      case axiomDomEq namedVarDom namedDom of
+        Refl -> Right (Core.Var pv tok namedVarDom)
+
+walkExprAt _mode _ _ (Surface.Const c) =
+  Right (Core.Const c)
+
+walkExprAt mode namedDom env (Surface.Pw op e1 e2) = do
+  b1 <- walkExprAt @ps @pctx @sys @dom mode namedDom env e1
+  b2 <- walkExprAt @ps @pctx @sys @dom mode namedDom env e2
+  pure (Core.Pw op b1 b2)
+
+walkExprAt mode namedDom env (Surface.PMap op e) = do
+  b <- walkExprAt @ps @pctx @sys @dom mode namedDom env e
+  pure (Core.PMap op b)
+
+walkExprAt mode namedDom env
+  (Surface.Dep (Proxy :: Proxy mapCs)
+               (inner :: Surface.Expr ps pctx decls no dInner a)) =
+  walkDep @ps @pctx @sys @dom @n @d @no @mapCs @dInner @a @decls
+          mode namedDom env inner
+
+walkExprAt mode namedDom env
+  (Surface.Reduce op (Proxy :: Proxy projCs)
+                  (body :: Surface.Expr ps pctx decls nBody dBody a)) =
+  walkReduce @ps @pctx @sys @dom @n @d @nBody @projCs @dBody @a @decls
+             mode namedDom env op body
+
+walkExprAt mode namedDom env (Surface.Case branches) =
+  walkCase @ps @pctx @sys @dom @n @d @_ @a @decls
+           mode namedDom env branches
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §6. Dep walker
+-- ═══════════════════════════════════════════════════════════════════════
+--
+-- Cashes in the Surface 'Dep' constructor's 'IslImageSubsetD' dict:
+-- @image(mapCs | dOuter) ⊆ dInner@ — binding Surface's @dOuter@ →
+-- Core's @dom@ (iteration) and Surface's @dInner@ → Core's @src@
+-- (array) yields the Core token @ImageSubset m dom src@ directly.
+
+walkDep
+  :: forall ps pctx sys dom ni dOuter no mapCs dInner a decls.
+     ( KnownSymbols ps
+     , KnownNat ni, KnownNat no
+     , KnownDom ps ni dOuter
+     , KnownDom ps no dInner
+     , KnownConstraints ps (ni + no) mapCs
+     , IslImageSubsetD ps ni no
+         (Append (LiftPctxN (ni + no) pctx) mapCs)
+         (LitPrepend (LiftPctxN ni pctx) dOuter)
+         (LitPrepend (LiftPctxN no pctx) dInner) )
+  => ElabMode
+  -> Named dom IslSet
+  -> VarEnv sys
+  -> Surface.Expr ps pctx decls no dInner a
+  -> Either ElabError (Core.Expr sys dom a)
+walkDep mode namedDom env inner =
+  let nIn  = fromIntegral (natVal (Proxy @ni)) :: Int
+      nOut = fromIntegral (natVal (Proxy @no)) :: Int
+      -- 'dInner' is the accessed array's declared domain.
+      srcConjs = reflectDomConjunctions @ps @no @dInner
+      srcSet   = NamedSet
+        { nsName   = Nothing
+        , nsParams = symbolVals @ps
+        , nsNDims  = nOut
+        , nsConjs  = srcConjs
+        }
+      -- Map constraint list: Surface's @mapCs@ with dims 0..ni-1 as
+      -- input (iteration / outer) and ni..ni+no-1 as output (array
+      -- / inner).  That matches the new Core.Dep polarity
+      -- (@m : dom → src@, so nIn=ni, nOut=no).
+      mapConjs = [Conjunction
+                    (reifySTConstraintsMapSplit nIn
+                      (knownConstraints @ps @(ni + no) @mapCs))]
+      depMap   = NamedMap
+        { nmDomainName = Nothing
+        , nmRangeName  = Nothing
+        , nmParams     = symbolVals @ps
+        , nmNIn        = nIn
+        , nmNOut       = nOut
+        , nmConjs      = mapConjs
+        }
+  in name srcSet $ \(namedSrc :: Named src IslSet) ->
+     name depMap $ \(namedM :: Named m IslMap) ->
+       case unsafePerformIO
+              (checkAndTokenizeImageSubset
+                 @ps @pctx @ni @no @mapCs @dOuter @dInner
+                 @m @dom @src
+                 mode
+                 (Proxy @pctx) (Proxy @mapCs) (Proxy @dOuter) (Proxy @dInner)
+                 namedM namedDom namedSrc) of
+         Left err  -> Left err
+         Right tok -> do
+           innerE <- walkExprAt @ps @pctx @sys @src mode namedSrc env inner
+           pure (Core.Dep namedM namedSrc tok innerE)
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §7. Reduce walker
+-- ═══════════════════════════════════════════════════════════════════════
+--
+-- Cashes in Surface 'Reduce''s 'IslImageSubsetD' dict:
+-- @image(projCs | dBody) ⊆ d@.  Binding dBody → body (Core) and d →
+-- dom (Core) gives Core's 'ImageSubset p body dom'.
+
+walkReduce
+  :: forall ps pctx sys dom n d nBody projCs dBody a decls.
+     ( KnownSymbols ps
+     , KnownNat n, KnownNat nBody
+     , KnownDom ps n d
+     , KnownDom ps nBody dBody
+     , KnownConstraints ps (nBody + n) projCs
+     , IslImageSubsetD ps nBody n
+         (Append (LiftPctxN (nBody + n) pctx) projCs)
+         (LitPrepend (LiftPctxN nBody pctx) dBody)
+         (LitPrepend (LiftPctxN n pctx) d) )
+  => ElabMode
+  -> Named dom IslSet
+  -> VarEnv sys
+  -> Surface.ReduceOp
+  -> Surface.Expr ps pctx decls nBody dBody a
+  -> Either ElabError (Core.Expr sys dom a)
+walkReduce mode namedDom env op bodyE0 =
+  let nR   = fromIntegral (natVal (Proxy @n))     :: Int
+      nB   = fromIntegral (natVal (Proxy @nBody)) :: Int
+      bodyConjs = reflectDomConjunctions @ps @nBody @dBody
+      bodySet   = NamedSet
+        { nsName   = Nothing
+        , nsParams = symbolVals @ps
+        , nsNDims  = nB
+        , nsConjs  = bodyConjs
+        }
+      -- Projection map: input nBody dims, output n dims.
+      projConjs = [Conjunction
+                     (reifySTConstraintsMapSplit nB
+                       (knownConstraints @ps @(nBody + n) @projCs))]
+      projMap   = NamedMap
+        { nmDomainName = Nothing
+        , nmRangeName  = Nothing
+        , nmParams     = symbolVals @ps
+        , nmNIn        = nB
+        , nmNOut       = nR
+        , nmConjs      = projConjs
+        }
+  in name bodySet $ \(namedBody :: Named bodyDom IslSet) ->
+     name projMap $ \(namedP :: Named p IslMap) ->
+       case unsafePerformIO
+              (checkAndTokenizeImageSubset
+                 @ps @pctx @nBody @n @projCs @dBody @d
+                 @p @bodyDom @dom
+                 mode
+                 (Proxy @pctx) (Proxy @projCs) (Proxy @dBody) (Proxy @d)
+                 namedP namedBody namedDom) of
+         Left err  -> Left err
+         Right tok -> do
+           bodyE <- walkExprAt @ps @pctx @sys @bodyDom mode namedBody env bodyE0
+           pure (Core.Reduce op namedP namedBody tok bodyE)
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §8. Case walker
+-- ═══════════════════════════════════════════════════════════════════════
+--
+-- Walks the Surface branch list bottom-up, materializing each
+-- branch's effective domain (d ∩ amb) via 'reflectDomConjunctions'
+-- on 'EffectiveDomTag d amb', minting a fresh skolem per branch, and
+-- recursively walking the body.  The 'Partition' token is cashed in
+-- via 'tokenizePartition' / 'checkAndTokenizePartition'; each
+-- branch's 'Subset b dom' token is minted from the 'Partition' via
+-- 'axiomBranchSubset' (a logical consequence, no ISL call).
+
+walkCase
+  :: forall ps pctx sys dom n (amb :: DomTag ps n) branchDoms a decls.
+     ( KnownSymbols ps
+     , KnownNat n
+     , KnownDom ps n amb
+     , IslPartitionsD ps n
+         (LitPrepend (LiftPctxN n pctx) amb)
+         (MapLitPrepend (LiftPctxN n pctx) branchDoms) )
+  => ElabMode
+  -> Named dom IslSet
+  -> VarEnv sys
+  -> Surface.Branches ps pctx decls n amb branchDoms a
+  -> Either ElabError (Core.Expr sys dom a)
+walkCase mode namedDom env branches =
+  -- Two-pass approach:
+  --   Pass 1 (collectBranches) installs a fresh skolem per branch,
+  --           walks each body, and yields the list of 'SomeNamedSet'
+  --           required by 'checkAndTokenizePartition'.
+  --   Pass 2 (attachSubsets) rebuilds the 'CaseBranches' chain under
+  --           the now-in-scope 'Partition' token, minting each branch's
+  --           'Subset b dom' via 'axiomBranchSubset'.
+  -- The passes share the skolem list @bs@ via the rank-N continuation.
+  collectBranches @ps @pctx @sys @dom @n @amb mode namedDom env branches $
+    \(preCB  :: PreCaseBranches sys dom bs a)
+     (someBranchSets :: [SomeNamedSet]) ->
+      case unsafePerformIO
+             (checkAndTokenizePartition
+                @ps @pctx @n @amb @branchDoms
+                @dom @bs
+                mode
+                (Proxy @pctx) (Proxy @amb) (Proxy @branchDoms)
+                namedDom someBranchSets) of
+        Left err      -> Left err
+        Right partTok ->
+          Right (Core.Case partTok
+                   (attachSubsets @sys @dom @bs @bs @a partTok namedDom preCB))
+
+
+-- | A 'CaseBranches'-shaped chain that defers its per-branch
+-- 'Subset b dom' tokens.  We can't build a real 'Core.CaseBranches'
+-- inside 'collectBranches' because the 'Partition dom bs' token
+-- isn't yet in scope; instead we accumulate this structural mirror
+-- and paste the Subset tokens on in a second pass.
+type PreCaseBranches :: Type -> Type -> [Type] -> Type -> Type
+data PreCaseBranches sys dom bs a where
+  PNil  :: PreCaseBranches sys dom '[] a
+  PCons :: Named b IslSet
+        -> Core.Expr sys b a
+        -> PreCaseBranches sys dom bs a
+        -> PreCaseBranches sys dom (b ': bs) a
+
+-- | Walk a 'Surface.Branches' snoc-list, installing a fresh skolem
+-- for each branch's effective domain and collecting the deferred
+-- branch chain plus the list of branch domains for the partition
+-- check.  The continuation closes over the existential @bs@ list of
+-- branch skolems.
+collectBranches
+  :: forall ps pctx sys dom n (amb :: DomTag ps n) branchDoms a decls.
+     ( KnownSymbols ps
+     , KnownNat n
+     , KnownDom ps n amb )
+  => ElabMode
+  -> Named dom IslSet
+  -> VarEnv sys
+  -> Surface.Branches ps pctx decls n amb branchDoms a
+  -> ( forall (bs :: [Type]).
+       PreCaseBranches sys dom bs a
+    -> [SomeNamedSet]
+    -> Either ElabError (Core.Expr sys dom a) )
+  -> Either ElabError (Core.Expr sys dom a)
+collectBranches _mode _ _ Surface.BNil k = k PNil []
+collectBranches mode namedDom env
+  (Surface.BCons (Proxy :: Proxy dBranch)
+                 (body :: Surface.Expr ps pctx decls n (EffectiveDomTag dBranch amb) a)
+                 rest) k =
+  let brConjs = reflectDomConjunctions @ps @n @(EffectiveDomTag dBranch amb)
+      brSet   = NamedSet
+        { nsName   = Nothing
+        , nsParams = symbolVals @ps
+        , nsNDims  = fromIntegral (natVal (Proxy @n))
+        , nsConjs  = brConjs
+        }
+  in name brSet $ \(namedBranch :: Named b IslSet) ->
+       case walkExprAt @ps @pctx @sys @b mode namedBranch env body of
+         Left err    -> Left err
+         Right bodyE ->
+           collectBranches @ps @pctx @sys @dom @n @amb mode namedDom env rest $
+             \tailPre tailSets ->
+               k (PCons namedBranch bodyE tailPre)
+                 (SomeNamedSet namedBranch : tailSets)
+
+-- | Walk a 'PreCaseBranches' chain and paste a 'Subset b dom' token
+-- on each entry, derived from the overall 'Partition dom bs'.
+--
+-- We pass the outer partition token uniformly to every call — the
+-- axiom requires /a/ 'Partition' (any branch-list) plus the branch's
+-- and ambient's 'Named' payloads.  The axiom is polymorphic in its
+-- partition argument's @bs@ index, so the recursive call reuses the
+-- outer partition unchanged.
+attachSubsets
+  :: forall sys dom bs0 bs a.
+     Partition dom bs0
+  -> Named dom IslSet
+  -> PreCaseBranches sys dom bs a
+  -> Core.CaseBranches sys dom bs a
+attachSubsets _    _        PNil = Core.BNil
+attachSubsets part namedDom (PCons (namedB :: Named b IslSet) bodyE tl) =
+  Core.BCons namedB
+             (axiomBranchSubset part namedB namedDom)
+             bodyE
+             (attachSubsets @sys @dom @bs0 @_ @a part namedDom tl)
+
