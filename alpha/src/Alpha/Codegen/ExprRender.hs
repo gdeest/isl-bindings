@@ -16,6 +16,8 @@ module Alpha.Codegen.ExprRender
   ( RenderCtx(..)
   , renderEquationMacro
   , renderExprToC
+  , renderEquationMacroV2
+  , renderExprToCV2
   , extractSubscripts
   , extractOneBound
   , extractBoundsISLM
@@ -35,7 +37,8 @@ import Data.Proxy (Proxy(..))
 import GHC.TypeLits (KnownNat, Nat, Symbol, symbolVal, type (+))
 
 import Isl.Typed.Constraints
-  ( Constraint(..), MapIx(..), SetIx(..) )
+  ( Conjunction(..), Constraint(..), MapIx(..), SetIx(..)
+  , NamedMap(..), NamedSet(..) )
 import qualified Isl.Typed.Constraints as C
 import Isl.Typed.Params (KnownSymbols)
 import Isl.TypeLevel.Reflection (DomTag, KnownDom, reflectDomConstraints, domToSet)
@@ -48,6 +51,8 @@ import qualified Isl.PwAff as PA
 import qualified Isl.Val as Val
 
 import Alpha.Surface.Core
+import qualified Alpha.Core    as V2
+import qualified Alpha.Core.Named as Named
 import Alpha.Codegen.COp
 import Alpha.Allocation (EqStorage(..))
 import Alpha.Scalar
@@ -201,6 +206,94 @@ renderBranches ctx (BCons (_ :: Proxy d) body rest) = do
       condStr = renderDomCondition (rcIterVars ctx) (rcParams ctx) condCs
   b <- renderExprToC ctx body
   r <- renderBranches ctx rest
+  pure $ "(" ++ condStr ++ ") ? (" ++ b ++ ") : (" ++ r ++ ")"
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §3b. Core walker over 'Alpha.Core.Expr' (Named-payload)
+-- ═══════════════════════════════════════════════════════════════════════
+
+-- | Generate a C macro definition for one V2 equation.  Polyhedral
+-- payload (domain conjunctions, dependence map indexing) is read off
+-- the 'Named' fields carried on each constructor; no plugin reflection.
+renderEquationMacroV2
+  :: forall sys d a.
+     String       -- statement macro name
+  -> String       -- logical array name
+  -> Int          -- number of output dimensions
+  -> V2.Expr sys d a
+  -> RenderCtx
+  -> Either RenderErr String
+renderEquationMacroV2 macroName lhsName nOutDims body ctx = do
+  let nArgs   = length (rcIterVars ctx)
+      formals = ["_a" ++ show i | i <- [0 .. nArgs - 1]]
+      args    = intercalate "," formals
+      writeVars = take nOutDims (rcIterVars ctx)
+      writeLhs = renderArrayAccess lhsName writeVars ctx
+  (accOp, bodyExpr) <- case body of
+    V2.Reduce rop _namedP _namedBody _tok inner -> do
+      innerStr <- renderExprToCV2 ctx inner
+      pure (reduceOpToC rop (rcDesc ctx) writeLhs innerStr)
+    _ -> do
+      bodyStr <- renderExprToCV2 ctx body
+      pure (" = ", bodyStr)
+  pure $ "#define " ++ macroName ++ "(" ++ args ++ ") do { "
+       ++ writeLhs ++ accOp ++ bodyExpr ++ "; } while(0)"
+
+-- | Render a V2 'Alpha.Core.Expr' to a C expression string.
+renderExprToCV2
+  :: forall sys d a.
+     RenderCtx -> V2.Expr sys d a -> Either RenderErr String
+
+renderExprToCV2 ctx (V2.Var pv _ _) =
+  let varName = symbolVal pv
+  in Right (renderArrayAccess varName (rcIterVars ctx) ctx)
+
+renderExprToCV2 _ctx (V2.Const v) =
+  Right (showLiteral scalarConstBridge v)
+
+renderExprToCV2 ctx (V2.Pw op e1 e2) = do
+  let sfx = descMathSuffix (rcDesc ctx)
+  a <- renderExprToCV2 ctx e1
+  b <- renderExprToCV2 ctx e2
+  pure (renderBinOp sfx op a b)
+
+renderExprToCV2 ctx (V2.PMap op e) = do
+  let sfx = descMathSuffix (rcDesc ctx)
+  s <- renderExprToCV2 ctx e
+  pure (renderUnaryOp sfx op s)
+
+renderExprToCV2 ctx (V2.Dep namedM _namedSrc _tok inner) = do
+  let nm  = Named.the namedM
+      ni  = nmNIn nm
+      cs  = concat [ks | Conjunction ks <- nmConjs nm]
+      targetName = case inner of
+        V2.Var pv _ _ -> symbolVal pv
+        _ -> error "Alpha.Codegen.ExprRender.renderExprToCV2: \
+                   \Dep wraps non-Var (invariant broken by a transform)"
+  subs <- extractSubscripts ni (rcIterVars ctx) (rcParams ctx) targetName cs
+  let innerCtx = ctx { rcIterVars = subs }
+  renderExprToCV2 innerCtx inner
+
+renderExprToCV2 ctx (V2.Reduce _rop _namedP _namedBody _tok inner) =
+  renderExprToCV2 ctx inner
+
+renderExprToCV2 ctx (V2.Case _partTok branches) =
+  renderBranchesV2 ctx branches
+
+renderBranchesV2
+  :: forall sys d bs a.
+     RenderCtx -> V2.CaseBranches sys d bs a
+  -> Either RenderErr String
+renderBranchesV2 _ctx V2.BNil = Right "0 /* unreachable */"
+renderBranchesV2 ctx (V2.BCons _ _ body V2.BNil) =
+  renderExprToCV2 ctx body
+renderBranchesV2 ctx (V2.BCons namedB _ body rest) = do
+  let bs       = Named.the namedB
+      condCs   = concat [ks | Conjunction ks <- nsConjs bs]
+      condStr  = renderDomCondition (rcIterVars ctx) (rcParams ctx) condCs
+  b <- renderExprToCV2 ctx body
+  r <- renderBranchesV2 ctx rest
   pure $ "(" ++ condStr ++ ") ? (" ++ b ++ ") : (" ++ r ++ ")"
 
 
