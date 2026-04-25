@@ -21,6 +21,7 @@ module Alpha.Codegen.ExprRender
   , extractSubscripts
   , extractOneBound
   , extractBoundsISLM
+  , extractBoundsFromSetM
   , BoundErr(..)
   , RenderErr(..)
   , descCType
@@ -47,12 +48,14 @@ import Isl.Monad (IslT, Ur(..))
 import Isl.Linear (query, query_, freeM, Both(..))
 import qualified Isl.Linear as Isl
 import qualified Isl.Set as RS
+import Isl.Types (Set)
 import qualified Isl.PwAff as PA
 import qualified Isl.Val as Val
 
 import Alpha.Surface.Core
 import qualified Alpha.Core    as V2
 import qualified Alpha.Core.Named as Named
+import Alpha.Core.Tokens (materializeNamedSet)
 import Alpha.Codegen.COp
 import Alpha.Allocation (EqStorage(..))
 import Alpha.Scalar
@@ -586,6 +589,36 @@ extractOneDimBoundM
   -> IslT IO (Ur (Either BoundErr String))
 extractOneDimBoundM d = Isl.do
   s <- domToSet @ps @n @d
+  extractFromSetM s d
+
+-- | V2 bound extractor over a runtime 'NamedSet' (carried on
+-- 'Alpha.Core.VarDecl.vdDom').  Mirrors 'extractBoundsISLM' but with no
+-- type-level reflection — the V2 entry point materialises the domain
+-- from its 'Named' payload.
+extractBoundsFromSetM
+  :: NamedSet
+  -> Int
+  -> IslT IO (Ur (Either (Int, BoundErr) [String]))
+extractBoundsFromSetM ns nDims = Isl.do
+  Ur results <- Isl.mapM (extractOneFromNamedSetM ns) [0 .. nDims - 1]
+  let flat = [ e | Ur e <- results ]
+  Isl.pure (Ur (sequenceDims flat))
+  where
+    sequenceDims :: [Either BoundErr String] -> Either (Int, BoundErr) [String]
+    sequenceDims = go 0
+      where
+        go _ []                 = Right []
+        go d' (Left err : _)    = Left (d', err)
+        go d' (Right b  : rest) = fmap (b :) (go (d' + 1) rest)
+
+extractOneFromNamedSetM
+  :: NamedSet -> Int -> IslT IO (Ur (Either BoundErr String))
+extractOneFromNamedSetM ns d = Isl.do
+  s <- materializeNamedSet ns
+  extractFromSetM s d
+
+extractFromSetM :: Set %1 -> Int -> IslT IO (Ur (Either BoundErr String))
+extractFromSetM s d = Isl.do
   pa <- RS.dimMax s d
   one <- Val.intFromSi 1
   excl <- PA.addConstantVal pa one
