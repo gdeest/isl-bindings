@@ -34,7 +34,9 @@ import Isl.Monad (IslT, Ur(..), runIslT)
 import Isl.Linear (query_, freeM, dupM)
 import qualified Isl.Linear as Isl
 import Alpha.Surface.Core (System, pattern System, eqListNames)
-import Alpha.Lower (lowerSystem)
+import Alpha.Surface.Elaborate (elaborate, ElabMode(..))
+import Alpha.Core.Tokens (ElabError)
+import Alpha.Lower (lowerSystemV2)
 import Alpha.Schedule (Schedule(..), schedEntries)
 import Alpha.Allocation (Allocation(..), EqStorage(..))
 import Alpha.Polyhedral.Contraction (storageToNamedMap', contractionOutputDeps)
@@ -63,6 +65,10 @@ data CompileError
     -- ^ A pre-lowering transform (e.g., 'normalizeCases') reported an
     -- error.  Structural transforms never fail at runtime, so this
     -- signals an internal bug.
+  | ElaborateFailed !ElabError
+    -- ^ Surface → Core elaboration failed before lowering.  Either the
+    -- system is malformed (missing definition, mis-shaped body) or a
+    -- 'SanityCheck' run rejected a plugin-discharged obligation.
   deriving (Show, Eq)
 
 instance NFData CompileError where
@@ -72,6 +78,7 @@ instance NFData CompileError where
   rnf (ScheduleOverspecified xs) = rnf xs
   rnf (OutputDependenceViolated s) = rnf s
   rnf (TransformFailed e)       = e `seq` ()
+  rnf (ElaborateFailed e)       = e `seq` ()
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -99,24 +106,23 @@ compile sys0@(System _decls eqs) sched alloc =
       -- fan-out can emit one polyhedral statement per branch.
       case normalizeCases sys0 of
         Left terr -> pure (Left (TransformFailed terr))
-        Right sys -> runIslT $ Isl.do
-          let (domains, writes, reads_, projections) = lowerSystem sys
-              schedMaps = lowerScheduleMaps sched domains
-              params    = symbolVals @ps
-              -- Contracted equations paired with their (list of
-              -- per-branch write maps, storage map).  After the Case
-              -- fan-out, a single contracted equation may be backed by
-              -- N write maps; the WAW check unions them before pushing
-              -- through storage composition.  Empty list ⇒ no
-              -- post-contraction aliasing possible, WAW check skipped.
-              contracted = collectContracted params alloc writes
-          Ur eqReads <- projectBodyReads reads_ projections
-          Ur flowDeps <- computeAllDeps eqReads writes
-          -- Flow-dep lex-positivity check.
-          Ur flowResult <- runFlowCheck flowDeps schedMaps
-          case flowResult of
-            Left err -> Isl.pure (Ur (Left err))
-            Right () -> runWawCheck params contracted schedMaps
+        Right sys -> elaborate @ps @pctx @inputs @outputs @locals @Double TrustPlugin sys $ \res -> case res of
+          Left elabErr -> pure (Left (ElaborateFailed elabErr))
+          Right sysV2  -> runIslT $ Isl.do
+            let (domains, writes, reads_, projections) = lowerSystemV2 sysV2
+                schedMaps  = lowerScheduleMaps sched domains
+                params     = symbolVals @ps
+                -- After the Case fan-out, a single contracted equation
+                -- may be backed by N write maps; the WAW check unions
+                -- them before pushing through storage composition.
+                -- Empty list ⇒ no post-contraction aliasing possible.
+                contracted = collectContracted params alloc writes
+            Ur eqReads     <- projectBodyReads reads_ projections
+            Ur flowDeps    <- computeAllDeps eqReads writes
+            Ur flowResult  <- runFlowCheck flowDeps schedMaps
+            case flowResult of
+              Left err -> Isl.pure (Ur (Left err))
+              Right () -> runWawCheck params contracted schedMaps
 
 -- | Flow-dep lex-positivity check, factored out for composition with
 -- the post-contraction WAW check.
