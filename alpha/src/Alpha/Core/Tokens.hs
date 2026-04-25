@@ -61,6 +61,8 @@ module Alpha.Core.Tokens
   , checkAndTokenizeImageSubset
   , checkAndTokenizePartition
   , checkAndTokenizeSubset
+    -- * NamedSet materialization (for downstream interpreters)
+  , materializeNamedSet
   ) where
 
 import Control.DeepSeq      (NFData(..))
