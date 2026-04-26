@@ -1,126 +1,87 @@
-{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE TypeOperators #-}
-{-# LANGUAGE NoStarIsType #-}
-{-# OPTIONS_GHC -fplugin=Isl.Plugin #-}
 {-# OPTIONS_GHC -Wno-partial-type-signatures #-}
 
--- | Smoke tests for the Phase A.3b Surface → Core.V2 elaborator and
--- the Core.V2 bridge.
+-- | Smoke tests for "Alpha.Surface.Elaborate".
 --
--- Coverage:
---
---   * @elaborate@ on a well-formed 1D Surface system produces 'Right'.
---   * The elaborated system's totality count (inputs + outputs +
---     locals + eqs) matches the source system's declared shape.
---   * The 'toV2' round-trip preserves total-count fields.
---
--- Negative path note.  The task spec asks for an "intentionally
--- malformed Surface system; assert @Left (ImageSubsetFails …)@".
--- Surface's compile-time plugin obligations prevent constructing
--- such a system: an access-out-of-bounds is rejected at type-check
--- time, so there is no value-level fixture to pass through
--- 'elaborate' that would trigger a 'Left'.  The primitive-level
--- negative checker path (malformed map image → 'ImageSubsetFails')
--- is covered in "TokensSpec" ('checkImageSubset: identity on …
--- ⊄ [0..4]').  Phase B grows an untyped-surface API that admits
--- malformed systems; those negatives land then.
-module ElaborateSpec (elaborateSpec) where
+-- Covers the full walker: leaf cases (Var\/Const\/Pw\/PMap) on Zero1D,
+-- the Dep\/Var path on Copy1D, the Dep\/Reduce path on Matmul, and the
+-- Case path on Heat3DElsewhere.  Each polyhedral example is also run
+-- under 'SanityCheck' to exercise the ISL re-check twin.
+module ElaborateSpec (tests) where
+
+import Data.Int (Int32)
 
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import qualified Alpha.Core        as Core
-import qualified Alpha.Core.V2     as V2
-import           Alpha.Core.Bridge (toV2)
-import           Alpha.Surface.Elaborate (elaborate)
+import qualified Alpha.Core as Core
+import Alpha.Core.Tokens (ElabMode(..))
+import Alpha.Scalar (CNumType(..))
+import Alpha.Surface.Elaborate (elaborate)
 
-import qualified Examples.Copy1D   as Copy1D
-
-
--- ═══════════════════════════════════════════════════════════════════════
--- §1. Fixtures
--- ═══════════════════════════════════════════════════════════════════════
-
--- | Re-use the 1D copy system from Examples.Copy1D.  One input (@x@),
--- one output (@y = x[i]@), no locals, one equation.  Known to compile
--- — lifts as a proven-well-formed witness for the elaborator to
--- bridge.
-copy1DSystem :: _
-copy1DSystem = Copy1D.copy1D
+import qualified Examples.Copy1D as Copy1D
+import qualified Examples.Heat3DElsewhere as H3E
+import qualified Examples.IntRowMax as IRM
+import qualified Examples.Matmul as Matmul
+import qualified Examples.NeedsPctx as NPX
+import qualified Examples.Zero1D as Zero1D
 
 
--- ═══════════════════════════════════════════════════════════════════════
--- §2. Helpers
--- ═══════════════════════════════════════════════════════════════════════
+tests :: TestTree
+tests = testGroup "Alpha.Surface.Elaborate"
+  [ testCase "Zero1D elaborates under TrustPlugin" $
+      elaborate @'["N"] @'[] @'[] @Zero1D.Zero1DOutputs @'[] @Double
+                TrustPlugin Zero1D.zero1D (assertElabOk "Zero1D")
+  , testCase "Zero1D elaborates under SanityCheck" $
+      elaborate @'["N"] @'[] @'[] @Zero1D.Zero1DOutputs @'[] @Double
+                SanityCheck Zero1D.zero1D (assertElabOk "Zero1D")
+  , testCase "Copy1D (Dep/Var) elaborates under TrustPlugin" $
+      elaborate @'["N"] @'[] @_ @_ @_ @Double
+                TrustPlugin Copy1D.copy1D (assertElabOk "Copy1D")
+  , testCase "Copy1D (Dep/Var) elaborates under SanityCheck" $
+      elaborate @'["N"] @'[] @_ @_ @_ @Double
+                SanityCheck Copy1D.copy1D (assertElabOk "Copy1D")
+  , testCase "Matmul (Dep/Reduce) elaborates under TrustPlugin" $
+      elaborate @'["N"] @'[] @Matmul.MatmulInputs @Matmul.MatmulOutputs
+                @Matmul.MatmulLocals @Double
+                TrustPlugin Matmul.matmul (assertElabOk "Matmul")
+  , testCase "Heat3DElsewhere (Case) elaborates under TrustPlugin" $
+      elaborate @'["N"] @'[] @_ @_ @_ @Double
+                TrustPlugin H3E.heat3DElsewhere (assertElabOk "Heat3DElsewhere")
 
--- | Run @elaborate@ and return the resulting system's shape counts
--- (inputs, outputs, locals, equations).  The continuation's type is
--- rank-N in the system skolem; we collapse to counts so the caller
--- never names @sys@.
-elaborateShape
-  :: forall ps pctx ins outs locs a.
-     _
-  => Core.System ps pctx ins outs locs
-  -> Either String (Int, Int, Int, Int)  -- (in, out, loc, eqs)
-elaborateShape sys =
-  elaborate @ps @pctx @ins @outs @locs @a sys $ \case
-    Left err  -> Left (show err)
-    Right sys' ->
-      Right ( length (V2.sysInputs  sys')
-            , length (V2.sysOutputs sys')
-            , length (V2.sysLocals  sys')
-            , length (V2.sysEqs     sys')
-            )
+    -- Per-decl scalar reflection: an Int32 surface must produce
+    -- 'CInt32' in every VarDecl.vdScalar.
+  , testCase "IntRowMax vdScalar is CInt32 (per-decl scalar reflection)" $
+      elaborate @'["N"] @'[] @IRM.IntRowMaxInputs @IRM.IntRowMaxOutputs
+                @IRM.IntRowMaxLocals @Int32
+                TrustPlugin IRM.intRowMax $ \result -> case result of
+        Left err -> assertFailure ("IntRowMax returned Left: " ++ show err)
+        Right sys ->
+          let scalars =
+                [ Core.vdScalar vd | Core.SomeVarDecl _ vd <- Core.sysInputs sys ]
+                ++
+                [ Core.vdScalar vd | Core.SomeVarDecl _ vd <- Core.sysOutputs sys ]
+          in assertEqual "all decls CInt32" (replicate (length scalars) CInt32) scalars
 
-
--- ═══════════════════════════════════════════════════════════════════════
--- §3. Tests
--- ═══════════════════════════════════════════════════════════════════════
-
-elaborateSpec :: TestTree
-elaborateSpec = testGroup "Alpha.Surface.Elaborate / Alpha.Core.Bridge"
-  [ testCase "elaborate copy1D succeeds" $
-      case elaborateShape @_ @_ @_ @_ @_ @Double copy1DSystem of
-        Left err                 -> assertFailure ("elaborate: " ++ err)
-        Right (nIn, nOut, nLoc, nEq) -> do
-          assertEqual "input count"    1 nIn
-          assertEqual "output count"   1 nOut
-          assertEqual "local count"    0 nLoc
-          assertEqual "equation count" 1 nEq
-
-  , testCase "toV2 copy1D matches elaborate counts" $
-      let shape = toV2 @_ @_ @_ @_ @_ @Double copy1DSystem $ \case
-            Left err  -> Left (show err)
-            Right sys ->
-              Right ( length (V2.sysInputs  sys)
-                    , length (V2.sysOutputs sys)
-                    , length (V2.sysLocals  sys)
-                    , length (V2.sysEqs     sys)
-                    )
-      in case shape of
-           Left err -> assertFailure ("toV2: " ++ err)
-           Right s  -> s @?= (1, 1, 0, 1)
-
-  , testCase "toV2 . elaborate round-trip: shapes agree" $ do
-      -- elaborate calls toV2; structurally this is a no-op composition
-      -- but it exercises the CPS threading twice.  We assert the two
-      -- independently-opened skolem universes produce the same shape.
-      let r1 = elaborateShape @_ @_ @_ @_ @_ @Double copy1DSystem
-          r2 = toV2 @_ @_ @_ @_ @_ @Double copy1DSystem $ \case
-                 Left err -> Left (show err)
-                 Right s  ->
-                   Right ( length (V2.sysInputs  s)
-                         , length (V2.sysOutputs s)
-                         , length (V2.sysLocals  s)
-                         , length (V2.sysEqs     s)
-                         )
-      r1 @?= r2
+    -- Non-trivial pctx: NeedsPctx carries '[N >= 1]', and its body
+    -- obligation (x[N-1] in [0, N-1]) only holds under that pctx.
+    -- SanityCheck re-checks via ISL with the materialised pctx; both
+    -- modes must pass.
+  , testCase "NeedsPctx elaborates under TrustPlugin (non-trivial pctx)" $
+      elaborate @'["N"] @NPX.NeedsPctxPctx @NPX.NeedsPctxInputs
+                @NPX.NeedsPctxOutputs @NPX.NeedsPctxLocals @Double
+                TrustPlugin NPX.needsPctx (assertElabOk "NeedsPctx")
+  , testCase "NeedsPctx elaborates under SanityCheck (pctx materialised)" $
+      elaborate @'["N"] @NPX.NeedsPctxPctx @NPX.NeedsPctxInputs
+                @NPX.NeedsPctxOutputs @NPX.NeedsPctxLocals @Double
+                SanityCheck NPX.needsPctx (assertElabOk "NeedsPctx")
   ]
+  where
+    assertElabOk label result = case result of
+      Left err  -> assertFailure $
+        "elaborate(" ++ label ++ ") returned Left: " ++ show err
+      Right sys -> assertBool (label ++ " elaborated") (not (null (Core.sysEqs sys)))

@@ -57,7 +57,7 @@ import GHC.TypeLits (KnownNat, KnownSymbol, Symbol, natVal, symbolVal)
 import qualified Alpha.Polyhedral.Schedule as S
 import Isl.Typed.Constraints (Expr(..))
 
-import Alpha.Core (VarDecl(..), Lookup, DeclDims, System, type (++))
+import Alpha.Surface.Core (VarDecl(..), Lookup, DeclDims, System, type (++))
 
 
 -- ═══════════════════════════════════════════════════════════════════════

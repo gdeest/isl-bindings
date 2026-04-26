@@ -2,8 +2,8 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LinearTypes #-}
-{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE QualifiedDo #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -22,7 +22,7 @@ import qualified Data.Map.Strict as Map
 
 import Isl.Typed.Constraints
   ( NamedMap(..), Constraint(..), Conjunction(..)
-  , MapIx(..), Expr(..), buildBasicMap, buildUnionMapFromNamed )
+  , MapIx(..), Expr(..), buildBasicMap )
 import Isl.Typed.Params (KnownSymbols)
 import qualified Isl.Types as Isl
 import qualified Isl.Map as RawM
@@ -30,7 +30,9 @@ import qualified Isl.UnionMap as UM
 import Isl.Monad (IslT, Ur(..), runIslT)
 import Isl.Linear (query_, freeM, dupM)
 import qualified Isl.Linear as Isl
-import Alpha.Core (System, pattern System)
+import Alpha.Surface.Core (System)
+import qualified Alpha.Core as Core
+import Alpha.Surface.Elaborate (elaborate, ElabMode(..), ElabError)
 import Alpha.Lower (lowerSystem)
 import Alpha.Schedule
   ( Schedule(..), EqSchedule(..), DimAnnotation(..) )
@@ -54,12 +56,16 @@ data AnnotationError
   | ReductionOnNonReductionDim !Int !String
     -- ^ 'ReductionParallel' attached to a non-reduction dim: there is
     -- no reduction clause to emit.
+  | ElaborationFailed !ElabError
+    -- ^ Surface-to-Core elaboration of the input system failed before
+    -- annotation validation could run.
   deriving (Show, Eq)
 
 instance NFData AnnotationError where
   rnf (CarriedDependence d a s)        = rnf d `seq` rnf a `seq` rnf s
   rnf (ParallelOnReductionDim d a s)   = rnf d `seq` rnf a `seq` rnf s
   rnf (ReductionOnNonReductionDim d s) = rnf d `seq` rnf s
+  rnf (ElaborationFailed e)            = rnf e
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -72,8 +78,22 @@ validateAnnotations
   => System ps pctx inputs outputs locals
   -> Schedule
   -> IO (Either AnnotationError ())
-validateAnnotations sys@(System _ eqs) sched =
-  let redMap = buildReduceMap eqs
+validateAnnotations sys sched =
+  elaborate @ps @pctx @inputs @outputs @locals @Double TrustPlugin sys $
+    \r -> case r of
+      Left e      -> pure (Left (ElaborationFailed e))
+      Right coreSys -> validateCore coreSys sched
+
+-- | Polymorphic in @sys@ so the elaborator-bound skolem flows through;
+-- the scalar @a@ is irrelevant here (no expression evaluation), so any
+-- 'AlphaScalar' choice at the 'elaborate' call site is sound.
+validateCore
+  :: forall sys a.
+     Core.System sys a
+  -> Schedule
+  -> IO (Either AnnotationError ())
+validateCore sys sched =
+  let redMap = buildReduceMap sys
   in case validateReductionDims sched redMap of
     Left err -> pure (Left err)
     Right () ->
@@ -194,3 +214,5 @@ mergedAnnotationsFiltered (Schedule entries) =
     "conflicting annotations on same dim: " ++ show a ++ " vs " ++ show b)
     [ Map.filter (/= ReductionParallel) (esAnnotations es)
     | es <- Map.elems entries ]
+
+

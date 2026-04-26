@@ -8,23 +8,23 @@
 --
 -- === Phantom polarity — read this before writing a new transform
 --
--- An @'Alpha.Core.Expr' ps decls n d a@ carries its ambient domain @d@
+-- An @'Alpha.Surface.Core.Expr' ps decls n d a@ carries its ambient domain @d@
 -- as a phantom.  Transforms that need to narrow @d@ (e.g.
 -- @d ↦ d ∩ d'@) cannot in general do so by constructor-dispatched
 -- recursion, because two constructors have the /wrong polarity/ for
 -- phantom rewriting:
 --
---  * 'Alpha.Core.Reduce' — @d@ is the /result/ domain; the obligation
+--  * 'Alpha.Surface.Core.Reduce' — @d@ is the /result/ domain; the obligation
 --    @image(dBody, projCs) ⊆ d@ tightens as @d@ narrows, and is
 --    generally false under narrowing because a reduction's image
 --    typically covers the whole result domain.
 --
---  * 'Alpha.Core.Case' — branches partition @d@; their partition
+--  * 'Alpha.Surface.Core.Case' — branches partition @d@; their partition
 --    witness @'Isl.Typed.Constraints.IslPartitionsD'@ may no longer
 --    cover a narrower @d'@ (coverage is a property of @d@).
 --
 -- The sound, universal move is to /wrap/ the expression in a
--- @'Alpha.Core.Dep' \@identityMap@ node — 'Dep''s obligation
+-- @'Alpha.Surface.Core.Dep' \@identityMap@ node — 'Dep''s obligation
 -- @image(dOuter, mapCs) ⊆ dInner@ has the correct polarity (weaker
 -- source → smaller image), and under the identity map reduces to
 -- @dOuter ⊆ dInner@, which holds trivially for any narrowing.  See

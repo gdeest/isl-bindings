@@ -42,7 +42,7 @@ import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.TypeLevel.Reflection (Dict(..))
 
-import Alpha.Core
+import Alpha.Surface.Core
   ( VarDecl, Lookup, ReplaceDecl
   , DeclList((:>)), Decl, Decls(..)
   , EqList
@@ -189,7 +189,7 @@ introduceDecls
   -> Decls ps inputs outputs locals
   -> Decls ps inputs outputs (newDecl ': locals)
 introduceDecls newD (Decls ins outs locs) =
-  unsafeCoerce (Decls ins outs (newD Alpha.Core.:> locs))
+  unsafeCoerce (Decls ins outs (newD Alpha.Surface.Core.:> locs))
 {-# INLINE introduceDecls #-}
 
 -- | Transport an 'EqList' from old decl environment to augmented one.

@@ -60,7 +60,7 @@ import Alpha.Codegen.ExprRender
   ( extractOneBound, extractBoundsISLM, BoundErr(..)
   , RenderCtx(..), renderExprToC
   , extractSubscripts, RenderErr(..) )
-import qualified Alpha.Core as Core
+import qualified Alpha.Surface.Core as Core
 import Isl.Monad (runIslT, Ur(..))
 import qualified Alpha.Codegen.Compile as Untyped
 import Alpha.Scalar
@@ -109,6 +109,9 @@ import qualified Reference.FloydWarshall as RefFW
 import qualified Reference.Heat3D as RefH3
 import qualified Reference.LU as RefLU
 import qualified Reference.Matmul as Ref
+
+import qualified TokensSpec
+import qualified ElaborateSpec
 
 
 -- | Run an IO action that internally constructs an Alpha term whose
@@ -175,7 +178,11 @@ testNeedsPctxBuilds = do
 
 main :: IO ()
 main = defaultMain $ testGroup "alpha-test"
-  [ testGroup "phase-A literal route"
+  [ TokensSpec.tokensSpec
+
+  , ElaborateSpec.tests
+
+  , testGroup "phase-A literal route"
       [ testCase "matmul value compiles and exists" $ do
           -- The act of evaluating Matmul.matmul forces the GADT to be
           -- constructed.  If any plugin obligation in the matmul body
@@ -879,14 +886,9 @@ main = defaultMain $ testGroup "alpha-test"
               "expected Left (MissingScalarDesc \"C\"), got: " ++ show other
 
       , testCase "regress_1_const_rendering_decoupled_from_rcDesc" $ do
-          -- Pre-fix: rendering a 'Const' consulted @rcDesc@ via an
-          -- 'unsafeCoerce' to reach the 'ConstBridge' — unsafe and
-          -- coupling 'Const' rendering to whatever 'ScalarDesc' the
-          -- caller happened to associate with the equation name.
-          -- Post-fix: the 'AlphaScalar' dict captured by the 'Const'
-          -- constructor supplies the bridge directly, so a 'ScalarDesc'
-          -- with @sdConstBridge = Nothing@ must still yield valid
-          -- source — the renderer no longer consults that field at all.
+          -- Const rendering uses the bridge captured by 'Const' itself,
+          -- so a 'ScalarDesc' with @sdConstBridge = Nothing@ must still
+          -- yield valid source.
           let bridgelessDesc = MkScalarDesc
                 { sdCNumType       = CFloat64
                 , sdHsInterp       = Nothing
@@ -1141,19 +1143,9 @@ main = defaultMain $ testGroup "alpha-test"
 
   , testGroup "regress #5 Lower.exprDomInfo on Const body"
       [ testCase "regress_5_const_body_recovers_rank" $ do
-          -- @y[i] = 0@ on a 1-D line.  Pre-fix 'exprDomInfo' had no
-          -- dict on 'Const' and returned @(0, [])@, so 'lowerSystem'
-          -- claimed y's iteration domain was 0-dimensional with no
-          -- constraints — i.e. a single point.  Under the contraction
-          -- WAW path that collapses every iteration to one schedule
-          -- point, a 0-D domain is vacuously race-free, so a program
-          -- that SHOULD be rejected (multiple writes to the same
-          -- aliased cell at the same schedule time) silently passed.
-          --
-          -- Post-fix: the rank/constraints come from the 'MkDecl' dict
-          -- in the 'DeclList' via 'declListDomInfos', so y gets its
-          -- full 1-D domain @{i | 0 <= i < N}@, and the WAW check
-          -- correctly flags the aliasing.
+          -- @y[i] = 0@ on a 1-D line.  WAW under a contracting modular
+          -- schedule must be rejected: rank/constraints flow from
+          -- 'MkDecl' so y's full 1-D domain reaches the dependence check.
           let schedAllZero = scheduling $
                 schedule "y" 1 (ScheduleDef [Constant 0])
               allocMod2 = allocating $ allocate "y" (Contracted (modularTime 1 2))

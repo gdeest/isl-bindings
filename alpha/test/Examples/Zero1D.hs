@@ -39,7 +39,7 @@ module Examples.Zero1D
 
 import Data.Proxy (Proxy(..))
 
-import Alpha.Core
+import Alpha.Surface.Core
   ( Decl(..)
   , DeclList(..)
   , Decls(..)

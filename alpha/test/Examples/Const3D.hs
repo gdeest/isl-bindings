@@ -31,7 +31,7 @@ module Examples.Const3D
 
 import Data.Proxy (Proxy(..))
 
-import Alpha.Core
+import Alpha.Surface.Core
   ( Decl(..)
   , DeclList(..)
   , Decls(..)

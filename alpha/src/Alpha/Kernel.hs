@@ -34,12 +34,12 @@ import qualified Data.Vector.Unboxed as V
 import GHC.TypeLits (Symbol, KnownSymbol, symbolVal)
 import System.Posix.DynamicLinker (dlclose)
 
-import Alpha.Core
+import Alpha.Surface.Core
   ( VarDecl, DeclType, DeclName
   , DeclList(Nil), Decl(MkDecl)
   , Decls(Decls, dInputs, dOutputs, dLocals)
   , System, pattern System )
-import qualified Alpha.Core as Core
+import qualified Alpha.Surface.Core as Core
 import Alpha.Codegen.Compile
   ( CompiledKernel(..), compileKernel, executeKernelHet )
 import Alpha.Codegen.FunctionMapping (CFunctionMapping)

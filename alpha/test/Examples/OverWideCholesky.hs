@@ -12,7 +12,7 @@
 
 -- | Positive regression test for the v5.2 effective-domain rewrite.
 --
--- @Alpha.Core.BCons@ types branch bodies at
+-- @Alpha.Surface.Core.BCons@ types branch bodies at
 -- @EffectiveDomTag d amb = d ∩ amb@, so declaring a branch that
 -- extends outside the ambient is *semantically harmless* — the
 -- effective domain is exactly what a well-formed branch would have
@@ -45,7 +45,7 @@ module Examples.OverWideCholesky
 
 import Data.Proxy (Proxy(..))
 
-import Alpha.Core
+import Alpha.Surface.Core
   ( Branches(..)
   , Expr(..)
   , VarDecl(..)
