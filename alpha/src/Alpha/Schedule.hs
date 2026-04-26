@@ -66,7 +66,7 @@ import Alpha.Surface.Core (VarDecl(..), Lookup, DeclDims, System, type (++))
 
 -- | Annotation for a schedule dimension.  'ReductionParallel' opts the
 -- dim into an OpenMP @reduction@ clause; it is only valid on a reduction
--- dim (checked by 'Alpha.Codegen.Parallel.validateAnnotations').
+-- dim (checked by 'Alpha.Compile.compile').
 data DimAnnotation = Parallel | Vectorize | ReductionParallel
   deriving (Show, Eq, Ord)
 

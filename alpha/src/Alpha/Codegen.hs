@@ -15,9 +15,6 @@ module Alpha.Codegen
   ( codegen
   , CodegenError(..)
   , BoundError(..)
-    -- * Reduction metadata (exposed for validation / external callers)
-  , ReduceInfo(..)
-  , buildReduceMap
     -- * AST walking (exposed for regression tests)
   , extractStmtArgs
   ) where
@@ -29,27 +26,27 @@ import Unsafe.Coerce (unsafeCoerce)
 
 import Isl.Typed.Constraints (NamedSet(..), NamedMap(..), buildUnionMapFromNamed)
 import qualified Isl.Typed.Constraints as C
-import Isl.Typed.Params (KnownSymbols, symbolVals)
 import qualified Isl.UnionMap as UM
 import Isl.Monad (IslT, Ur(..), runIslT, unsafeIslFromIO)
 import qualified Isl.Linear as Isl
 import Isl.Types (AstNode(..), Ctx)
 import Isl.AstBuild (astBuildAlloc, astBuildNodeFromScheduleMap, CNode(..), walkAstNode, astNodeFree)
 
-import Alpha.Surface.Core (System)
 import qualified Alpha.Core as Core
-import qualified Alpha.Core.Named as Named
-import Alpha.Surface.Elaborate (elaborate, ElabMode(..))
 import Alpha.Codegen.COp (ReduceOp(..))
 import Alpha.Lower (lowerSystem, logicalName)
 import Alpha.Schedule (Schedule(..), EqSchedule(..), DimAnnotation(..))
 import Alpha.Allocation (Allocation(..), EqStorage(..))
 import qualified Alpha.Polyhedral.Schedule as S
+import Alpha.Polyhedral.Reduce (ReduceInfo(..))
 import Alpha.Codegen.CRender (renderCNodeToC)
 import Alpha.Codegen.ExprRender
   ( RenderCtx(..), renderEquationMacro, BoundErr(..), RenderErr(..) )
 import Alpha.Codegen.FunctionMapping
   ( CFunctionMapping(..), ArgPassing(..), declBounds )
+import Alpha.Compile
+  ( Compiled, withCompiledCore
+  , compiledAllocation, compiledParams, compiledReduceMap, compiledSchedule )
 import Alpha.Scalar (ScalarDesc(..), cTypeName)
 
 
@@ -105,24 +102,30 @@ instance NFData CodegenError where
 -- §2. Public API
 -- ═══════════════════════════════════════════════════════════════════════
 
+-- | Generate C source from a 'Compiled' artifact.
+--
+-- The 'Compiled' input is the only constructor in scope for downstream
+-- consumers — it is module-private to 'Alpha.Compile' — so passing one
+-- here is type-level proof that the underlying system has been
+-- validated (schedule lex-positivity, post-contraction WAW, and
+-- parallel/vectorize annotation soundness).
+--
+-- 'CFunctionMapping' and the 'ScalarDesc' map are C-backend
+-- configuration, not polyhedral facts, so they remain separate
+-- arguments rather than being baked into 'Compiled'.
 codegen
   :: forall ps pctx inputs outputs locals.
-     KnownSymbols ps
-  => System ps pctx inputs outputs locals
-  -> Schedule
-  -> Allocation
+     Compiled ps pctx inputs outputs locals
   -> CFunctionMapping
   -> Map.Map String ScalarDesc
   -> IO (Either CodegenError String)
-codegen sys sched alloc fmap' descs =
-  -- The scalar @a@ is irrelevant downstream — codegen consults @descs@
-  -- (per-name 'ScalarDesc') for type info and never inspects @a@ — so
-  -- any 'AlphaScalar' choice is sound; we pick 'Double'.
-  elaborate @ps @pctx @inputs @outputs @locals @Double TrustPlugin sys $
-    \r -> case r of
-      Left e      -> error ("Alpha.Codegen.codegen: BUG: TrustPlugin elaborate failed: " ++ show e)
-      Right coreSys ->
-        codegenCore coreSys sched alloc fmap' descs (symbolVals @ps)
+codegen compiled fmap' descs =
+  let alloc     = compiledAllocation compiled
+      params    = compiledParams     compiled
+      reduceMap = compiledReduceMap  compiled
+      sched     = compiledSchedule   compiled
+  in withCompiledCore compiled $ \coreSys ->
+       codegenCore coreSys sched alloc fmap' descs params reduceMap
 
 codegenCore
   :: forall sys a.
@@ -132,10 +135,15 @@ codegenCore
   -> CFunctionMapping
   -> Map.Map String ScalarDesc
   -> [String]
+  -> Map.Map String ReduceInfo
   -> IO (Either CodegenError String)
-codegenCore sys sched alloc fmap' descs params = runIslT $ Isl.do
-  let (domains, _writes, _reads, _projections) = lowerSystem sys
-      reduceMap = buildReduceMap sys
+codegenCore sys sched alloc fmap' descs params reduceMap = runIslT $ Isl.do
+  -- Reduce-aware schedule maps are codegen-specific: they extend the
+  -- per-equation schedule with identity dims for each reduction
+  -- variable so ISL emits the reduction loop.  This is a different
+  -- artifact from the dependence-variant schedule maps stashed in
+  -- 'compiledSchedMaps', so we recompute here rather than reuse.
+  let (domains, _, _, _) = lowerSystem sys
       schedMaps = lowerScheduleMaps sched domains reduceMap
 
   Ur iRes <- declBounds params (Core.sysInputs  sys)
@@ -344,61 +352,6 @@ renderWithStmtName stmtName lhsName nOutDims body
         in case renderEquationMacro stmtName lhsName nOutDims body ctx of
           Left rerr -> Left (mapRenderErr rerr)
           Right m   -> Right m
-
--- | Reduction info per /statement/.  'riLogicalArray' threads the
--- equation name (not the statement name) so the pragma / init paths
--- aggregate reductions by buffer, not by statement: two Case branches
--- both reducing into @C_buf@ collapse to one @reduction(+:C_buf[:size])@
--- clause and one identity-init loop.
-data ReduceInfo = ReduceInfo
-  { riOp           :: !ReduceOp
-  , riRedDims      :: !Int
-  , riBodyConjs    :: ![C.Conjunction C.SetIx]
-  , riLogicalArray :: !String
-  }
-
-extractReduceInfo
-  :: forall sys d a.
-     String -> Int
-  -> Core.Expr sys d a
-  -> Maybe ReduceInfo
-extractReduceInfo eqName nDom (Core.Reduce op _ namedBody _ _) =
-  let bodyNS = Named.the namedBody
-      nRed   = nsNDims bodyNS - nDom
-  in Just (ReduceInfo op nRed (nsConjs bodyNS) eqName)
-extractReduceInfo _ _ _ = Nothing
-
--- | Keys: @eqName@ for a plain reducing equation, @eqName__brI@ for the
--- reducing branches of a 'Core.Case'.  Per-statement shape supports
--- mixed reducing / non-reducing / differently-shaped branches.
-buildReduceMap
-  :: forall sys a.
-     Core.System sys a -> Map.Map String ReduceInfo
-buildReduceMap sys = foldr step Map.empty (Core.sysEqs sys)
-  where
-    step (Core.SomeEquation vdecl body) acc =
-      let eqName = Core.vdName vdecl
-          nDom   = Core.vdDims vdecl
-      in case body of
-        Core.Case _ branches -> addBranchReduces eqName nDom 0 branches acc
-        _ -> case extractReduceInfo eqName nDom body of
-          Just ri -> Map.insert eqName ri acc
-          Nothing -> acc
-
-addBranchReduces
-  :: forall sys dom bs a.
-     String -> Int -> Int
-  -> Core.CaseBranches sys dom bs a
-  -> Map.Map String ReduceInfo
-  -> Map.Map String ReduceInfo
-addBranchReduces _      _    _ Core.BNil acc = acc
-addBranchReduces eqName nDom i (Core.BCons _ _ body rest) acc =
-  let stmtName = eqName ++ "__br" ++ show i
-      acc'     = addBranchReduces eqName nDom (i + 1) rest acc
-  in case extractReduceInfo eqName nDom body of
-    Just ri -> Map.insert stmtName ri acc'
-    Nothing -> acc'
-
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §5. Pragma assembly

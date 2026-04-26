@@ -1,6 +1,8 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE ForeignFunctionInterface #-}
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE QualifiedDo #-}
@@ -33,13 +35,15 @@ import System.Exit (ExitCode(..))
 import System.Posix.DynamicLinker (DL, dlopen, dlsym, dlclose, RTLDFlags(..))
 import System.Process (system)
 
-import Isl.Typed.Params (KnownSymbols, symbolVals)
+import GHC.TypeLits (KnownNat)
+import Isl.Typed.Params (KnownSymbols, Length, symbolVals)
 import Isl.Monad (Ur(..), runIslT)
 import qualified Isl.Linear as Isl
 import Alpha.Surface.Core (System, pattern System, Decls(..))
 import Alpha.Codegen (codegen, CodegenError)
 import Alpha.Codegen.FunctionMapping
   ( CFunctionMapping(..), ArgPassing(..), declListNames, declListBoundsM )
+import Alpha.Compile (compile, CompileError)
 import Alpha.Schedule (Schedule)
 import Alpha.Allocation (Allocation)
 import Foreign.ForeignPtr (mallocForeignPtrBytes, withForeignPtr)
@@ -73,6 +77,10 @@ foreign import ccall "dynamic" mkAlphaCall :: FunPtr AlphaCallFn -> AlphaCallFn
 data CompileException
   = CompileBoundExtractionFailed !String !Int !String
     -- ^ @declListBoundsM@ failed for @(varName, dim, reason)@.
+  | CompileValidationFailed !CompileError
+    -- ^ 'Alpha.Compile.compile' rejected the (system, schedule,
+    -- allocation) triple — schedule violation, post-contraction WAW,
+    -- unsound annotation, etc.
   | CompileCodegenFailed !CodegenError
   | CompileGccFailed !String
     -- ^ @gcc -O2 -shared -fPIC@ exited non-zero on the named @.c@ file.
@@ -87,7 +95,7 @@ instance Exception CompileException
 
 compileKernel
   :: forall ps pctx inputs outputs locals.
-     KnownSymbols ps
+     (KnownSymbols ps, KnownNat (Length ps))
   => System ps pctx inputs outputs locals
   -> Map String ScalarDesc
   -> Schedule -> Allocation -> CFunctionMapping
@@ -110,7 +118,14 @@ compileKernel sys@(System decls _eqs) descs sched alloc fmap' = do
     Left (n, d, err) ->
       throwIO (CompileBoundExtractionFailed n d (show err))
 
-  result <- codegen sys sched alloc fmap' descs
+  -- Validate first; codegen takes the typed 'Compiled' artifact as
+  -- proof that the system passed all polyhedral checks (schedule
+  -- positivity, post-contraction WAW, parallel/vectorize annotation
+  -- soundness).
+  compiled <- compile sys sched alloc >>= \case
+    Left err -> throwIO (CompileValidationFailed err)
+    Right c  -> pure c
+  result <- codegen compiled fmap' descs
   case result of
     Left err -> throwIO (CompileCodegenFailed err)
     Right cSrc -> do
@@ -139,7 +154,7 @@ compileKernel sys@(System decls _eqs) descs sched alloc fmap' = do
 -- | Homogeneous convenience: all variables share type @a@.
 withCompiledKernel
   :: forall a ps pctx inputs outputs locals r.
-     (AlphaScalar a, KnownSymbols ps)
+     (AlphaScalar a, KnownSymbols ps, KnownNat (Length ps))
   => System ps pctx inputs outputs locals
   -> Schedule -> Allocation -> CFunctionMapping
   -> (CompiledKernel -> IO r) -> IO r

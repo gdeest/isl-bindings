@@ -61,6 +61,7 @@ import Alpha.Codegen.ExprRender
   , RenderCtx(..), renderExprToC
   , extractSubscripts, RenderErr(..) )
 import qualified Alpha.Surface.Core as Core
+import qualified Alpha.Core as CoreGADT
 import Isl.Monad (runIslT, Ur(..))
 import qualified Alpha.Codegen.Compile as Untyped
 import Alpha.Scalar
@@ -70,8 +71,9 @@ import Alpha.Kernel
   ( TypedKernel, Params(PNil, (:>))
   , withCompiledKernel, runKernel )
 import Alpha.Codegen.FunctionMapping (defaultMapping)
-import Alpha.Codegen.Parallel (validateAnnotations, AnnotationError(..))
-import Alpha.Compile (validateSchedule, compile, CompileError(..))
+import Alpha.Compile
+  ( validateSchedule, compile, CompileError(..)
+  , compiledDomains, compiledSchedMaps, compiledParams, withCompiledCore )
 import Alpha.Interpret (interpret)
 import Alpha.Allocation (Allocation(..), EqStorage(..), allocating, allocate)
 import Alpha.Polyhedral.Contraction (modularTime)
@@ -712,7 +714,11 @@ main = defaultMain $ testGroup "alpha-test"
                 sched @"C" @Matmul.MatmulDecls $ \n -> identity n
               a = Allocation Map.empty
               fm = defaultMapping "matmul" Matmul.matmul
-          result <- codegen Matmul.matmul s a fm
+          cRes <- compile Matmul.matmul s a
+          cc <- case cRes of
+            Left ce -> assertFailure $ "compile failed: " ++ show ce
+            Right c  -> pure c
+          result <- codegen cc fm
                       (uniformDescs (scalarDesc @Double) Matmul.matmul)
           case result of
             Right cSrc -> do
@@ -738,7 +744,7 @@ main = defaultMain $ testGroup "alpha-test"
           let s = scheduling $ do
                 sched @"C" @Matmul.MatmulDecls $ \n -> identity n
                 annotate @"C" @Matmul.MatmulDecls 0 Parallel
-          result <- validateAnnotations Matmul.matmul s
+          result <- validateSchedule Matmul.matmul s
           case result of
             Right () -> pure ()
             Left err -> assertFailure $ "expected valid parallel, got: " ++ show err
@@ -751,7 +757,7 @@ main = defaultMain $ testGroup "alpha-test"
                 sched @"D"      @FW.FWDecls $ \n -> embedAt 0 (identity n)
                 sched @"Result" @FW.FWDecls $ \n -> embedAt 1 (identity n)
                 annotate @"D" @FW.FWDecls 1 Parallel
-          result <- validateAnnotations FW.floyd s
+          result <- validateSchedule FW.floyd s
           case result of
             Left (CarriedDependence 1 Parallel _) -> pure ()
             Left err -> assertFailure $ "wrong error: " ++ show err
@@ -771,9 +777,12 @@ main = defaultMain $ testGroup "alpha-test"
                 annotate @"Result" @FW.FWDecls 0 Vectorize
               a  = Allocation Map.empty
               fm = defaultMapping "fw" FW.floyd
-          result <- try @SomeException $
-            codegen FW.floyd s a fm
-              (uniformDescs (scalarDesc @Double) FW.floyd)
+          result <- try @SomeException $ do
+            cRes <- compile FW.floyd s a
+            cc <- case cRes of
+              Left ce -> assertFailure $ "compile failed: " ++ show ce
+              Right c  -> pure c
+            codegen cc fm (uniformDescs (scalarDesc @Double) FW.floyd)
           case result of
             Right (Left (ConflictingAnnotation 0 _ _)) -> pure ()
             Right other -> assertFailure $
@@ -786,7 +795,7 @@ main = defaultMain $ testGroup "alpha-test"
           let s = scheduling $ do
                 sched    @"C" @Matmul.MatmulDecls $ \n -> identity n
                 annotate @"C" @Matmul.MatmulDecls 2 Parallel
-          result <- validateAnnotations Matmul.matmul s
+          result <- validateSchedule Matmul.matmul s
           case result of
             Left (ParallelOnReductionDim 2 Parallel "C") -> pure ()
             other -> assertFailure $
@@ -798,7 +807,7 @@ main = defaultMain $ testGroup "alpha-test"
           let s = scheduling $ do
                 sched    @"C" @Matmul.MatmulDecls $ \n -> identity n
                 annotate @"C" @Matmul.MatmulDecls 0 ReductionParallel
-          result <- validateAnnotations Matmul.matmul s
+          result <- validateSchedule Matmul.matmul s
           case result of
             Left (ReductionOnNonReductionDim 0 "C") -> pure ()
             other -> assertFailure $
@@ -811,7 +820,11 @@ main = defaultMain $ testGroup "alpha-test"
                 annotate @"C" @Matmul.MatmulDecls 2 ReductionParallel
               a  = Allocation Map.empty
               fm = defaultMapping "matmul" Matmul.matmul
-          result <- codegen Matmul.matmul s a fm
+          cRes <- compile Matmul.matmul s a
+          cc <- case cRes of
+            Left ce -> assertFailure $ "compile failed: " ++ show ce
+            Right c  -> pure c
+          result <- codegen cc fm
                       (uniformDescs (scalarDesc @Double) Matmul.matmul)
           case result of
             Right cSrc -> do
@@ -879,7 +892,11 @@ main = defaultMain $ testGroup "alpha-test"
                 sched @"C" @Matmul.MatmulDecls $ \n -> identity n
               a  = Allocation Map.empty
               fm = defaultMapping "matmul_r16" Matmul.matmul
-          result <- codegen Matmul.matmul s a fm Map.empty
+          cRes <- compile Matmul.matmul s a
+          cc <- case cRes of
+            Left ce -> assertFailure $ "compile failed: " ++ show ce
+            Right c  -> pure c
+          result <- codegen cc fm Map.empty
           case result of
             Left (MissingScalarDesc "C") -> pure ()
             other -> assertFailure $
@@ -1063,9 +1080,11 @@ main = defaultMain $ testGroup "alpha-test"
           result <- compile Copy1D.copy1D schedAllZero allocMod2
           case result of
             Left (OutputDependenceViolated "y") -> pure ()
-            other -> assertFailure $
-              "expected Left (OutputDependenceViolated \"y\"), got: "
-              ++ show other
+            Left err -> assertFailure $
+              "expected Left (OutputDependenceViolated \"y\"), got Left: "
+              ++ show err
+            Right _  -> assertFailure
+              "expected Left (OutputDependenceViolated \"y\"), got Right"
 
       , testCase "regress_13_contraction_waw_clean" $ do
           -- Same aliasing storage (y[i] → buf[i mod 2]) but the identity
@@ -1078,9 +1097,9 @@ main = defaultMain $ testGroup "alpha-test"
               allocMod2 = allocating $ allocate "y" (Contracted (modularTime 1 2))
           result <- compile Copy1D.copy1D schedIdentity allocMod2
           case result of
-            Right () -> pure ()
-            other -> assertFailure $
-              "expected Right (), got: " ++ show other
+            Right _ -> pure ()
+            Left err -> assertFailure $
+              "expected Right _, got Left: " ++ show err
 
       , testCase "regress_13_contraction_waw_full_storage_skips" $ do
           -- Sanity: if every equation is FullStorage the WAW path must not
@@ -1093,9 +1112,31 @@ main = defaultMain $ testGroup "alpha-test"
               allocFull = allocating $ allocate "y" FullStorage
           result <- compile Copy1D.copy1D schedAllZero allocFull
           case result of
-            Right () -> pure ()
-            other -> assertFailure $
-              "expected Right () for FullStorage, got: " ++ show other
+            Right _ -> pure ()
+            Left err -> assertFailure $
+              "expected Right _ for FullStorage, got Left: " ++ show err
+      ]
+
+  , testGroup "Compiled artifact structural soundness"
+      [ testCase "matmul Compiled has matched-length schedMaps and domains" $ do
+          -- Beyond "did compile succeed", check that the artifact's
+          -- internal lowering products are coherent: one schedule map
+          -- per iteration domain, non-empty equation list under the
+          -- existential, and a non-zero param list (matmul has [N]).
+          let s = scheduling $
+                sched @"C" @Matmul.MatmulDecls $ \n -> identity n
+          result <- compile Matmul.matmul s (Allocation Map.empty)
+          case result of
+            Left err -> assertFailure $
+              "compile of matmul failed: " ++ show err
+            Right c  -> do
+              assertEqual "schedMaps line up with domains"
+                (length (compiledDomains c))
+                (length (compiledSchedMaps c))
+              assertBool "core sys has equations"
+                (withCompiledCore c (\sys -> not (null (CoreGADT.sysEqs sys))))
+              assertEqual "params reflect matmul's [N]"
+                ["N"] (compiledParams c)
       ]
 
   , testGroup "regress #4 evalBoundStr juxtaposition"
@@ -1152,9 +1193,11 @@ main = defaultMain $ testGroup "alpha-test"
           result <- compile Zero1D.zero1D schedAllZero allocMod2
           case result of
             Left (OutputDependenceViolated "y") -> pure ()
-            other -> assertFailure $
-              "expected Left (OutputDependenceViolated \"y\"), got: "
-              ++ show other
+            Left err -> assertFailure $
+              "expected Left (OutputDependenceViolated \"y\"), got Left: "
+              ++ show err
+            Right _  -> assertFailure
+              "expected Left (OutputDependenceViolated \"y\"), got Right"
 
       , testCase "regress_5_const_body_identity_schedule_clean" $ do
           -- Same Const body, same aliasing allocation, but the identity
@@ -1167,9 +1210,9 @@ main = defaultMain $ testGroup "alpha-test"
               allocMod2 = allocating $ allocate "y" (Contracted (modularTime 1 2))
           result <- compile Zero1D.zero1D schedIdentity allocMod2
           case result of
-            Right () -> pure ()
-            other -> assertFailure $
-              "expected Right (), got: " ++ show other
+            Right _ -> pure ()
+            Left err -> assertFailure $
+              "expected Right _, got Left: " ++ show err
       ]
 
   , testGroup "Case-split fan-out"
@@ -1181,7 +1224,11 @@ main = defaultMain $ testGroup "alpha-test"
           let s = scheduling $ sched @"u" @H3.H3Decls $ \n -> identity n
               a = Allocation Map.empty
               fm = defaultMapping "heat3d_split" H3.heat3D
-          result <- codegen H3.heat3D s a fm
+          cRes <- compile H3.heat3D s a
+          cc <- case cRes of
+            Left ce -> assertFailure $ "compile failed: " ++ show ce
+            Right c  -> pure c
+          result <- codegen cc fm
                       (uniformDescs (scalarDesc @Double) H3.heat3D)
           case result of
             Right cSrc -> do

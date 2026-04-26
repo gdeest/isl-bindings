@@ -31,7 +31,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Proxy (Proxy(..))
 import qualified Data.Vector.Unboxed as V
-import GHC.TypeLits (Symbol, KnownSymbol, symbolVal)
+import GHC.TypeLits (Symbol, KnownSymbol, KnownNat, symbolVal)
 import System.Posix.DynamicLinker (dlclose)
 
 import Alpha.Surface.Core
@@ -47,7 +47,7 @@ import Alpha.Schedule (Schedule)
 import Alpha.Allocation (Allocation)
 import Alpha.Scalar
   ( ScalarDesc, AlphaScalar(..), scalarDesc, SomeBuffer(..), toSomeBuffer, fromSomeBuffer )
-import Isl.Typed.Params (KnownSymbols)
+import Isl.Typed.Params (KnownSymbols, Length)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -204,7 +204,7 @@ runKernel (TypedKernel ck) params =
 
 withCompiledKernel
   :: forall ps pctx inputs outputs locals r.
-     ( KnownSymbols ps
+     ( KnownSymbols ps, KnownNat (Length ps)
      , AllScalar inputs, AllScalar outputs, AllScalar locals
      , CollectDescs inputs, CollectDescs outputs, CollectDescs locals
      )

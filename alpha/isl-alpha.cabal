@@ -21,7 +21,6 @@ library
                    , Alpha.Codegen.CRender
                    , Alpha.Codegen.ExprRender
                    , Alpha.Codegen.FunctionMapping
-                   , Alpha.Codegen.Parallel
                    , Alpha.Core
                    , Alpha.Core.Lemmas
                    , Alpha.Core.Named
@@ -46,6 +45,7 @@ library
                    , Alpha.Transform.Walk
                    , Alpha.Transform.Weaken
                    , Alpha.Polyhedral.Dependence
+                   , Alpha.Polyhedral.Reduce
                    , Alpha.Polyhedral.Schedule
                    , Alpha.Polyhedral.Contraction
   build-depends:     base >= 4.20 && < 5
