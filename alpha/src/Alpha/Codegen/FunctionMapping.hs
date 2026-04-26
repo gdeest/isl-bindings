@@ -11,7 +11,6 @@ module Alpha.Codegen.FunctionMapping
   ( ArgPassing(..)
   , CFunctionMapping(..)
   , defaultMapping
-  , defaultMappingV2
   , declListNames
   , declListBoundsM
   , declBoundsV2
@@ -71,28 +70,6 @@ defaultMapping name (System decls _eqs) =
         ++ [ (n, CallerAllocated) | n <- outputNames ]
         ++ [ (n, LocallyManaged) | n <- localNames ]
   in CFunctionMapping { cfName = name, cfArgPassing = passing }
-
--- | V2 'CFunctionMapping' from a Core 'V2.System'.  Same defaults as
--- 'defaultMapping' (inputs/outputs caller-allocated, locals locally
--- managed); names come from 'V2.SomeVarDecl' instead of the surface
--- 'DeclList'.
-defaultMappingV2
-  :: forall sys a.
-     String
-  -> V2.System sys a
-  -> CFunctionMapping
-defaultMappingV2 name sys =
-  let inputNames  = map someVarName (V2.sysInputs  sys)
-      outputNames = map someVarName (V2.sysOutputs sys)
-      localNames  = map someVarName (V2.sysLocals  sys)
-      passing = Map.fromList $
-        [ (n, CallerAllocated) | n <- inputNames ]
-        ++ [ (n, CallerAllocated) | n <- outputNames ]
-        ++ [ (n, LocallyManaged) | n <- localNames ]
-  in CFunctionMapping { cfName = name, cfArgPassing = passing }
-
-someVarName :: V2.SomeVarDecl sys -> String
-someVarName (V2.SomeVarDecl _ vd) = V2.vdName vd
 
 declListNames :: forall ps decls. DeclList ps decls -> [String]
 declListNames Nil = []

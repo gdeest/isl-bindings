@@ -14,7 +14,6 @@
 -- | Render Alpha 'Expr' trees to C statement macro bodies.
 module Alpha.Codegen.ExprRender
   ( RenderCtx(..)
-  , renderEquationMacro
   , renderExprToC
   , renderEquationMacroV2
   , renderExprToCV2
@@ -56,7 +55,6 @@ import Alpha.Surface.Core
 import qualified Alpha.Core    as V2
 import qualified Alpha.Core.Named as Named
 import Alpha.Core.Tokens (materializeNamedSet)
-import Alpha.Codegen.COp
 import Alpha.Allocation (EqStorage(..))
 import Alpha.Scalar
   ( ScalarDesc(..), cTypeName, cMathSuffix
@@ -86,49 +84,6 @@ descMathSuffix (MkScalarDesc { sdCNumType = ct }) = cMathSuffix ct
 -- ═══════════════════════════════════════════════════════════════════════
 -- §2. Macro generation
 -- ═══════════════════════════════════════════════════════════════════════
-
--- | Generate a C macro definition for one equation.
---
--- For a non-reduction equation @C[i,j] = body@, emits:
--- @#define C(c0,c1) do { C_buf[...] = body_c; } while(0)@
---
--- For a sum-reduction equation @C[i,j] = sum_k ...@, the macro is
--- the accumulation step: @C_buf[...] += body_c@.
--- The output array must be zero-initialized by the caller.
-renderEquationMacro
-  :: forall ps pctx decls n (d :: DomTag ps n) a.
-     KnownSymbols ps
-  => String                -- statement macro name (used for #define)
-  -> String                -- logical array name (used for LHS write)
-  -> Int                   -- number of output dimensions
-  -> Alpha.Surface.Core.Expr ps pctx decls n d a  -- equation (or branch) body
-  -> RenderCtx
-  -> Either RenderErr String        -- complete #define line
-renderEquationMacro macroName lhsName nOutDims body ctx = do
-  -- Formal parameter names for the #define must be fresh C identifiers:
-  -- after Case-split fan-out, rcIterVars may contain pinned constants
-  -- (e.g. "0" for a boundary t=0 branch, "N - 1" for a face) that ISL
-  -- substitutes at call sites.  Those belong inside the body (already
-  -- handled by renderExprToC reading rcIterVars), not in the signature
-  -- — so we use "_a<i>" placeholders for the macro's formal params and
-  -- let the body pick up real loop vars from the caller's scope.
-  let nArgs   = length (rcIterVars ctx)
-      formals = ["_a" ++ show i | i <- [0 .. nArgs - 1]]
-      args    = intercalate "," formals
-      -- Write LHS uses only the output dims (first n iter vars).
-      -- @lhsName@ ≠ @macroName@ for Case-split branches: the #define
-      -- is @eqName__brI@, the array it writes is @eqName@.
-      writeVars = take nOutDims (rcIterVars ctx)
-      writeLhs = renderArrayAccess lhsName writeVars ctx
-  (accOp, bodyExpr) <- case body of
-    Reduce rop _ inner -> do
-      innerStr <- renderExprToC ctx inner
-      pure (reduceOpToC rop (rcDesc ctx) writeLhs innerStr)
-    _ -> do
-      bodyStr <- renderExprToC ctx body
-      pure (" = ", bodyStr)
-  pure $ "#define " ++ macroName ++ "(" ++ args ++ ") do { "
-       ++ writeLhs ++ accOp ++ bodyExpr ++ "; } while(0)"
 
 -- | Lower a 'ReduceOp' to the pair @(accOp, bodyExpr)@ used to build
 -- the equation's statement macro.  Exhaustive on 'ReduceOp' by design;
