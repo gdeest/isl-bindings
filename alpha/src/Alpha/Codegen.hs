@@ -39,7 +39,6 @@ import Isl.AstBuild (astBuildAlloc, astBuildNodeFromScheduleMap, CNode(..), walk
 import Alpha.Surface.Core (System)
 import qualified Alpha.Core as Core
 import qualified Alpha.Core.Named as Named
-import Alpha.Core.Tokens (ElabError)
 import Alpha.Surface.Elaborate (elaborate, ElabMode(..))
 import Alpha.Codegen.COp (ReduceOp(..))
 import Alpha.Lower (lowerSystem, logicalName)
@@ -79,9 +78,6 @@ data CodegenError
     -- ^ A @Dep@ map equality has a non-±1 coefficient on @OutDim k@
     -- (or couples multiple OutDims); no direct subscript synthesizable.
     -- Arguments: dependency target name, offending output-dim index.
-  | CodegenElaborationFailed !ElabError
-    -- ^ Surface-to-Core elaboration of the input system failed
-    -- before any codegen work could proceed.
   deriving (Show, Eq)
 
 -- | Reason 'extractBoundsISLM' could not recover a single exclusive
@@ -103,7 +99,6 @@ instance NFData CodegenError where
   rnf (MissingScalarDesc n)             = rnf n
   rnf (MissingReduceIdentity op ty)     = op `seq` rnf ty
   rnf (NonStandardMapConstraint v k)    = rnf v `seq` rnf k
-  rnf (CodegenElaborationFailed e)      = rnf e
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -125,7 +120,7 @@ codegen sys sched alloc fmap' descs =
   -- any 'AlphaScalar' choice is sound; we pick 'Double'.
   elaborate @ps @pctx @inputs @outputs @locals @Double TrustPlugin sys $
     \r -> case r of
-      Left e      -> pure (Left (CodegenElaborationFailed e))
+      Left e      -> error ("Alpha.Codegen.codegen: BUG: TrustPlugin elaborate failed: " ++ show e)
       Right coreSys ->
         codegenCore coreSys sched alloc fmap' descs (symbolVals @ps)
 

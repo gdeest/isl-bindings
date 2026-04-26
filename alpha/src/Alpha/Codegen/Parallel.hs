@@ -32,7 +32,7 @@ import Isl.Linear (query_, freeM, dupM)
 import qualified Isl.Linear as Isl
 import Alpha.Surface.Core (System)
 import qualified Alpha.Core as Core
-import Alpha.Surface.Elaborate (elaborate, ElabMode(..), ElabError)
+import Alpha.Surface.Elaborate (elaborate, ElabMode(..))
 import Alpha.Lower (lowerSystem)
 import Alpha.Schedule
   ( Schedule(..), EqSchedule(..), DimAnnotation(..) )
@@ -56,16 +56,12 @@ data AnnotationError
   | ReductionOnNonReductionDim !Int !String
     -- ^ 'ReductionParallel' attached to a non-reduction dim: there is
     -- no reduction clause to emit.
-  | ElaborationFailed !ElabError
-    -- ^ Surface-to-Core elaboration of the input system failed before
-    -- annotation validation could run.
   deriving (Show, Eq)
 
 instance NFData AnnotationError where
   rnf (CarriedDependence d a s)        = rnf d `seq` rnf a `seq` rnf s
   rnf (ParallelOnReductionDim d a s)   = rnf d `seq` rnf a `seq` rnf s
   rnf (ReductionOnNonReductionDim d s) = rnf d `seq` rnf s
-  rnf (ElaborationFailed e)            = rnf e
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -81,7 +77,7 @@ validateAnnotations
 validateAnnotations sys sched =
   elaborate @ps @pctx @inputs @outputs @locals @Double TrustPlugin sys $
     \r -> case r of
-      Left e      -> pure (Left (ElaborationFailed e))
+      Left e      -> error ("Alpha.Codegen.Parallel.validateAnnotations: BUG: TrustPlugin elaborate failed: " ++ show e)
       Right coreSys -> validateCore coreSys sched
 
 -- | Polymorphic in @sys@ so the elaborator-bound skolem flows through;

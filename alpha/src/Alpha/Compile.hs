@@ -36,7 +36,6 @@ import Isl.Linear (query_, freeM, dupM)
 import qualified Isl.Linear as Isl
 import Alpha.Surface.Core (System, pattern System, eqListNames)
 import Alpha.Surface.Elaborate (elaborate, ElabMode(..))
-import Alpha.Core.Tokens (ElabError)
 import Alpha.Lower (lowerSystem)
 import Alpha.Schedule (Schedule(..), schedEntries)
 import Alpha.Allocation (Allocation(..), EqStorage(..))
@@ -66,10 +65,6 @@ data CompileError
     -- ^ A pre-lowering transform (e.g., 'normalizeCases') reported an
     -- error.  Structural transforms never fail at runtime, so this
     -- signals an internal bug.
-  | ElaborateFailed !ElabError
-    -- ^ Surface → Core elaboration failed before lowering.  Either the
-    -- system is malformed (missing definition, mis-shaped body) or a
-    -- 'SanityCheck' run rejected a plugin-discharged obligation.
   deriving (Show, Eq)
 
 instance NFData CompileError where
@@ -79,7 +74,6 @@ instance NFData CompileError where
   rnf (ScheduleOverspecified xs) = rnf xs
   rnf (OutputDependenceViolated s) = rnf s
   rnf (TransformFailed e)       = e `seq` ()
-  rnf (ElaborateFailed e)       = e `seq` ()
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -108,7 +102,7 @@ compile sys0@(System _decls eqs) sched alloc =
       case normalizeCases sys0 of
         Left terr -> pure (Left (TransformFailed terr))
         Right sys -> elaborate @ps @pctx @inputs @outputs @locals @Double TrustPlugin sys $ \res -> case res of
-          Left elabErr -> pure (Left (ElaborateFailed elabErr))
+          Left elabErr -> error ("Alpha.Compile.compile: BUG: TrustPlugin elaborate failed: " ++ show elabErr)
           Right sys' -> runIslT $ Isl.do
             let (domains, writes, reads_, projections) = lowerSystem sys'
                 schedMaps  = lowerScheduleMaps sched domains
