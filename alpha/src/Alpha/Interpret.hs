@@ -12,19 +12,20 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
--- | Lazy on-demand interpreter for Alpha (V2 / GDP) systems.
+-- | Lazy on-demand interpreter for Alpha systems.
+--
+-- The interpreter takes a surface system, elaborates it internally
+-- (TrustPlugin), and returns a closure that evaluates any declared
+-- variable at a concrete point.  Values are memoised across calls.
 --
 -- Usage:
 --
 -- @
--- elaborate TrustPlugin matmul $ \\case
---   Right sys -> do
---     eval <- interpret \@Double sys
---               (Map.fromList [(\"N\", 3)])
---               (Map.fromList [(\"A\", \\[i,j] -> a V.! (i*3+j)),
---                              (\"B\", \\[i,j] -> b V.! (i*3+j))])
---     val <- eval \"C\" [1, 2]
---   Left e   -> error (show e)
+-- eval <- interpret \@Double matmul
+--           (Map.fromList [(\"N\", 3)])
+--           (Map.fromList [(\"A\", \\[i,j] -> a V.! (i*3+j)),
+--                          (\"B\", \\[i,j] -> b V.! (i*3+j))])
+-- val <- eval \"C\" [1, 2]
 -- @
 module Alpha.Interpret
   ( interpret
@@ -47,6 +48,7 @@ import qualified Isl.Types as IT
 import Isl.Monad (IslT, runIslT, Ur(..))
 import Isl.Linear (query_)
 import qualified Isl.Linear as Isl
+import Isl.Typed.Params (KnownSymbols)
 
 import Alpha.Core
   ( CaseBranches(..), Expr(..), ReduceOp(..)
@@ -54,6 +56,8 @@ import Alpha.Core
   , System(..), VarDecl(..) )
 import Alpha.Core.Tokens (materializeNamedSet)
 import qualified Alpha.Core.Named as Named
+import qualified Alpha.Surface.Core as Surface
+import Alpha.Surface.Elaborate (elaborate, ElabMode(..))
 import Alpha.Scalar
   ( ScalarDesc(..), AlphaScalar, scalarDesc
   , HsInterp(..), evalBinOp, evalUnaryOp, evalReduceOp )
@@ -63,15 +67,33 @@ import Alpha.Scalar
 -- §1. Public API
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | Interpret a (V2) system at concrete parameter values.
+-- | Interpret a system at concrete parameter values.
+--
+-- Elaborates the surface system internally (TrustPlugin) before
+-- delegating to the V2 walker; an elaboration failure is raised as a
+-- runtime 'error' to match the @IO@ result type.
 interpret
-  :: forall a sys.
-     AlphaScalar a
-  => System sys a
+  :: forall a ps pctx inputs outputs locals.
+     (AlphaScalar a, KnownSymbols ps)
+  => Surface.System ps pctx inputs outputs locals
   -> Map String Int                -- ^ parameter name → concrete value
   -> Map String ([Int] -> a)       -- ^ input variable name → point accessor
   -> IO (String -> [Int] -> IO a)
-interpret sys params inputFns = do
+interpret surfaceSys params inputFns =
+  elaborate @ps @pctx @inputs @outputs @locals @a TrustPlugin surfaceSys $ \r -> case r of
+    Left e    -> error ("Alpha.Interpret: " ++ show e)
+    Right sys -> interpretV2 sys params inputFns
+
+-- | V2-typed body: the actual evaluator.  Private; surface callers
+-- enter via 'interpret'.
+interpretV2
+  :: forall a sys.
+     AlphaScalar a
+  => System sys a
+  -> Map String Int
+  -> Map String ([Int] -> a)
+  -> IO (String -> [Int] -> IO a)
+interpretV2 sys params inputFns = do
   let paramNames = Named.the (sysParams sys)
       pctxNS     = Named.the (sysParamCs sys)
   mapM_ (\p -> case Map.lookup p params of

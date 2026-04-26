@@ -72,9 +72,7 @@ import Alpha.Kernel
 import Alpha.Codegen.FunctionMapping (defaultMapping)
 import Alpha.Codegen.Parallel (validateAnnotations, AnnotationError(..))
 import Alpha.Compile (validateSchedule, compile, CompileError(..))
-import qualified Alpha.Interpret as I
-import Alpha.Surface.Elaborate (elaborate, ElabMode(..))
-import Isl.Typed.Params (KnownSymbols)
+import Alpha.Interpret (interpret)
 import Alpha.Allocation (Allocation(..), EqStorage(..), allocating, allocate)
 import Alpha.Polyhedral.Contraction (modularTime)
 import Alpha.Schedule
@@ -114,20 +112,6 @@ import qualified Reference.Matmul as Ref
 
 import qualified TokensSpec
 import qualified ElaborateSpec
-
-
--- | Surface-system shim: elaborate (TrustPlugin) then delegate to the V2 interpreter.
-interpret
-  :: forall a ps pctx inputs outputs locals.
-     (AlphaScalar a, KnownSymbols ps)
-  => Core.System ps pctx inputs outputs locals
-  -> Map.Map String Int
-  -> Map.Map String ([Int] -> a)
-  -> IO (String -> [Int] -> IO a)
-interpret sys params inputs =
-  elaborate TrustPlugin sys $ \r -> case r of
-    Right s -> I.interpret s params inputs
-    Left  e -> error ("Alpha.Interpret (elaborate): " ++ show e)
 
 
 -- | Run an IO action that internally constructs an Alpha term whose
