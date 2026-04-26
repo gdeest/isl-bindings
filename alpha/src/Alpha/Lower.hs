@@ -13,7 +13,7 @@
 -- projection 'NamedMap's so the compile pipeline can compose them
 -- into the equation space before computing dependences.
 module Alpha.Lower
-  ( lowerSystemV2
+  ( lowerSystem
   , logicalName
   ) where
 
@@ -27,12 +27,12 @@ import Isl.Typed.Constraints
 import qualified Isl.Typed.Constraints as C
 import Isl.Typed.Constraints (NamedSet(..), NamedMap(..))
 
-import qualified Alpha.Core        as V2
+import qualified Alpha.Core        as Core
 import           Alpha.Core.Named  (the)
 
 
 -- | Per-equation lowered result: one or more statements.  A plain RHS
--- yields exactly one quad; a top-level 'V2.Case' fans out to one quad
+-- yields exactly one quad; a top-level 'Core.Case' fans out to one quad
 -- per branch, all writing to the same logical array @eqName@ (range
 -- name).
 type LoweredQuad = (NamedSet, NamedMap, [NamedMap], [NamedMap])
@@ -40,7 +40,7 @@ type LoweredQuad = (NamedSet, NamedMap, [NamedMap], [NamedMap])
 
 -- | Recover the equation name from a lowered statement name.
 --
--- The @"__br"I@ suffix is coined in 'lowerCaseBranchesV2' — this is
+-- The @"__br"I@ suffix is coined in 'lowerCaseBranches' — this is
 -- the sole inverse, consumed by schedule/reduce lookup in
 -- 'Alpha.Codegen' and 'Alpha.Polyhedral.Dependence'.
 logicalName :: String -> String
@@ -85,7 +85,7 @@ mapConstraint f (InequalityConstraint e) = InequalityConstraint (fmap f e)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §3. V2 entry point — structural copy of 'Alpha.Core' Named fields
+-- §3. System lowering
 -- ═══════════════════════════════════════════════════════════════════════
 --
 -- The elaborator (in 'Alpha.Surface.Elaborate') has already done all
@@ -93,13 +93,13 @@ mapConstraint f (InequalityConstraint e) = InequalityConstraint (fmap f e)
 -- with the parameter context folded in and the right shape
 -- (Conjunction, nIn/nOut, dim count).  Lowering becomes a structural
 -- walk that re-tags the payloads with the right tuple names and emits
--- the four lists @lowerSystemV2@ produces.
+-- the four lists @lowerSystem@ produces.
 
--- | Lower an elaborated 'V2.System sys a' to
+-- | Lower an elaborated 'Core.System sys a' to
 -- @(domains, writes, reads, projections)@:
 --
 --   * @domains@     — one 'NamedSet' per equation (or per branch of a
---                     top-level 'V2.Case')
+--                     top-level 'Core.Case')
 --   * @writes@      — one identity 'NamedMap' per equation\/branch
 --   * @reads@       — one 'NamedMap' per array access (body-space
 --                     reads use synthetic domain names)
@@ -113,85 +113,84 @@ mapConstraint f (InequalityConstraint e) = InequalityConstraint (fmap f e)
 -- and Reduce body-naming convention (@eqName__brI@ /
 -- @eqName__body_K@) is the canonical one consumed by 'logicalName',
 -- 'Alpha.Polyhedral.Dependence', and 'Alpha.Codegen.lowerScheduleMaps'.
-lowerSystemV2
+lowerSystem
   :: forall sys a.
-     V2.System sys a
+     Core.System sys a
   -> ([NamedSet], [NamedMap], [NamedMap], [NamedMap])
-lowerSystemV2 sys =
-  let params  = the (V2.sysParams sys)
-      (quads, _) = lowerEqsV2 params 0 (V2.sysEqs sys)
+lowerSystem sys =
+  let params  = the (Core.sysParams sys)
+      (quads, _) = lowerEqs params 0 (Core.sysEqs sys)
       domains     = map (\(d, _, _, _) -> d) quads
       writes      = map (\(_, w, _, _) -> w) quads
       reads_      = concatMap (\(_, _, rs, _) -> rs) quads
       projections = concatMap (\(_, _, _, ps') -> ps') quads
   in (domains, writes, reads_, projections)
 
--- | Read-extraction context for the V2 walker.  No carried
--- domain-constraints field: every emitted read map already inherits
--- the pctx-folded constraints from the elaborator's
--- 'Named m IslMap' payload.
-data ReadCtxV2 = ReadCtxV2
-  { rcV2Params  :: ![String]
-  , rcV2EqName  :: !String     -- owning equation name (for synthetic Reduce body names)
-  , rcV2DomName :: !String     -- domain name installed on emitted read maps
+-- | Read-extraction context.  No carried domain-constraints field:
+-- every emitted read map already inherits the pctx-folded constraints
+-- from the elaborator's 'Named m IslMap' payload.
+data ReadCtx = ReadCtx
+  { rcParams  :: ![String]
+  , rcEqName  :: !String     -- owning equation name (for synthetic Reduce body names)
+  , rcDomName :: !String     -- domain name installed on emitted read maps
   }
 
-lowerEqsV2
-  :: [String] -> Int -> [V2.SomeEquation sys a]
+lowerEqs
+  :: [String] -> Int -> [Core.SomeEquation sys a]
   -> ([LoweredQuad], Int)
-lowerEqsV2 _      counter []       = ([], counter)
-lowerEqsV2 params counter (V2.SomeEquation vdecl body : rest) =
-  let eqName = V2.vdName vdecl
-      nDims  = V2.vdDims vdecl
-      domNS  = the (V2.vdDom vdecl)
-      (quads, counter1)  = lowerOneEqV2 params counter eqName nDims domNS body
-      (rest', counter2)  = lowerEqsV2   params counter1 rest
+lowerEqs _      counter []       = ([], counter)
+lowerEqs params counter (Core.SomeEquation vdecl body : rest) =
+  let eqName = Core.vdName vdecl
+      nDims  = Core.vdDims vdecl
+      domNS  = the (Core.vdDom vdecl)
+      (quads, counter1)  = lowerOneEq params counter eqName nDims domNS body
+      (rest', counter2)  = lowerEqs   params counter1 rest
   in (quads ++ rest', counter2)
 
--- | Lower a single V2 equation.  Top-level 'V2.Case' fans out per
+-- | Lower a single equation.  Top-level 'Core.Case' fans out per
 -- branch (statement name @eqName__brI@, range = @eqName@); any other
 -- body emits a single quad keyed on @eqName@.
-lowerOneEqV2
+lowerOneEq
   :: [String] -> Int -> String -> Int -> NamedSet
-  -> V2.Expr sys dom a
+  -> Core.Expr sys dom a
   -> ([LoweredQuad], Int)
-lowerOneEqV2 params counter eqName nDims _domNS (V2.Case _ branches) =
-  lowerCaseBranchesV2 params counter eqName nDims 0 branches
-lowerOneEqV2 params counter eqName nDims domNS body =
+lowerOneEq params counter eqName nDims _domNS (Core.Case _ branches) =
+  lowerCaseBranches params counter eqName nDims 0 branches
+lowerOneEq params counter eqName nDims domNS body =
   let domain   = retagSet (Just eqName) params nDims domNS
       writeMap = identityWriteMap params eqName eqName nDims (nsConjs domain)
-      ctx0 = ReadCtxV2
-        { rcV2Params  = params
-        , rcV2EqName  = eqName
-        , rcV2DomName = eqName
+      ctx0 = ReadCtx
+        { rcParams  = params
+        , rcEqName  = eqName
+        , rcDomName = eqName
         }
-      (readMaps, projs, counter') = extractReadsV2 ctx0 counter body
+      (readMaps, projs, counter') = extractReads ctx0 counter body
   in ([(domain, writeMap, readMaps, projs)], counter')
 
-lowerCaseBranchesV2
+lowerCaseBranches
   :: [String] -> Int -> String -> Int -> Int
-  -> V2.CaseBranches sys dom bs a
+  -> Core.CaseBranches sys dom bs a
   -> ([LoweredQuad], Int)
-lowerCaseBranchesV2 _      counter _      _     _ V2.BNil = ([], counter)
-lowerCaseBranchesV2 params counter eqName nDims i
-                    (V2.BCons namedB _ body rest) =
+lowerCaseBranches _      counter _      _     _ Core.BNil = ([], counter)
+lowerCaseBranches params counter eqName nDims i
+                  (Core.BCons namedB _ body rest) =
   let brName  = eqName ++ "__br" ++ show i
       brSet   = the namedB
       domain  = retagSet (Just brName) params nDims brSet
       writeMap = identityWriteMap params brName eqName nDims (nsConjs domain)
-      ctx = ReadCtxV2
-        { rcV2Params  = params
-        , rcV2EqName  = eqName
-        , rcV2DomName = brName
+      ctx = ReadCtx
+        { rcParams  = params
+        , rcEqName  = eqName
+        , rcDomName = brName
         }
-      (readMaps, projs, counter1) = extractReadsV2 ctx counter body
+      (readMaps, projs, counter1) = extractReads ctx counter body
       (restQuads, counter2) =
-        lowerCaseBranchesV2 params counter1 eqName nDims (i + 1) rest
+        lowerCaseBranches params counter1 eqName nDims (i + 1) rest
   in ((domain, writeMap, readMaps, projs) : restQuads, counter2)
 
 -- | Re-tag an elaborated 'NamedSet' with a tuple name and a fresh
 -- (params, nDims) header.  Elaborate leaves @nsName = Nothing@ on
--- per-node sets and uses the declared name on 'vdDom'; 'lowerSystemV2'
+-- per-node sets and uses the declared name on 'vdDom'; 'lowerSystem'
 -- is the canonical site for installing statement-/branch-level tuple
 -- names that downstream ISL operations key on.
 retagSet :: Maybe String -> [String] -> Int -> NamedSet -> NamedSet
@@ -220,60 +219,60 @@ identityWriteMap params stmtName arrName nDims domConjs = NamedMap
 mapConjToMap :: Conjunction SetIx -> [Constraint MapIx]
 mapConjToMap (Conjunction cs) = mapDomToMap cs
 
-extractReadsV2
-  :: ReadCtxV2 -> Int
-  -> V2.Expr sys dom a
+extractReads
+  :: ReadCtx -> Int
+  -> Core.Expr sys dom a
   -> ([NamedMap], [NamedMap], Int)
-extractReadsV2 _   c (V2.Var {})    = ([], [], c)
-extractReadsV2 _   c (V2.Const _)   = ([], [], c)
-extractReadsV2 ctx c (V2.Pw _ e1 e2) =
-  let (r1, p1, c1) = extractReadsV2 ctx c  e1
-      (r2, p2, c2) = extractReadsV2 ctx c1 e2
+extractReads _   c (Core.Var {})    = ([], [], c)
+extractReads _   c (Core.Const _)   = ([], [], c)
+extractReads ctx c (Core.Pw _ e1 e2) =
+  let (r1, p1, c1) = extractReads ctx c  e1
+      (r2, p2, c2) = extractReads ctx c1 e2
   in (r1 ++ r2, p1 ++ p2, c2)
-extractReadsV2 ctx c (V2.PMap _ e)   = extractReadsV2 ctx c e
+extractReads ctx c (Core.PMap _ e)   = extractReads ctx c e
 
-extractReadsV2 ctx c (V2.Dep namedM _namedSrc _ inner) =
+extractReads ctx c (Core.Dep namedM _namedSrc _ inner) =
   let mNM   = the namedM
       readMap = mNM
-        { nmDomainName = Just (rcV2DomName ctx)
-        , nmRangeName  = Just (innerVarNameV2 inner)
-        , nmParams     = rcV2Params ctx
+        { nmDomainName = Just (rcDomName ctx)
+        , nmRangeName  = Just (innerVarName inner)
+        , nmParams     = rcParams ctx
         }
-      (innerReads, innerProjs, c') = extractReadsV2 ctx c inner
+      (innerReads, innerProjs, c') = extractReads ctx c inner
   in (readMap : innerReads, innerProjs, c')
 
-extractReadsV2 ctx c (V2.Reduce _ namedP _namedBody _ body) =
-  let bodyName = rcV2EqName ctx ++ "__body_" ++ show c
+extractReads ctx c (Core.Reduce _ namedP _namedBody _ body) =
+  let bodyName = rcEqName ctx ++ "__body_" ++ show c
       c'       = c + 1
       pNM      = the namedP
       projMap  = pNM
         { nmDomainName = Just bodyName
-        , nmRangeName  = Just (rcV2EqName ctx)
-        , nmParams     = rcV2Params ctx
+        , nmRangeName  = Just (rcEqName ctx)
+        , nmParams     = rcParams ctx
         }
-      bodyCtx = ctx { rcV2DomName = bodyName }
-      (bodyReads, bodyProjs, c'') = extractReadsV2 bodyCtx c' body
+      bodyCtx = ctx { rcDomName = bodyName }
+      (bodyReads, bodyProjs, c'') = extractReads bodyCtx c' body
   in (bodyReads, projMap : bodyProjs, c'')
 
-extractReadsV2 ctx c (V2.Case _ branches) =
-  extractBranchReadsV2 ctx c branches
+extractReads ctx c (Core.Case _ branches) =
+  extractBranchReads ctx c branches
 
-extractBranchReadsV2
-  :: ReadCtxV2 -> Int
-  -> V2.CaseBranches sys dom bs a
+extractBranchReads
+  :: ReadCtx -> Int
+  -> Core.CaseBranches sys dom bs a
   -> ([NamedMap], [NamedMap], Int)
-extractBranchReadsV2 _   c V2.BNil = ([], [], c)
-extractBranchReadsV2 ctx c (V2.BCons _ _ body rest) =
+extractBranchReads _   c Core.BNil = ([], [], c)
+extractBranchReads ctx c (Core.BCons _ _ body rest) =
   -- Nested (non-top-level) 'Case' is not fanned out: walk each
   -- branch in the current ambient and accumulate reads / projs.
-  -- Top-level 'Case' fan-out happens in 'lowerOneEqV2' via
+  -- Top-level 'Case' fan-out happens in 'lowerOneEq' via
   -- 'normalizeCases' upstream.
-  let (bodyReads, bodyProjs, c1) = extractReadsV2 ctx c body
-      (restReads, restProjs, c2) = extractBranchReadsV2 ctx c1 rest
+  let (bodyReads, bodyProjs, c1) = extractReads ctx c body
+      (restReads, restProjs, c2) = extractBranchReads ctx c1 rest
   in (bodyReads ++ restReads, bodyProjs ++ restProjs, c2)
 
-innerVarNameV2 :: V2.Expr sys dom a -> String
-innerVarNameV2 (V2.Var (_ :: Proxy v) _ _) = symbolVal (Proxy @v)
-innerVarNameV2 (V2.PMap _ e)               = innerVarNameV2 e
-innerVarNameV2 (V2.Dep _ _ _ inner)        = innerVarNameV2 inner
-innerVarNameV2 _                           = "<unknown>"
+innerVarName :: Core.Expr sys dom a -> String
+innerVarName (Core.Var (_ :: Proxy v) _ _) = symbolVal (Proxy @v)
+innerVarName (Core.PMap _ e)               = innerVarName e
+innerVarName (Core.Dep _ _ _ inner)        = innerVarName inner
+innerVarName _                             = "<unknown>"

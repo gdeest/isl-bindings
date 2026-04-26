@@ -24,10 +24,8 @@
 --   * __Content__: ISL payload travels with each node as a 'Named'
 --     field; no class-based dictionary resolution.
 --
--- No @unsafeCoerce@ lives here; the only trust statement is the one
--- in "Alpha.Core.Tokens.mkToken".  Replaces the @KnownDom@ /
--- @KnownMap@ / @KnownVar@ classes (formerly in "Alpha.Core.Reify",
--- now deleted) whose job is done directly by 'Named' fields.
+-- The zero-coerce invariant is upheld here; the only trust statement
+-- is the one in "Alpha.Core.Tokens.mkToken".
 module Alpha.Core
   ( -- * Expressions
     Expr(..)
@@ -157,11 +155,8 @@ data CaseBranches sys dom bs a where
 
 -- | Declared variable.  @v :: Symbol@ is the variable's name at the
 -- type level; @dom :: Type@ is the opaque skolem for its declared
--- domain.  The 'Named dom IslSet' field carries the domain's 'IslSet'
--- payload; the skolem @dom@ is the identity tag.
---
--- Fields mirror the legacy 'Alpha.Surface.Core.VarDecl'; 'vdDom' is new and
--- replaces the type-level 'DeclDomTag' / 'DomTag ps n' reflection.
+-- domain.  'vdDom' carries the domain's 'IslSet' payload; the skolem
+-- @dom@ is the identity tag.
 type VarDecl :: Type -> Symbol -> Type -> Type
 data VarDecl sys v dom = VarDecl
   { vdName   :: !VarName
@@ -171,18 +166,13 @@ data VarDecl sys v dom = VarDecl
   }
 
 -- | A declaration with both the variable's Symbol @v@ and its domain
--- skolem @dom@ hidden existentially.  Pattern-matching brings both
--- back into scope so walkers can recover the name via 'symbolVal' and
--- the domain via 'vdDom'.
+-- skolem @dom@ hidden existentially.
 data SomeVarDecl sys where
   SomeVarDecl :: KnownSymbol v
               => Proxy v
               -> VarDecl sys v dom
               -> SomeVarDecl sys
 
--- | Recover the type-level name proxy from a 'VarDecl'.  Useful when a
--- walker has the 'VarDecl' in hand and needs the 'Proxy v' for
--- 'symbolVal' without re-introducing a separate field.
 varDeclProxy :: VarDecl sys v dom -> Proxy v
 varDeclProxy _ = Proxy
 
@@ -199,8 +189,7 @@ varDeclProxy _ = Proxy
 -- equation must therefore pass in the original 'VarDecl' (or a fresh
 -- one sharing the same 'Named dom IslSet' skolem); it is impossible
 -- for the body's domain to drift from the declared one without a
--- compile-time error.  What used to be a convention between two
--- independent fields is now a type-level equality.
+-- compile-time error.
 data SomeEquation sys a where
   SomeEquation :: KnownSymbol v
                => VarDecl sys v dom

@@ -69,9 +69,9 @@ import Alpha.Scalar
 
 -- | Interpret a system at concrete parameter values.
 --
--- Elaborates the surface system internally (TrustPlugin) before
--- delegating to the V2 walker; an elaboration failure is raised as a
--- runtime 'error' to match the @IO@ result type.
+-- Elaborates the surface system internally (TrustPlugin); an
+-- elaboration failure is raised as a runtime 'error' to match the
+-- @IO@ result type.
 interpret
   :: forall a ps pctx inputs outputs locals.
      (AlphaScalar a, KnownSymbols ps)
@@ -82,18 +82,16 @@ interpret
 interpret surfaceSys params inputFns =
   elaborate @ps @pctx @inputs @outputs @locals @a TrustPlugin surfaceSys $ \r -> case r of
     Left e    -> error ("Alpha.Interpret: " ++ show e)
-    Right sys -> interpretV2 sys params inputFns
+    Right sys -> interpretCore sys params inputFns
 
--- | V2-typed body: the actual evaluator.  Private; surface callers
--- enter via 'interpret'.
-interpretV2
+interpretCore
   :: forall a sys.
      AlphaScalar a
   => System sys a
   -> Map String Int
   -> Map String ([Int] -> a)
   -> IO (String -> [Int] -> IO a)
-interpretV2 sys params inputFns = do
+interpretCore sys params inputFns = do
   let paramNames = Named.the (sysParams sys)
       pctxNS     = Named.the (sysParamCs sys)
   mapM_ (\p -> case Map.lookup p params of

@@ -14,10 +14,9 @@
 
 -- | Surface-to-Core elaboration: cash in plugin dicts, mint GDP tokens.
 --
--- Replaces the deleted @Alpha.Core.Bridge@.  Walks a plugin-typed
--- 'Alpha.Surface.Core.System' and produces a GDP-indexed
--- 'Alpha.Core.System' by calling the 'tokenize*' helpers in
--- 'Alpha.Core.Tokens' at each polyhedral node.
+-- Walks a plugin-typed 'Alpha.Surface.Core.System' and produces a
+-- GDP-indexed 'Alpha.Core.System' by calling the 'tokenize*' helpers
+-- in 'Alpha.Core.Tokens' at each polyhedral node.
 --
 -- = Trust boundary
 --

@@ -17,6 +17,7 @@ module Alpha.Codegen
   , BoundError(..)
     -- * Reduction metadata (exposed for validation / external callers)
   , ReduceInfo(..)
+  , buildReduceMap
     -- * AST walking (exposed for regression tests)
   , extractStmtArgs
   ) where
@@ -36,20 +37,20 @@ import Isl.Types (AstNode(..), Ctx)
 import Isl.AstBuild (astBuildAlloc, astBuildNodeFromScheduleMap, CNode(..), walkAstNode, astNodeFree)
 
 import Alpha.Surface.Core (System)
-import qualified Alpha.Core as V2
+import qualified Alpha.Core as Core
 import qualified Alpha.Core.Named as Named
 import Alpha.Core.Tokens (ElabError)
 import Alpha.Surface.Elaborate (elaborate, ElabMode(..))
 import Alpha.Codegen.COp (ReduceOp(..))
-import Alpha.Lower (lowerSystemV2, logicalName)
+import Alpha.Lower (lowerSystem, logicalName)
 import Alpha.Schedule (Schedule(..), EqSchedule(..), DimAnnotation(..))
 import Alpha.Allocation (Allocation(..), EqStorage(..))
 import qualified Alpha.Polyhedral.Schedule as S
 import Alpha.Codegen.CRender (renderCNodeToC)
 import Alpha.Codegen.ExprRender
-  ( RenderCtx(..), renderEquationMacroV2, BoundErr(..), RenderErr(..) )
+  ( RenderCtx(..), renderEquationMacro, BoundErr(..), RenderErr(..) )
 import Alpha.Codegen.FunctionMapping
-  ( CFunctionMapping(..), ArgPassing(..), declBoundsV2 )
+  ( CFunctionMapping(..), ArgPassing(..), declBounds )
 import Alpha.Scalar (ScalarDesc(..), cTypeName)
 
 
@@ -119,33 +120,32 @@ codegen
   -> Map.Map String ScalarDesc
   -> IO (Either CodegenError String)
 codegen sys sched alloc fmap' descs =
-  -- Elaborate the surface system to a Core (V2) system at the entry.
   -- The scalar @a@ is irrelevant downstream — codegen consults @descs@
   -- (per-name 'ScalarDesc') for type info and never inspects @a@ — so
   -- any 'AlphaScalar' choice is sound; we pick 'Double'.
   elaborate @ps @pctx @inputs @outputs @locals @Double TrustPlugin sys $
     \r -> case r of
       Left e      -> pure (Left (CodegenElaborationFailed e))
-      Right sysV2 ->
-        codegenV2 sysV2 sched alloc fmap' descs (symbolVals @ps)
+      Right coreSys ->
+        codegenCore coreSys sched alloc fmap' descs (symbolVals @ps)
 
-codegenV2
+codegenCore
   :: forall sys a.
-     V2.System sys a
+     Core.System sys a
   -> Schedule
   -> Allocation
   -> CFunctionMapping
   -> Map.Map String ScalarDesc
   -> [String]
   -> IO (Either CodegenError String)
-codegenV2 sysV2 sched alloc fmap' descs params = runIslT $ Isl.do
-  let (domains, _writes, _reads, _projections) = lowerSystemV2 sysV2
-      reduceMap = buildReduceMapV2 sysV2
+codegenCore sys sched alloc fmap' descs params = runIslT $ Isl.do
+  let (domains, _writes, _reads, _projections) = lowerSystem sys
+      reduceMap = buildReduceMap sys
       schedMaps = lowerScheduleMaps sched domains reduceMap
 
-  Ur iRes <- declBoundsV2 params (V2.sysInputs  sysV2)
-  Ur oRes <- declBoundsV2 params (V2.sysOutputs sysV2)
-  Ur lRes <- declBoundsV2 params (V2.sysLocals  sysV2)
+  Ur iRes <- declBounds params (Core.sysInputs  sys)
+  Ur oRes <- declBounds params (Core.sysOutputs sys)
+  Ur lRes <- declBounds params (Core.sysLocals  sys)
   let mergedBounds = do
         mi <- iRes; mo <- oRes; ml <- lRes
         Right (Map.unions [mi, mo, ml])
@@ -164,7 +164,7 @@ codegenV2 sysV2 sched alloc fmap' descs params = runIslT $ Isl.do
           Ur cTree <- walkAndFree node
 
           let stmtArgs = extractStmtArgs cTree
-          case generateMacrosV2 sysV2 alloc params domBounds stmtArgs descs of
+          case generateMacros sys alloc params domBounds stmtArgs descs of
             Left err -> Isl.pure (Ur (Left err))
             Right macros -> case buildPragmaMap sched reduceMap domBounds of
               Left err -> Isl.pure (Ur (Left err))
@@ -186,7 +186,7 @@ mapRenderErr (RENonStandardMapConstraint v k) = NonStandardMapConstraint v k
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §3. Schedule lowering (factored from Compile.hs)
+-- §3. Schedule lowering
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | Lower schedule maps for codegen.
@@ -246,95 +246,95 @@ extractStmtArgs (CIf _ thn mels)    = extractStmtArgs thn
 extractStmtArgs (CBlock cs)         = foldMap extractStmtArgs cs
 extractStmtArgs (CUser name args)   = Map.singleton name args
 
-generateMacrosV2
+generateMacros
   :: forall sys a.
-     V2.System sys a
+     Core.System sys a
   -> Allocation
   -> [String]
   -> Map.Map String [String]
   -> Map.Map String [String]
   -> Map.Map String ScalarDesc
   -> Either CodegenError String
-generateMacrosV2 sysV2 alloc params domBounds stmtArgs descs =
+generateMacros sys alloc params domBounds stmtArgs descs =
   let storMap = allocEntries alloc
-  in unlines <$> generateFromEqsV2 (V2.sysEqs sysV2) storMap params domBounds stmtArgs descs
+  in unlines <$> generateFromEqs (Core.sysEqs sys) storMap params domBounds stmtArgs descs
 
-generateFromEqsV2
+generateFromEqs
   :: forall sys a.
-     [V2.SomeEquation sys a]
+     [Core.SomeEquation sys a]
   -> Map.Map String EqStorage
   -> [String]
   -> Map.Map String [String]
   -> Map.Map String [String]
   -> Map.Map String ScalarDesc
   -> Either CodegenError [String]
-generateFromEqsV2 [] _ _ _ _ _ = Right []
-generateFromEqsV2 (V2.SomeEquation vdecl body : rest) storMap params domBounds stmtArgs descs =
-  let eqName   = V2.vdName vdecl
-      nOutDims = V2.vdDims vdecl
+generateFromEqs [] _ _ _ _ _ = Right []
+generateFromEqs (Core.SomeEquation vdecl body : rest) storMap params domBounds stmtArgs descs =
+  let eqName   = Core.vdName vdecl
+      nOutDims = Core.vdDims vdecl
   in do
-    macros <- renderOneEqV2 eqName nOutDims body storMap params domBounds stmtArgs descs
-    (macros ++) <$> generateFromEqsV2 rest storMap params domBounds stmtArgs descs
+    macros <- renderOneEq eqName nOutDims body storMap params domBounds stmtArgs descs
+    (macros ++) <$> generateFromEqs rest storMap params domBounds stmtArgs descs
 
--- | Render one V2 equation to a list of @#define@ lines.  A plain RHS
--- emits a single macro @eqName(...)@; a top-level 'V2.Case' fans out
+-- | Render one equation to a list of @#define@ lines.  A plain RHS
+-- emits a single macro @eqName(...)@; a top-level 'Core.Case' fans out
 -- to @eqName__br0(...), eqName__br1(...), …@, each writing to the
 -- same logical array @eqName@.
-renderOneEqV2
+renderOneEq
   :: forall sys d a.
      String
   -> Int
-  -> V2.Expr sys d a
+  -> Core.Expr sys d a
   -> Map.Map String EqStorage
   -> [String]
   -> Map.Map String [String]
   -> Map.Map String [String]
   -> Map.Map String ScalarDesc
   -> Either CodegenError [String]
-renderOneEqV2 eqName nOutDims (V2.Case _ branches) storMap params domBounds stmtArgs descs =
-  renderBranchListV2 eqName nOutDims 0 branches storMap params domBounds stmtArgs descs
-renderOneEqV2 eqName nOutDims body storMap params domBounds stmtArgs descs =
-  case renderWithStmtNameV2 eqName eqName nOutDims body storMap params domBounds stmtArgs descs of
+renderOneEq eqName nOutDims (Core.Case _ branches) storMap params domBounds stmtArgs descs =
+  renderBranchList eqName nOutDims 0 branches storMap params domBounds stmtArgs descs
+renderOneEq eqName nOutDims body storMap params domBounds stmtArgs descs =
+  case renderWithStmtName eqName eqName nOutDims body storMap params domBounds stmtArgs descs of
     Left err    -> Left err
     Right macro -> Right [macro]
 
-renderBranchListV2
+renderBranchList
   :: forall sys d bs a.
      String -> Int -> Int
-  -> V2.CaseBranches sys d bs a
+  -> Core.CaseBranches sys d bs a
   -> Map.Map String EqStorage
   -> [String]
   -> Map.Map String [String]
   -> Map.Map String [String]
   -> Map.Map String ScalarDesc
   -> Either CodegenError [String]
-renderBranchListV2 _ _ _ V2.BNil _ _ _ _ _ = Right []
-renderBranchListV2 eqName nOutDims i
-                   (V2.BCons _ _ body rest) storMap params domBounds stmtArgs descs = do
+renderBranchList _ _ _ Core.BNil _ _ _ _ _ = Right []
+renderBranchList eqName nOutDims i
+                   (Core.BCons _ _ body rest) storMap params domBounds stmtArgs descs = do
   let stmtName = eqName ++ "__br" ++ show i
-  macro <- renderWithStmtNameV2 stmtName eqName nOutDims body
+  macro <- renderWithStmtName stmtName eqName nOutDims body
              storMap params domBounds stmtArgs descs
   (macro :) <$>
-    renderBranchListV2 eqName nOutDims (i + 1) rest
+    renderBranchList eqName nOutDims (i + 1) rest
                        storMap params domBounds stmtArgs descs
 
-renderWithStmtNameV2
+renderWithStmtName
   :: forall sys d a.
      String  -- macro / stmt name (key into stmtArgs)
   -> String  -- logical array name (LHS of the write)
   -> Int     -- output dims
-  -> V2.Expr sys d a
+  -> Core.Expr sys d a
   -> Map.Map String EqStorage
   -> [String]
   -> Map.Map String [String]
   -> Map.Map String [String]
   -> Map.Map String ScalarDesc
   -> Either CodegenError String
-renderWithStmtNameV2 stmtName lhsName nOutDims body
+renderWithStmtName stmtName lhsName nOutDims body
                      storMap params domBounds stmtArgs descs =
   case Map.lookup stmtName stmtArgs of
     Nothing -> Left (CodegenInternalError
-      ("generateFromEqsV2: no CUser for statement " ++ show stmtName
+      ("generateFromEqs: no CUser for statement " ++ show stmtName
        ++ " — walkAstNode didn't emit a call for a lowered statement"))
     Just iterVars -> case Map.lookup lhsName descs of
       Nothing -> Left (MissingScalarDesc lhsName)
@@ -346,7 +346,7 @@ renderWithStmtNameV2 stmtName lhsName nOutDims body
               , rcDomBounds = domBounds
               , rcDesc      = desc
               }
-        in case renderEquationMacroV2 stmtName lhsName nOutDims body ctx of
+        in case renderEquationMacro stmtName lhsName nOutDims body ctx of
           Left rerr -> Left (mapRenderErr rerr)
           Right m   -> Right m
 
@@ -362,46 +362,45 @@ data ReduceInfo = ReduceInfo
   , riLogicalArray :: !String
   }
 
-extractReduceInfoV2
+extractReduceInfo
   :: forall sys d a.
      String -> Int
-  -> V2.Expr sys d a
+  -> Core.Expr sys d a
   -> Maybe ReduceInfo
-extractReduceInfoV2 eqName nDom (V2.Reduce op _ namedBody _ _) =
+extractReduceInfo eqName nDom (Core.Reduce op _ namedBody _ _) =
   let bodyNS = Named.the namedBody
       nRed   = nsNDims bodyNS - nDom
   in Just (ReduceInfo op nRed (nsConjs bodyNS) eqName)
-extractReduceInfoV2 _ _ _ = Nothing
+extractReduceInfo _ _ _ = Nothing
 
--- | V2 analogue of the surface 'buildReduceMap'.  Keys: @eqName@ for a
--- plain reducing equation, @eqName__brI@ for the reducing branches of
--- a 'V2.Case'.  Per-statement shape lifts the "uniform Reduce across
--- branches" restriction.
-buildReduceMapV2
+-- | Keys: @eqName@ for a plain reducing equation, @eqName__brI@ for the
+-- reducing branches of a 'Core.Case'.  Per-statement shape supports
+-- mixed reducing / non-reducing / differently-shaped branches.
+buildReduceMap
   :: forall sys a.
-     V2.System sys a -> Map.Map String ReduceInfo
-buildReduceMapV2 sys = foldr step Map.empty (V2.sysEqs sys)
+     Core.System sys a -> Map.Map String ReduceInfo
+buildReduceMap sys = foldr step Map.empty (Core.sysEqs sys)
   where
-    step (V2.SomeEquation vdecl body) acc =
-      let eqName = V2.vdName vdecl
-          nDom   = V2.vdDims vdecl
+    step (Core.SomeEquation vdecl body) acc =
+      let eqName = Core.vdName vdecl
+          nDom   = Core.vdDims vdecl
       in case body of
-        V2.Case _ branches -> addBranchReducesV2 eqName nDom 0 branches acc
-        _ -> case extractReduceInfoV2 eqName nDom body of
+        Core.Case _ branches -> addBranchReduces eqName nDom 0 branches acc
+        _ -> case extractReduceInfo eqName nDom body of
           Just ri -> Map.insert eqName ri acc
           Nothing -> acc
 
-addBranchReducesV2
+addBranchReduces
   :: forall sys dom bs a.
      String -> Int -> Int
-  -> V2.CaseBranches sys dom bs a
+  -> Core.CaseBranches sys dom bs a
   -> Map.Map String ReduceInfo
   -> Map.Map String ReduceInfo
-addBranchReducesV2 _      _    _ V2.BNil acc = acc
-addBranchReducesV2 eqName nDom i (V2.BCons _ _ body rest) acc =
+addBranchReduces _      _    _ Core.BNil acc = acc
+addBranchReduces eqName nDom i (Core.BCons _ _ body rest) acc =
   let stmtName = eqName ++ "__br" ++ show i
-      acc'     = addBranchReducesV2 eqName nDom (i + 1) rest acc
-  in case extractReduceInfoV2 eqName nDom body of
+      acc'     = addBranchReduces eqName nDom (i + 1) rest acc
+  in case extractReduceInfo eqName nDom body of
     Just ri -> Map.insert stmtName ri acc'
     Nothing -> acc'
 

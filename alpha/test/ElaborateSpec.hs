@@ -54,9 +54,7 @@ tests = testGroup "Alpha.Surface.Elaborate"
                 TrustPlugin H3E.heat3DElsewhere (assertElabOk "Heat3DElsewhere")
 
     -- Per-decl scalar reflection: an Int32 surface must produce
-    -- 'CInt32' in every VarDecl.vdScalar, not the former hardcoded
-    -- 'CFloat64' default.  Regression check for the papered-over stub
-    -- in 'Alpha.Surface.Elaborate.installDecls'.
+    -- 'CInt32' in every VarDecl.vdScalar.
   , testCase "IntRowMax vdScalar is CInt32 (per-decl scalar reflection)" $
       elaborate @'["N"] @'[] @IRM.IntRowMaxInputs @IRM.IntRowMaxOutputs
                 @IRM.IntRowMaxLocals @Int32
@@ -71,10 +69,8 @@ tests = testGroup "Alpha.Surface.Elaborate"
 
     -- Non-trivial pctx: NeedsPctx carries '[N >= 1]', and its body
     -- obligation (x[N-1] in [0, N-1]) only holds under that pctx.
-    -- Elaborating under SanityCheck re-checks via ISL using the
-    -- materialised pctx: if the old 'emptyParamIslSet' stub were still
-    -- in place, the re-check would reject the obligation (ISL would
-    -- see an empty pctx, counterexample N=0).  Both modes must pass.
+    -- SanityCheck re-checks via ISL with the materialised pctx; both
+    -- modes must pass.
   , testCase "NeedsPctx elaborates under TrustPlugin (non-trivial pctx)" $
       elaborate @'["N"] @NPX.NeedsPctxPctx @NPX.NeedsPctxInputs
                 @NPX.NeedsPctxOutputs @NPX.NeedsPctxLocals @Double

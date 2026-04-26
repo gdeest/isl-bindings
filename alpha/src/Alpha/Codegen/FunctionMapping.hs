@@ -13,7 +13,7 @@ module Alpha.Codegen.FunctionMapping
   , defaultMapping
   , declListNames
   , declListBoundsM
-  , declBoundsV2
+  , declBounds
   ) where
 
 import Data.Map.Strict (Map)
@@ -30,7 +30,7 @@ import qualified Isl.Linear as Isl
 import Alpha.Surface.Core
   ( DeclName, DeclDims, DeclDomTag
   , DeclList(..), Decl(..), Decls(..), System, pattern System )
-import qualified Alpha.Core as V2
+import qualified Alpha.Core as Core
 import qualified Alpha.Core.Named as Named
 import Alpha.Codegen.ExprRender
   ( extractOneBound, extractBoundsISLM, extractBoundsFromSetM, BoundErr )
@@ -106,18 +106,18 @@ declListBoundsM params ((MkDecl :: Decl ps d) :> rest) = Isl.do
     rm   <- restRes
     Right (Map.insert name here rm)))
 
--- | V2 bounds extractor.  Mirrors 'declListBoundsM' for a list of
--- 'V2.SomeVarDecl': pattern-match on conjunctions first, fall back to
--- ISL @dim_max@ on the materialised 'NamedSet' when needed.
-declBoundsV2
+-- | Bounds extractor over a list of 'Core.SomeVarDecl': pattern-match
+-- on conjunctions first, fall back to ISL @dim_max@ on the
+-- materialised 'NamedSet' when needed.
+declBounds
   :: forall sys.
-     [String] -> [V2.SomeVarDecl sys]
+     [String] -> [Core.SomeVarDecl sys]
   -> IslT IO (Ur (Either (String, Int, BoundErr) (Map String [String])))
-declBoundsV2 _params [] = Isl.pure (Ur (Right Map.empty))
-declBoundsV2 params (V2.SomeVarDecl _ vd : rest) = Isl.do
-  let name  = V2.vdName vd
-      nDims = V2.vdDims vd
-      ns    = Named.the (V2.vdDom vd)
+declBounds _params [] = Isl.pure (Ur (Right Map.empty))
+declBounds params (Core.SomeVarDecl _ vd : rest) = Isl.do
+  let name  = Core.vdName vd
+      nDims = Core.vdDims vd
+      ns    = Named.the (Core.vdDom vd)
       conjs = nsConjs ns
       patternBounds = [ extractOneBound params conjs dim | dim <- [0..nDims-1] ]
   Ur hereRes <-
@@ -128,7 +128,7 @@ declBoundsV2 params (V2.SomeVarDecl _ vd : rest) = Isl.do
           Left (d', err) -> Left (name, d', err)
           Right bs       -> Right bs))
       else Isl.pure (Ur (Right [ b | Just b <- patternBounds ]))
-  Ur restRes <- declBoundsV2 params rest
+  Ur restRes <- declBounds params rest
   Isl.pure (Ur (do
     here <- hereRes
     rm   <- restRes

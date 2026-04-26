@@ -655,7 +655,6 @@ instance {-# OVERLAPPING #-}
     error "Alpha: equation defines an undeclared variable \
           \(runtime trap; see the deferred TypeError for details)"
 
--- Count 1: recurse on @rest@ with the name removed.
 instance {-# OVERLAPPING #-}
   DefinesAllExactlyOnce (RemoveName name needed) rest
   => DefinesAllExactlyOnceStep 1 name (needed :: [VarDecl ps]) rest where

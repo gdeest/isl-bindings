@@ -21,7 +21,7 @@ import Control.DeepSeq (NFData(..))
 import qualified Data.Map.Strict as Map
 
 import Isl.Typed.Constraints
-  ( NamedSet(..), NamedMap(..), Constraint(..), Conjunction(..)
+  ( NamedMap(..), Constraint(..), Conjunction(..)
   , MapIx(..), Expr(..), buildBasicMap )
 import Isl.Typed.Params (KnownSymbols)
 import qualified Isl.Types as Isl
@@ -31,16 +31,15 @@ import Isl.Monad (IslT, Ur(..), runIslT)
 import Isl.Linear (query_, freeM, dupM)
 import qualified Isl.Linear as Isl
 import Alpha.Surface.Core (System)
-import qualified Alpha.Core as V2
-import Alpha.Core.Named (the)
+import qualified Alpha.Core as Core
 import Alpha.Surface.Elaborate (elaborate, ElabMode(..), ElabError)
-import Alpha.Lower (lowerSystemV2)
+import Alpha.Lower (lowerSystem)
 import Alpha.Schedule
   ( Schedule(..), EqSchedule(..), DimAnnotation(..) )
 import Alpha.Polyhedral.Dependence
   ( lowerScheduleMaps, projectBodyReads, computeAllDeps
   , buildUnionFromNamed )
-import Alpha.Codegen (ReduceInfo(..))
+import Alpha.Codegen (ReduceInfo(..), buildReduceMap)
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -83,19 +82,18 @@ validateAnnotations sys sched =
   elaborate @ps @pctx @inputs @outputs @locals @Double TrustPlugin sys $
     \r -> case r of
       Left e      -> pure (Left (ElaborationFailed e))
-      Right sysV2 -> validateV2 sysV2 sched
+      Right coreSys -> validateCore coreSys sched
 
--- | Annotation validation against a V2 'Core.System'.  Polymorphic in
--- @sys@ so the elaborator-bound skolem flows through; the scalar @a@
--- is irrelevant here (no expression evaluation), so any 'AlphaScalar'
--- choice at the 'elaborate' call site is sound.
-validateV2
+-- | Polymorphic in @sys@ so the elaborator-bound skolem flows through;
+-- the scalar @a@ is irrelevant here (no expression evaluation), so any
+-- 'AlphaScalar' choice at the 'elaborate' call site is sound.
+validateCore
   :: forall sys a.
-     V2.System sys a
+     Core.System sys a
   -> Schedule
   -> IO (Either AnnotationError ())
-validateV2 sysV2 sched =
-  let redMap = buildReduceMapV2 sysV2
+validateCore sys sched =
+  let redMap = buildReduceMap sys
   in case validateReductionDims sched redMap of
     Left err -> pure (Left err)
     Right () ->
@@ -105,7 +103,7 @@ validateV2 sysV2 sched =
       in if Map.null annotations
         then pure (Right ())
         else runIslT $ Isl.do
-          let (domains, writes, reads_, projections) = lowerSystemV2 sysV2
+          let (domains, writes, reads_, projections) = lowerSystem sys
               schedMaps = lowerScheduleMaps sched domains
               nOut = case schedMaps of { (sm:_) -> nmNOut sm; [] -> 0 }
 
@@ -218,51 +216,3 @@ mergedAnnotationsFiltered (Schedule entries) =
     | es <- Map.elems entries ]
 
 
--- ═══════════════════════════════════════════════════════════════════════
--- §5. V2 reduce-map walker
--- ═══════════════════════════════════════════════════════════════════════
-
--- | V2 analogue of 'Alpha.Codegen.buildReduceMap'.  Keys are statement
--- names: @eqName@ for plain reducing equations, @eqName__brI@ for
--- reducing branches of a 'V2.Case'.  Reduction-dim count and body
--- conjunctions are read off the elaborator-installed
--- 'Named body IslSet' payload (no type-level reflection needed: the
--- body's rank already lives in 'nsNDims').
-buildReduceMapV2
-  :: forall sys a.
-     V2.System sys a -> Map.Map String ReduceInfo
-buildReduceMapV2 sys = foldr step Map.empty (V2.sysEqs sys)
-  where
-    step (V2.SomeEquation vdecl body) acc =
-      let eqName = V2.vdName vdecl
-          nDom   = V2.vdDims vdecl
-      in case body of
-        V2.Case _ branches -> addBranchReducesV2 eqName nDom 0 branches acc
-        _ -> case extractReduceInfoV2 eqName nDom body of
-          Just ri -> Map.insert eqName ri acc
-          Nothing -> acc
-
-addBranchReducesV2
-  :: forall sys dom bs a.
-     String -> Int -> Int
-  -> V2.CaseBranches sys dom bs a
-  -> Map.Map String ReduceInfo
-  -> Map.Map String ReduceInfo
-addBranchReducesV2 _      _    _ V2.BNil acc = acc
-addBranchReducesV2 eqName nDom i (V2.BCons _ _ body rest) acc =
-  let stmtName = eqName ++ "__br" ++ show i
-      acc'     = addBranchReducesV2 eqName nDom (i + 1) rest acc
-  in case extractReduceInfoV2 eqName nDom body of
-    Just ri -> Map.insert stmtName ri acc'
-    Nothing -> acc'
-
-extractReduceInfoV2
-  :: forall sys dom a.
-     String -> Int
-  -> V2.Expr sys dom a
-  -> Maybe ReduceInfo
-extractReduceInfoV2 eqName nDom (V2.Reduce op _ namedBody _ _) =
-  let bodyNS = the namedBody
-      nRed   = nsNDims bodyNS - nDom
-  in Just (ReduceInfo op nRed (nsConjs bodyNS) eqName)
-extractReduceInfoV2 _ _ _ = Nothing

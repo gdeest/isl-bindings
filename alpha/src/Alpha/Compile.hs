@@ -36,7 +36,7 @@ import qualified Isl.Linear as Isl
 import Alpha.Surface.Core (System, pattern System, eqListNames)
 import Alpha.Surface.Elaborate (elaborate, ElabMode(..))
 import Alpha.Core.Tokens (ElabError)
-import Alpha.Lower (lowerSystemV2)
+import Alpha.Lower (lowerSystem)
 import Alpha.Schedule (Schedule(..), schedEntries)
 import Alpha.Allocation (Allocation(..), EqStorage(..))
 import Alpha.Polyhedral.Contraction (storageToNamedMap', contractionOutputDeps)
@@ -108,8 +108,8 @@ compile sys0@(System _decls eqs) sched alloc =
         Left terr -> pure (Left (TransformFailed terr))
         Right sys -> elaborate @ps @pctx @inputs @outputs @locals @Double TrustPlugin sys $ \res -> case res of
           Left elabErr -> pure (Left (ElaborateFailed elabErr))
-          Right sysV2  -> runIslT $ Isl.do
-            let (domains, writes, reads_, projections) = lowerSystemV2 sysV2
+          Right sys' -> runIslT $ Isl.do
+            let (domains, writes, reads_, projections) = lowerSystem sys'
                 schedMaps  = lowerScheduleMaps sched domains
                 params     = symbolVals @ps
                 -- After the Case fan-out, a single contracted equation

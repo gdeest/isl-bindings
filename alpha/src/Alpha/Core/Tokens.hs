@@ -610,11 +610,11 @@ tokenizeInScope _ = mkToken
 
 -- | Coerce between two 'Named' skolems labelling the /same/ IslSet
 -- content.  The equality witness is minted through 'mkToken' (unit
--- coercion) — operationally inert because V2 identity is solely
--- skolem-based and both skolems refer to the same payload.
+-- coercion) — operationally inert because skolem identity is the
+-- only thing being unified and both skolems refer to the same payload.
 --
 -- Used by the elaborator's 'Var' case: a surface 'Var' references a
--- declared variable whose V2 skolem is the @VarDecl@'s @dom@, but the
+-- declared variable whose skolem is the @VarDecl@'s @dom@, but the
 -- enclosing Dep/Reduce/Case has installed a fresh @src@ skolem for
 -- the body's current ambient — the two skolems label the same ISL
 -- content (the plugin has structurally unified their DomTag phantoms),
@@ -704,8 +704,8 @@ checkAndTokenizeImageSubset TrustPlugin ppp pmc pSrc pDst nM nSrc nTgt =
                  ppp pmc pSrc pDst nM nSrc nTgt))
 checkAndTokenizeImageSubset SanityCheck _ _ _ _ nM nSrc nTgt =
   -- Strip tuple names before the ISL check: ISL's isl_set_apply
-  -- compares spaces including tuple names, but the V2 skolem machinery
-  -- identifies sets/maps by skolem only — payloads that match
+  -- compares spaces including tuple names, but skolem identity is
+  -- carried entirely at the type level — payloads that match
   -- structurally but differ in tuple names must still pass.
   checkImageSubset (stripMapNames (the' nM))
                    (stripSetName (the' nSrc))
@@ -761,9 +761,9 @@ the' :: Named n a -> a
 the' = Named.the
 
 -- | Strip the set's tuple name.  Sanity-check path only: ISL compares
--- spaces including tuple names, but V2 skolem identity is carried
--- entirely by the type-level skolem; payloads with different
--- declarative names can still refer to the same ISL set.
+-- spaces including tuple names, but skolem identity is carried
+-- entirely at the type level; payloads with different declarative
+-- names can still refer to the same ISL set.
 stripSetName :: NamedSet -> NamedSet
 stripSetName ns = ns { nsName = Nothing }
 

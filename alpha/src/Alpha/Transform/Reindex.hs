@@ -166,7 +166,8 @@ walkExprNonTarget = go
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | Walk the target equation's body.  Both @decls@ and ambient
--- dims\/domain change.  Phase 2: only 'Const'/'Pw'/'PMap' supported.
+-- dims\/domain change.  Only 'Const'\/'Pw'\/'PMap' are currently
+-- supported.
 walkExprTarget
   :: forall (target :: Symbol) (ps :: [Symbol])
             (pctx :: [TConstraint ps 0])
