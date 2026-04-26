@@ -19,6 +19,7 @@ module Alpha.Compile
 
 import Control.DeepSeq (NFData(..))
 import Data.List.NonEmpty (NonEmpty(..))
+import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 
@@ -151,7 +152,7 @@ runFlowCheck flowDeps schedMaps = Isl.do
 -- cell, so no aliasing is possible.
 runWawCheck
   :: [String]
-  -> [(String, [NamedMap], NamedMap)]
+  -> [(String, NonEmpty NamedMap, NamedMap)]
   -> [NamedMap]
   -> IslT IO (Ur (Either CompileError ()))
 runWawCheck _params [] _schedMaps = Isl.pure (Ur (Right ()))
@@ -200,13 +201,9 @@ schedNOut (sm:_) = nmNOut sm
 schedNOut []     = 0
 
 -- | Build one 'Isl.UnionMap' that is the union of all given
--- 'NamedMap's.  Precondition: the input list is non-empty (callers
--- that might have an empty list should short-circuit before calling
--- this; 'collectContracted' already filters those out).
-unionMapsFromNamed :: [NamedMap] -> IslT IO Isl.UnionMap
-unionMapsFromNamed []     =
-  error "Alpha.Compile.unionMapsFromNamed: empty list (collectContracted invariant violated)"
-unionMapsFromNamed (nm:nms) = Isl.do
+-- 'NamedMap's.
+unionMapsFromNamed :: NonEmpty NamedMap -> IslT IO Isl.UnionMap
+unionMapsFromNamed (nm :| nms) = Isl.do
   u0 <- buildUnionMapFromNamed nm
   Isl.foldM
     (\acc n -> Isl.do
@@ -230,14 +227,14 @@ collectContracted
   -> Allocation
   -> [NamedMap]   -- ^ write maps (from lowerSystem); multiple per
                   -- contracted Case-split equation
-  -> [(String, [NamedMap], NamedMap)]
+  -> [(String, NonEmpty NamedMap, NamedMap)]
 collectContracted params alloc writes =
   [ (eqName, ws, storageNM)
   | (eqName, Contracted stor) <- Map.toAscList (allocEntries alloc)
-  , ws@(w0:_) <- [lookupWriteMaps eqName writes]
+  , Just ws <- [NE.nonEmpty (lookupWriteMaps eqName writes)]
   -- All branches write to a space with the same rank as the equation;
   -- pick any branch's nmNOut.
-  , let nDims     = nmNOut w0
+  , let nDims     = nmNOut (NE.head ws)
         storageNM = storageToNamedMap' eqName (eqName ++ "__buf") params stor nDims
   ]
 
