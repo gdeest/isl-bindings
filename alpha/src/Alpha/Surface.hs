@@ -88,7 +88,7 @@ import Isl.TypeLevel.Expr
   ( D, Elem, P, TExpr(..), Z(..) )
 import Isl.TypeLevel.Reflection
   ( Append, DomTag(..), DomToUnion, EffectiveDomTag
-  , IslImageSubsetD, IslPartitionsD, LiteralBranchesU
+  , IslImageEqualD, IslImageSubsetD, IslPartitionsD, LiteralBranchesU
   , KnownDom, LitPrepend, MapLitPrepend, withPartitionsD )
 
 import Alpha.Surface.Core
@@ -440,7 +440,7 @@ reduceOver
      , KnownConstraints ps (Length (outerScope ++ '[k]) + Length outerScope)
          (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
             (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope))
-     , IslImageSubsetD ps (Length (outerScope ++ '[k])) (Length outerScope)
+     , IslImageEqualD ps (Length (outerScope ++ '[k])) (Length outerScope)
          (Append (LiftPctxN (Length (outerScope ++ '[k]) + Length outerScope) pctx)
            (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
               (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope)))
@@ -474,7 +474,7 @@ sumOver
      , KnownConstraints ps (Length (outerScope ++ '[k]) + Length outerScope)
          (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
             (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope))
-     , IslImageSubsetD ps (Length (outerScope ++ '[k])) (Length outerScope)
+     , IslImageEqualD ps (Length (outerScope ++ '[k])) (Length outerScope)
          (Append (LiftPctxN (Length (outerScope ++ '[k]) + Length outerScope) pctx)
            (IslMultiAffToMap ps (Length (outerScope ++ '[k])) (Length outerScope)
               (IdentityHeadIds ps (Length (outerScope ++ '[k])) 0 outerScope)))

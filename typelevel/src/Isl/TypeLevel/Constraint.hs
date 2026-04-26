@@ -35,6 +35,7 @@ module Isl.TypeLevel.Constraint
   , IslMapEqual(..)
   , IslRangeOf(..)
   , IslImageSubset(..)
+  , IslImageEqual(..)
     -- * Coverage proof obligations (solved by isl-plugin)
   , IslCovers(..)
   , IslPartitions(..)
@@ -247,6 +248,19 @@ class IslImageSubset (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
                      (mapCs :: [TConstraint ps (ni + no)])
                      (srcCs :: [TConstraint ps ni]) (dstCs :: [TConstraint ps no]) where
   islImageSubsetEv :: ()
+
+-- | @IslImageEqual ps ni no mapCs srcCs dstCs@ holds iff the image
+-- of @srcCs@ under the map @mapCs@ is /equal/ to @dstCs@.  Strictly
+-- stronger than 'IslImageSubset': both directions of the inclusion are
+-- checked.  Used by 'Alpha.Surface.Core.Reduce' to forbid the
+-- partial-function case where the projection's image is a proper
+-- subset of the declared ambient.
+--
+-- Solved at compile time by the isl-plugin via @isl_set_is_equal@.
+class IslImageEqual (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+                    (mapCs :: [TConstraint ps (ni + no)])
+                    (srcCs :: [TConstraint ps ni]) (dstCs :: [TConstraint ps no]) where
+  islImageEqualEv :: ()
 
 
 -- * Coverage proof obligations

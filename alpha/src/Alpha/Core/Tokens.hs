@@ -28,6 +28,7 @@ module Alpha.Core.Tokens
   , Equal
   , Disjoint
   , ImageSubset
+  , ImageEqual
   , Partition
   , DefinesAll
   , InScope
@@ -41,6 +42,7 @@ module Alpha.Core.Tokens
   , checkEqual
   , checkDisjoint
   , checkImageSubset
+  , checkImageEqual
   , checkPartition
   , checkDefinesAll
     -- * Cash-in-plugin-dict helpers and debug-path twins
@@ -52,6 +54,7 @@ module Alpha.Core.Tokens
   , SomeNamedSet(..)
   , ElabMode(..)
   , tokenizeImageSubset
+  , tokenizeImageEqual
   , tokenizePartition
   , tokenizeSubset
   , tokenizeInScope
@@ -59,6 +62,7 @@ module Alpha.Core.Tokens
   , axiomScalarEq
   , axiomBranchSubset
   , checkAndTokenizeImageSubset
+  , checkAndTokenizeImageEqual
   , checkAndTokenizePartition
   , checkAndTokenizeSubset
     -- * NamedSet materialization (for downstream interpreters)
@@ -98,6 +102,7 @@ import Isl.TypeLevel.Constraint (TConstraint, LiftPctxN)
 import Isl.TypeLevel.Reflection
   ( Append
   , DomTag
+  , IslImageEqualD
   , IslImageSubsetD
   , IslPartitionsD
   , IslSubsetD
@@ -122,6 +127,9 @@ data Disjoint      (a :: Type) (b :: Type)
 -- | @ImageSubset m src tgt@: @image(m | src) ⊆ tgt@.
 data ImageSubset   (m :: Type) (src :: Type) (tgt :: Type)
 
+-- | @ImageEqual m src tgt@: @image(m | src) = tgt@.
+data ImageEqual    (m :: Type) (src :: Type) (tgt :: Type)
+
 -- | @Partition amb bs@: the branches @bs@ partition the ambient @amb@
 -- (pairwise disjoint, covering).
 data Partition     (amb :: Type) (bs :: [Type])
@@ -144,6 +152,7 @@ instance NFData (Subset a b)              where rnf _ = ()
 instance NFData (Equal a b)               where rnf _ = ()
 instance NFData (Disjoint a b)            where rnf _ = ()
 instance NFData (ImageSubset m src tgt)   where rnf _ = ()
+instance NFData (ImageEqual m src tgt)    where rnf _ = ()
 instance NFData (Partition amb bs)        where rnf _ = ()
 instance NFData (DefinesAll dcs eqs)      where rnf _ = ()
 instance NFData (InScope sys v)           where rnf _ = ()
@@ -173,6 +182,8 @@ data ElabError
   | DisjointFails      !String !String
   | ImageSubsetFails   !String !String !String
       -- ^ @image(m | src) ⊆ tgt@ failed; names for (m, src, tgt)
+  | ImageEqualFails    !String !String !String
+      -- ^ @image(m | src) = tgt@ failed; names for (m, src, tgt)
   | OutOfBoundsAccess
   | NonPartitionCover  !String               -- ^ branch-union does not cover ambient
   | NonPartitionDisjoint !Int !Int           -- ^ branches i and j overlap
@@ -187,6 +198,7 @@ instance NFData ElabError where
     EqualFails a b          -> rnf a `seq` rnf b
     DisjointFails a b       -> rnf a `seq` rnf b
     ImageSubsetFails m s t  -> rnf m `seq` rnf s `seq` rnf t
+    ImageEqualFails m s t   -> rnf m `seq` rnf s `seq` rnf t
     OutOfBoundsAccess       -> ()
     NonPartitionCover s     -> rnf s
     NonPartitionDisjoint i j -> rnf i `seq` rnf j
@@ -386,6 +398,24 @@ checkImageSubset mm srcNS tgtNS = pure $ unsafePerformIO $ runIslT $ Isl.do
                                               (setLabel tgtNS))))
 {-# NOINLINE checkImageSubset #-}
 
+-- | @image(m | src) = tgt@ — computed as @apply(src, m) = tgt@.
+checkImageEqual
+  :: forall m src tgt
+   . IslMap -> IslSet -> IslSet
+  -> IO (Either ElabError (ImageEqual m src tgt))
+checkImageEqual mm srcNS tgtNS = pure $ unsafePerformIO $ runIslT $ Isl.do
+  mapObj <- materializeNamedMap mm
+  srcObj <- materializeNamedSet srcNS
+  tgtObj <- materializeNamedSet tgtNS
+  img    <- S.apply srcObj mapObj
+  Ur ok  <- withTwoSets img tgtObj S.isEqual
+  if ok
+    then Isl.pure (Ur (Right (mkToken :: ImageEqual m src tgt)))
+    else Isl.pure (Ur (Left (ImageEqualFails (mapLabel mm)
+                                             (setLabel srcNS)
+                                             (setLabel tgtNS))))
+{-# NOINLINE checkImageEqual #-}
+
 -- | @{bs}@ partition @amb@: pairwise disjoint, and @amb = ⋃ bs@.
 checkPartition
   :: forall amb bs
@@ -552,6 +582,35 @@ tokenizeImageSubset _ _ _ _ _ _ _ = mkToken
   -- payloads built by materialising the same type-level structure.
 {-# INLINE tokenizeImageSubset #-}
 
+-- | Cash in an @IslImageEqualD@ plugin dict: mint the corresponding
+-- 'ImageEqual m src tgt' token.  Mirrors 'tokenizeImageSubset' line for
+-- line; the only difference is the equality polarity of the underlying
+-- obligation (the plugin proves @image(m | src) = tgt@ rather than
+-- @image(m | src) ⊆ tgt@).
+tokenizeImageEqual
+  :: forall (ps :: [Symbol]) (pctx :: [TConstraint ps 0])
+            (ni :: Nat) (no :: Nat)
+            (mapCs :: [TConstraint ps (ni + no)])
+            (dSrc :: DomTag ps ni) (dDst :: DomTag ps no)
+            m src tgt.
+     IslImageEqualD ps ni no
+       (Append (LiftPctxN (ni + no) pctx) mapCs)
+       (LitPrepend (LiftPctxN ni pctx) dSrc)
+       (LitPrepend (LiftPctxN no pctx) dDst)
+  => Proxy pctx
+  -> Proxy mapCs
+  -> Proxy dSrc
+  -> Proxy dDst
+  -> Named m   IslMap
+  -> Named src IslSet
+  -> Named tgt IslSet
+  -> ImageEqual m src tgt
+tokenizeImageEqual _ _ _ _ _ _ _ = mkToken
+  -- TRUST: the IslImageEqualD dict witnesses image(mapCs | dSrc) = dDst
+  -- at the fused-pctx obligation shape.  The elaborator passes Named
+  -- payloads built by materialising the same type-level structure.
+{-# INLINE tokenizeImageEqual #-}
+
 -- | Cash in an @IslPartitionsD@ plugin dict: mint the corresponding
 -- 'Partition dom bs' token.  The list of 'SomeNamedSet' carries the
 -- materialised branch domains (consumed by the SanityCheck twin).
@@ -710,6 +769,41 @@ checkAndTokenizeImageSubset SanityCheck _ _ _ _ nM nSrc nTgt =
   checkImageSubset (stripMapNames (the' nM))
                    (stripSetName (the' nSrc))
                    (stripSetName (the' nTgt))
+
+-- | @SanityCheck@ variant of 'tokenizeImageEqual': calls the
+-- ISL-backed 'checkImageEqual' and returns its verdict.  In
+-- 'TrustPlugin' mode, this is identical to the type-level tokenize
+-- path (wraps 'mkToken' in @Right@).
+checkAndTokenizeImageEqual
+  :: forall (ps :: [Symbol]) (pctx :: [TConstraint ps 0])
+            (ni :: Nat) (no :: Nat)
+            (mapCs :: [TConstraint ps (ni + no)])
+            (dSrc :: DomTag ps ni) (dDst :: DomTag ps no)
+            m src tgt.
+     IslImageEqualD ps ni no
+       (Append (LiftPctxN (ni + no) pctx) mapCs)
+       (LitPrepend (LiftPctxN ni pctx) dSrc)
+       (LitPrepend (LiftPctxN no pctx) dDst)
+  => ElabMode
+  -> Proxy pctx
+  -> Proxy mapCs
+  -> Proxy dSrc
+  -> Proxy dDst
+  -> Named m   IslMap
+  -> Named src IslSet
+  -> Named tgt IslSet
+  -> IO (Either ElabError (ImageEqual m src tgt))
+checkAndTokenizeImageEqual TrustPlugin ppp pmc pSrc pDst nM nSrc nTgt =
+  pure (Right (tokenizeImageEqual @ps @pctx @ni @no @mapCs @dSrc @dDst
+                 ppp pmc pSrc pDst nM nSrc nTgt))
+checkAndTokenizeImageEqual SanityCheck _ _ _ _ nM nSrc nTgt =
+  -- Strip tuple names before the ISL check: ISL's isl_set_apply
+  -- compares spaces including tuple names, but skolem identity is
+  -- carried entirely at the type level — payloads that match
+  -- structurally but differ in tuple names must still pass.
+  checkImageEqual (stripMapNames (the' nM))
+                  (stripSetName (the' nSrc))
+                  (stripSetName (the' nTgt))
 
 -- | Sanity-check twin of 'tokenizePartition'.
 checkAndTokenizePartition

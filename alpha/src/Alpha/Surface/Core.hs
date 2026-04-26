@@ -123,8 +123,10 @@ import Isl.TypeLevel.Reflection
   ( Append
   , DomTag(..)
   , EffectiveDomTag
+  , IslImageEqualD
   , IslImageSubsetD
   , IslPartitionsD
+  , IslSubsetD
   , KnownDom
   , LitPrepend
   , MapLitPrepend
@@ -365,30 +367,16 @@ data Expr ps pctx decls n d a where
   --
   -- The reduction's body lives in a larger space @nBody@/@dBody@; the
   -- projection map (encoded as @projCs@) sends body points to result
-  -- points, and the *image* of @dBody@ under the projection must be
-  -- contained in the result domain @d@.
+  -- points, and the *image* of @dBody@ under the projection /equals/
+  -- the result domain @d@ ('IslImageEqualD'); transforms that wish to
+  -- narrow the result domain must wrap in 'Restrict' rather than
+  -- rewrite the phantom directly.
   --
   -- The 'ReduceOp' tag determines the accumulation operation:
   -- 'ReduceSum' → addition (identity 0), 'ReduceProd' → multiplication
   -- (identity 1), etc.  The interpreter and codegen use this directly.
   --
   -- See deviation D13 in doc/alpha-implementation.md.
-  --
-  -- === Transform polarity (IMPORTANT for 'Alpha.Transform.*' authors)
-  --
-  -- @d@ here is the /result/ domain: the image of @dBody@ under
-  -- @projCs@ must be ⊆ @d@.  A transform that narrows @d@ (e.g. from
-  -- @amb@ to @d' = d_i ∩ amb@) /tightens/ the obligation — generally
-  -- false, because a reduction's projection image typically covers all
-  -- of the ambient result domain.  Therefore a transform must NOT
-  -- attempt to rewrite a 'Reduce' node's result-domain phantom by
-  -- constructor-dispatched recursion.
-  --
-  -- The sound move is to /wrap/ the entire expression in a @'Dep'
-  -- \@identityMap@ — @Dep@'s obligation has the opposite polarity
-  -- (weaker source → smaller image), and the identity-map obligation
-  -- @dOuter ⊆ dInner@ is structurally trivial when @dOuter@ is any
-  -- narrowing of @dInner@.  See 'Alpha.Transform.Weaken.weakenExpr'.
   Reduce :: forall ps pctx decls (n :: Nat) (nBody :: Nat)
                   (projCs :: [TConstraint ps (nBody + n)])
                   (d :: DomTag ps n) (dBody :: DomTag ps nBody) a.
@@ -396,7 +384,7 @@ data Expr ps pctx decls n d a where
             , KnownDom ps n d
             , KnownDom ps nBody dBody
             , KnownConstraints ps (nBody + n) projCs
-            , IslImageSubsetD ps nBody n
+            , IslImageEqualD ps nBody n
                 (Append (LiftPctxN (nBody + n) pctx) projCs)
                 (LitPrepend (LiftPctxN nBody pctx) dBody)
                 (LitPrepend (LiftPctxN n pctx) d) )
@@ -435,8 +423,8 @@ data Expr ps pctx decls n d a where
   -- @branchDoms@ are fixed, and their intersection with @d'@ may no
   -- longer cover @d'@ (coverage is a property of @d@, not @d'@).
   -- As with 'Reduce', a constructor-dispatched phantom rewrite is
-  -- unsound; the universal move is to wrap via @'Dep' \@identityMap@.
-  -- See 'Alpha.Transform.Weaken.weakenExpr'.
+  -- unsound; the universal move is to wrap via 'Restrict'.
+  -- See 'Alpha.Transform.Restrict.restrict'.
   --
   -- === Nested Case (inside 'Reduce' body or 'Dep' target)
   --
@@ -458,6 +446,19 @@ data Expr ps pctx decls n d a where
               (MapLitPrepend (LiftPctxN n pctx) branchDoms) )
        => Branches ps pctx decls n d branchDoms a
        -> Expr ps pctx decls n d a
+
+  -- | Explicit subsumption: narrow an expression's declared domain
+  -- from @dInner@ down to any @dOuter@ with @dOuter ⊆ dInner@.  The
+  -- 'IslSubsetD' obligation is the type-level inclusion certificate;
+  -- the elaborator cashes it into a Core 'Subset' token.
+  Restrict :: forall ps pctx decls n dInner dOuter a.
+              ( KnownNat n
+              , KnownDom ps n dOuter, KnownDom ps n dInner
+              , IslSubsetD ps n
+                  (LitPrepend (LiftPctxN n pctx) dOuter)
+                  (LitPrepend (LiftPctxN n pctx) dInner) )
+           => Expr ps pctx decls n dInner a
+           -> Expr ps pctx decls n dOuter a
 
 
 -- | A list of case branches.  Each entry carries its own declared

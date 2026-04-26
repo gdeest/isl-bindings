@@ -6,29 +6,13 @@
 -- Centralising the error type in a dedicated module keeps the transform
 -- modules from cross-importing each other for one data type.
 --
--- === Phantom polarity — read this before writing a new transform
+-- === Narrowing the ambient domain
 --
--- An @'Alpha.Surface.Core.Expr' ps decls n d a@ carries its ambient domain @d@
--- as a phantom.  Transforms that need to narrow @d@ (e.g.
--- @d ↦ d ∩ d'@) cannot in general do so by constructor-dispatched
--- recursion, because two constructors have the /wrong polarity/ for
--- phantom rewriting:
---
---  * 'Alpha.Surface.Core.Reduce' — @d@ is the /result/ domain; the obligation
---    @image(dBody, projCs) ⊆ d@ tightens as @d@ narrows, and is
---    generally false under narrowing because a reduction's image
---    typically covers the whole result domain.
---
---  * 'Alpha.Surface.Core.Case' — branches partition @d@; their partition
---    witness @'Isl.Typed.Constraints.IslPartitionsD'@ may no longer
---    cover a narrower @d'@ (coverage is a property of @d@).
---
--- The sound, universal move is to /wrap/ the expression in a
--- @'Alpha.Surface.Core.Dep' \@identityMap@ node — 'Dep''s obligation
--- @image(dOuter, mapCs) ⊆ dInner@ has the correct polarity (weaker
--- source → smaller image), and under the identity map reduces to
--- @dOuter ⊆ dInner@, which holds trivially for any narrowing.  See
--- 'Alpha.Transform.Weaken.weakenExpr'.
+-- Transforms that need to narrow an expression's ambient domain @d@
+-- should /wrap/ in a @'Alpha.Surface.Core.Restrict'@ node — its
+-- 'IslSubsetD' obligation @dOuter ⊆ dInner@ holds trivially for any
+-- narrowing — rather than rewrite the phantom by constructor-dispatched
+-- recursion.  See 'Alpha.Transform.Restrict.restrict'.
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE RankNTypes #-}

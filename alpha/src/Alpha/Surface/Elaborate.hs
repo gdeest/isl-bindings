@@ -61,8 +61,10 @@ import           Alpha.Core.Tokens
   , axiomBranchSubset
   , axiomDomEq
   , axiomScalarEq
+  , checkAndTokenizeImageEqual
   , checkAndTokenizeImageSubset
   , checkAndTokenizePartition
+  , checkAndTokenizeSubset
   , checkDefinesAll
   , tokenizeInScope
   )
@@ -73,8 +75,8 @@ import qualified Isl.Typed.Constraints as C
 import           Isl.Typed.Params       (KnownSymbols, symbolVals)
 import           Isl.TypeLevel.Constraint (LiftPctxN)
 import           Isl.TypeLevel.Reflection
-  ( Append, DomTag, EffectiveDomTag, IslImageSubsetD, IslPartitionsD
-  , KnownDom, LitPrepend, MapLitPrepend, reflectDomConjunctions )
+  ( Append, DomTag, EffectiveDomTag, IslImageEqualD, IslImageSubsetD, IslPartitionsD
+  , IslSubsetD, KnownDom, LitPrepend, MapLitPrepend, reflectDomConjunctions )
 import           Isl.TypeLevel.Sing
   ( KnownConstraints, knownConstraints
   , reifySTConstraintsMap, reifySTConstraintsMapSplit, reifySTConstraintsSet )
@@ -355,6 +357,11 @@ walkExprAt mode namedDom env (Surface.Case branches) =
   walkCase @ps @pctx @sys @dom @n @d @_ @a @decls
            mode namedDom env branches
 
+walkExprAt mode namedDom env
+  (Surface.Restrict (inner :: Surface.Expr ps pctx decls n dInner a)) =
+  walkRestrict @ps @pctx @sys @dom @n @d @dInner @a @decls
+               mode namedDom env inner
+
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §6. Dep walker
@@ -431,9 +438,9 @@ walkDep mode namedDom env inner =
 -- §7. Reduce walker
 -- ═══════════════════════════════════════════════════════════════════════
 --
--- Cashes in Surface 'Reduce''s 'IslImageSubsetD' dict:
--- @image(projCs | dBody) ⊆ d@.  Binding dBody → body (Core) and d →
--- dom (Core) gives Core's 'ImageSubset p body dom'.
+-- Cashes in Surface 'Reduce''s 'IslImageEqualD' dict:
+-- @image(projCs | dBody) = d@.  Binding dBody → body (Core) and d →
+-- dom (Core) gives Core's 'ImageEqual p body dom'.
 
 walkReduce
   :: forall ps pctx sys dom n d nBody projCs dBody a decls.
@@ -443,7 +450,7 @@ walkReduce
      , KnownDom ps n d
      , KnownDom ps nBody dBody
      , KnownConstraints ps (nBody + n) projCs
-     , IslImageSubsetD ps nBody n
+     , IslImageEqualD ps nBody n
          (Append (LiftPctxN (nBody + n) pctx) projCs)
          (LitPrepend (LiftPctxN nBody pctx) dBody)
          (LitPrepend (LiftPctxN n pctx) d) )
@@ -481,7 +488,7 @@ walkReduce mode namedDom env op bodyE0 =
   in name bodySet $ \(namedBody :: Named bodyDom IslSet) ->
      name projMap $ \(namedP :: Named p IslMap) ->
        case unsafePerformIO
-              (checkAndTokenizeImageSubset
+              (checkAndTokenizeImageEqual
                  @ps @pctx @nBody @n @projCs @dBody @d
                  @p @bodyDom @dom
                  mode
@@ -620,3 +627,50 @@ attachSubsets part namedDom (PCons (namedB :: Named b IslSet) bodyE tl) =
              bodyE
              (attachSubsets @sys @dom @bs0 @_ @a part namedDom tl)
 
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- §9. Restrict walker
+-- ═══════════════════════════════════════════════════════════════════════
+--
+-- Cashes in Surface 'Restrict''s 'IslSubsetD' dict (@dOuter ⊆ dInner@)
+-- to mint Core's @Subset dom src@.  The caller's @namedDom@ is the
+-- outer (narrower) skolem; @namedSrc@ is freshly minted from the
+-- inner (wider) DomTag.
+
+walkRestrict
+  :: forall ps pctx sys dom n dOuter dInner a decls.
+     ( KnownSymbols ps
+     , KnownConstraints ps 0 pctx
+     , KnownNat n
+     , KnownDom ps n dOuter
+     , KnownDom ps n dInner
+     , IslSubsetD ps n
+         (LitPrepend (LiftPctxN n pctx) dOuter)
+         (LitPrepend (LiftPctxN n pctx) dInner) )
+  => ElabMode
+  -> Named dom IslSet
+  -> VarEnv sys
+  -> Surface.Expr ps pctx decls n dInner a
+  -> Either ElabError (Core.Expr sys dom a)
+walkRestrict mode namedDom env inner =
+  let nDims     = fromIntegral (natVal (Proxy @n)) :: Int
+      srcConjs  = fmap (foldPctxIntoSet (pctxSetCs @ps @pctx))
+                    (reflectDomConjunctions @ps @n @dInner)
+      srcSet    = NamedSet
+        { nsName   = Nothing
+        , nsParams = symbolVals @ps
+        , nsNDims  = nDims
+        , nsConjs  = srcConjs
+        }
+  in name srcSet $ \(namedSrc :: Named src IslSet) ->
+       case unsafePerformIO
+              (checkAndTokenizeSubset
+                 @ps @pctx @n @dOuter @dInner
+                 @dom @src
+                 mode
+                 (Proxy @pctx) (Proxy @dOuter) (Proxy @dInner)
+                 namedDom namedSrc) of
+         Left err  -> Left err
+         Right tok -> do
+           innerE <- walkExprAt @ps @pctx @sys @src mode namedSrc env inner
+           pure (Core.Restrict namedSrc tok innerE)

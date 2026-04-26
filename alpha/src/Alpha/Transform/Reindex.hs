@@ -151,6 +151,7 @@ walkExprNonTarget = go
 
     go (Reduce rop projP body) = Reduce rop projP <$> go body
     go (Case branches)     = Case <$> goBranches branches
+    go (Restrict inner)    = Restrict <$> go inner
 
     goBranches :: forall n' (amb :: DomTag ps n') (bdoms :: [DomTag ps n']) a'.
                   Branches ps pctx decls n' amb bdoms a'

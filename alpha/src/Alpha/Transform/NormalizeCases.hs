@@ -14,7 +14,7 @@
 -- Distributive rewrites (applied to fixed point by the expression
 -- walker):
 --
--- * @'Pw' op ('Case' bs) e@ ⇒ @'Case' { d_i → 'Pw' op e_i (weaken e) }@
+-- * @'Pw' op ('Case' bs) e@ ⇒ @'Case' { d_i → 'Pw' op e_i (restrict e) }@
 -- * @'Pw' op e ('Case' bs)@ ⇒ symmetric
 -- * @'PMap' op ('Case' bs)@ ⇒ @'Case' { d_i → 'PMap' op e_i }@
 --
@@ -31,7 +31,7 @@
 -- The pass is best-effort: the return type is
 -- @'Either' 'TransformError'@ for uniformity with sibling transforms,
 -- but every narrowing in this pass is structural (@d_i ∩ amb ⊆ amb@),
--- so the ISL subset check inside 'weakenExpr' is guaranteed to pass
+-- so the ISL subset check inside 'restrict' is guaranteed to pass
 -- at runtime.  A @'Left'@ would indicate an internal bug.
 module Alpha.Transform.NormalizeCases
   ( normalizeCases
@@ -44,7 +44,7 @@ import Alpha.Surface.Core
   ( Expr(..), Branches(..), EqList(..), Equation(..), System(..)
   , BinOp, UnaryOp, VarDecl )
 import Alpha.Transform.Types (TransformError(..))
-import Alpha.Transform.Weaken (weakenExpr)
+import Alpha.Transform.Restrict (restrict)
 import Isl.Typed.Params (KnownSymbols, Length)
 import Isl.TypeLevel.Constraint (TConstraint)
 import Isl.TypeLevel.Reflection
@@ -122,6 +122,10 @@ normExpr e0 = case e0 of
   -- Case: recurse into each branch body at its effective ambient.
   Case branches -> Case <$> normBranches branches
 
+  -- Restrict: recurse into inner at the inner (wider) phantom; the
+  -- wrapper is preserved so the outer phantom's narrowing remains.
+  Restrict inner -> Restrict <$> normExpr inner
+
 normBranches
   :: forall ps (pctx :: [TConstraint ps 0]) (decls :: [VarDecl ps]) n
             (amb :: DomTag ps n) (branchDoms :: [DomTag ps n]) a.
@@ -139,13 +143,13 @@ normBranches (BCons pd body rest) =
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | Distribute 'Pw' over a 'Case' operand, when one is present.
--- Weakens the /other/ operand into each branch's effective domain.
+-- Restricts the /other/ operand into each branch's effective domain.
 --
 -- When both operands are 'Case', we distribute through the left one;
--- the right 'Case' ends up weakened (wrapped in 'Dep' @identityMap)
--- into each left branch.  The plan's "Cartesian product" distribution
--- would require an extra pass after unwrapping the identity-'Dep';
--- it is not implemented in this first cut.
+-- the right 'Case' ends up restricted (wrapped in 'Restrict') into
+-- each left branch.  The plan's "Cartesian product" distribution would
+-- require an extra pass after unwrapping the 'Restrict'; it is not
+-- implemented in this first cut.
 hoistPw
   :: forall ps pctx (decls :: [VarDecl ps]) n (d :: DomTag ps n) a.
      ( KnownSymbols ps, KnownNat (Length ps)
@@ -176,7 +180,7 @@ hoistPMap op e         = Right (PMap op e)
 
 -- | Distribute @Pw op · rhs@ through a branch list (Case on the left).
 -- @rhs@ lives at the Case's ambient @d@; each branch body lives at
--- @EffectiveDomTag di d@; we weaken @rhs@ down to the same narrower
+-- @EffectiveDomTag di d@; we restrict @rhs@ down to the same narrower
 -- domain and pair it with the branch body.
 pushPwBranchesL
   :: forall ps pctx (decls :: [VarDecl ps]) n
@@ -222,10 +226,10 @@ pushPMapBranches op (BCons pd body rest) =
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- §6. Per-branch weakening helpers
+-- §6. Per-branch restriction helpers
 -- ═══════════════════════════════════════════════════════════════════════
 
--- | @Pw op body_i (weaken rhs)@ at the branch effective domain.
+-- | @Pw op body_i (restrict rhs)@ at the branch effective domain.
 -- The 'Proxy' threads the branch existential @di@ into the signature
 -- so callers pattern-matching 'BCons' don't need explicit type
 -- applications to satisfy the non-injective 'EffectiveDomTag'.
@@ -241,13 +245,13 @@ mkPwL
   -> Expr ps pctx decls n amb a
   -> Either TransformError (Expr ps pctx decls n (EffectiveDomTag di amb) a)
 mkPwL _ op body rhs =
-  case weakenExpr (Proxy @(EffectiveDomTag di amb)) rhs of
+  case restrict (Proxy @(EffectiveDomTag di amb)) rhs of
     Just rhs' -> Right (Pw op body rhs')
     Nothing   -> Left (DomainShrinkUnsafe
-                   "normalizeCases: weaken rhs"
+                   "normalizeCases: restrict rhs"
                    "<branch-effective>" "<ambient>")
 
--- | @Pw op (weaken lhs) body_i@ — mirror of 'mkPwL'.
+-- | @Pw op (restrict lhs) body_i@ — mirror of 'mkPwL'.
 mkPwR
   :: forall ps pctx (decls :: [VarDecl ps]) n
             (amb :: DomTag ps n) (di :: DomTag ps n) a.
@@ -260,8 +264,8 @@ mkPwR
   -> Expr ps pctx decls n (EffectiveDomTag di amb) a
   -> Either TransformError (Expr ps pctx decls n (EffectiveDomTag di amb) a)
 mkPwR _ op lhs body =
-  case weakenExpr (Proxy @(EffectiveDomTag di amb)) lhs of
+  case restrict (Proxy @(EffectiveDomTag di amb)) lhs of
     Just lhs' -> Right (Pw op lhs' body)
     Nothing   -> Left (DomainShrinkUnsafe
-                   "normalizeCases: weaken lhs"
+                   "normalizeCases: restrict lhs"
                    "<branch-effective>" "<ambient>")

@@ -43,6 +43,7 @@ module Negative.Cases
   , forceBadHeat3DOutOfBoundsNeighbor
   , forceBadCasePartitionsCoverageGap
   , forceBadCasePartitionsNonDisjoint
+  , forceBadReducePartial
   ) where
 
 import Control.Exception (evaluate)
@@ -84,6 +85,7 @@ import Examples.Heat3D
   )
 import Isl.TypeLevel.Constraint
   ( IslCovers(..)
+  , IslImageEqual(..)
   , IslImageSubset(..)
   , IslMultiAffToMap
   , IslNonEmpty(..)
@@ -466,4 +468,75 @@ _useBadPartitionsNonDisjoint = proofBadPartitionsNonDisjoint
 forceBadCasePartitionsNonDisjoint :: () -> IO ()
 forceBadCasePartitionsNonDisjoint () = do
   _ <- evaluate _useBadPartitionsNonDisjoint
+  return ()
+
+
+-- ═══════════════════════════════════════════════════════════════════════
+-- Negative #13: reduction with strictly partial image
+-- ═══════════════════════════════════════════════════════════════════════
+--
+-- The post-tightening 'Alpha.Surface.Core.Reduce' carries an
+-- 'IslImageEqualD' obligation: the reduction's projection image must
+-- equal its declared ambient.  A reduction whose image is a /strict/
+-- subset of the ambient is the genuine partiality bug — a function
+-- that masquerades as total but has undefined values on part of its
+-- domain.  This proof exercises the rejection.
+--
+-- Body @PartialBody = {(i, j) : 1 <= i <= N, 0 <= j <= N}@ excludes
+-- @i = 0@.  Projection @(i, j) -> (i)@ has image @{i : 1 <= i <= N}@.
+-- Target @FullTarget = {i : 0 <= i <= N}@ /includes/ @i = 0@, so the
+-- image is a strict subset of the target and 'IslImageEqual' must fail.
+--
+-- Uses the D15 force-method pattern via 'islImageEqualEv', mirroring
+-- 'forceBadLUDiagonalRead' above.  Like the other twelve negatives, the
+-- proof is currently parked: 'Negative.Cases' is excluded from the
+-- alpha-test suite (see Main.hs:451-454) because the GHC 9.10 plugin
+-- error path emits hard errors that '-fdefer-type-errors' can't
+-- intercept.  Verified out-of-band against an isolated probe module: the
+-- 'IslImageEqualD' plugin reports the precise diagnostic
+--
+--   IslImageEqual failed: image of projection does not equal target
+--   Image:             [N] -> { [i0] : 0 < i0 <= N }
+--   Target:            [N] -> { [i0] : 0 <= i0 <= N }
+--   In Target \ Image: [N] -> { [0] : N >= 0 }
+--
+-- but does so as a hard error.  The proof binding parks here until the
+-- plugin's error reporting is reworked to emit deferrable warnings.
+
+type PartialBody =
+  '[ 'TDim (D 0)     >=. 'TConst ('Pos 1)
+   , 'TParam (P "N") >=. 'TDim (D 0)
+   , 'TDim (D 1)     >=. 'TConst ('Pos 0)
+   , 'TParam (P "N") >=. 'TDim (D 1)
+   ] :: [TConstraint '["N"] 2]
+
+type FullTarget =
+  '[ 'TDim (D 0)     >=. 'TConst ('Pos 0)
+   , 'TParam (P "N") >=. 'TDim (D 0)
+   ] :: [TConstraint '["N"] 1]
+
+-- Projection map @(i, j) -> (i)@ as a multi-aff.
+type ProjectI =
+  '[ 'TDim (D 0)
+   ] :: [TExpr '["N"] 2]
+
+proofBadReducePartial
+  :: IslImageEqual '["N"] 2 1
+       (IslMultiAffToMap '["N"] 2 1 ProjectI)
+       PartialBody
+       FullTarget
+  => ()
+proofBadReducePartial =
+  islImageEqualEv
+    @'["N"] @2 @1
+    @(IslMultiAffToMap '["N"] 2 1 ProjectI)
+    @PartialBody
+    @FullTarget
+
+_useBadReducePartial :: ()
+_useBadReducePartial = proofBadReducePartial
+
+forceBadReducePartial :: () -> IO ()
+forceBadReducePartial () = do
+  _ <- evaluate _useBadReducePartial
   return ()

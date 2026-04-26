@@ -93,6 +93,7 @@ module Isl.TypeLevel.Reflection
     -- * Domain-tag-indexed obligation classes
   , IslSubsetD
   , IslImageSubsetD
+  , IslImageEqualD
   , IslRangeOfD
   , IslCoversD
   , IslPartitionsD
@@ -108,9 +109,12 @@ module Isl.TypeLevel.Reflection
   , domToString
     -- * Mirror predicates
   , islSubsetCheck
+  , islSubsetCheckSPctx
   , islImageSubsetCheck
   , islImageSubsetCheckS
   , islImageSubsetCheckSPctx
+  , islImageEqualCheck
+  , islImageEqualCheckSPctx
   , islNonEmpty
   , checkParamCtx
   ) where
@@ -137,6 +141,7 @@ import Isl.Linear (query_)
 import qualified Isl.Linear as Isl
 import Isl.TypeLevel.Constraint
   ( IslCoversU
+  , IslImageEqual
   , IslImageSubset
   , IslImageSubsetU
   , IslMapToString
@@ -326,6 +331,22 @@ instance IslImageSubset ps ni no mapCs cs1 cs2
 
 instance IslImageSubsetU ps ni no mapCs css dstCs
   => IslImageSubsetD ps ni no mapCs ('LiteralU css) ('Literal dstCs)
+
+
+-- | Domain-tag-indexed strict-equality of projection image vs target.
+-- Mirrors 'IslImageSubsetD' in shape but discharges through 'IslImageEqual',
+-- which the plugin solves via a single @isl_set_is_equal@ call.
+--
+-- Used by 'Alpha.Surface.Core.Reduce' to forbid the partial-function
+-- case where the projection's image is a /proper/ subset of the declared
+-- ambient: with this obligation, a transform that narrows a 'Reduce'
+-- result domain without going through 'Restrict' becomes a type error.
+class IslImageEqualD (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
+                     (mapCs :: [TConstraint ps (ni + no)])
+                     (dSrc :: DomTag ps ni) (dDst :: DomTag ps no)
+
+instance IslImageEqual ps ni no mapCs cs1 cs2
+  => IslImageEqualD ps ni no mapCs ('Literal cs1) ('Literal cs2)
 
 
 class IslRangeOfD (ps :: [Symbol]) (ni :: Nat) (no :: Nat)
@@ -525,6 +546,45 @@ islSubsetCheck _ _ =
     subsetDict :: Dict (IslSubsetD ps n d1 d2)
     subsetDict = unsafeCoerce (Dict :: Dict (() :: Constraint))
 
+-- | Like 'islSubsetCheck' but returns a 'Dict' for the /pctx-fused/
+-- obligation shape.  Used by transforms that reconstruct surface
+-- 'Restrict' nodes, whose plugin obligation is on
+-- @(LitPrepend (LiftPctxN n pctx) d1)@ /
+-- @(LitPrepend (LiftPctxN n pctx) d2)@.
+--
+-- Sound by the same unsafe-seal argument as 'islImageSubsetCheckSPctx':
+-- the parameter-only constraints in @pctx@ (after lifting) are vacuous
+-- w.r.t. the set dim algebra, so the ISL result is identical to the
+-- fused form at every valid parameter assignment.
+islSubsetCheckSPctx
+  :: forall ps pctx n d1 d2.
+     ( KnownDom ps n d1
+     , KnownDom ps n d2
+     , KnownNat n
+     , KnownSymbols ps
+     , KnownNat (Length ps)
+     )
+  => Proxy pctx
+  -> Proxy d1
+  -> Proxy d2
+  -> Maybe (Dict (IslSubsetD ps n
+                    (LitPrepend (LiftPctxN n pctx) d1)
+                    (LitPrepend (LiftPctxN n pctx) d2)))
+islSubsetCheckSPctx _ _ _ =
+  let ok = unsafePerformIO $ runIslT $ Isl.do
+             s1 <- domToSet @ps @n @d1
+             Ur b <- Isl.queryM_ s1 (\r1 -> Isl.do
+               s2 <- domToSet @ps @n @d2
+               Ur r <- query_ s2 (\r2 -> RawS.isSubset r1 r2)
+               Isl.pure (Ur r))
+             Isl.pure (Ur b)
+   in if ok then Just subsetDict else Nothing
+  where
+    subsetDict :: Dict (IslSubsetD ps n
+                         (LitPrepend (LiftPctxN n pctx) d1)
+                         (LitPrepend (LiftPctxN n pctx) d2))
+    subsetDict = unsafeCoerce (Dict :: Dict (() :: Constraint))
+
 -- | Predicate mirror for 'IslImageSubsetD': check that the image of
 -- @dSrc@ under the map given as an ISL string is a subset of @dDst@.
 -- Returns a typed proof token on success.
@@ -671,6 +731,89 @@ islImageSubsetCheckSPctx mapStr _ _ _ =
    in if ok then Just imgDict else Nothing
   where
     imgDict :: Dict (IslImageSubsetD ps ni no
+                       (Append (LiftPctxN (ni + no) pctx) mapCs)
+                       (LitPrepend (LiftPctxN ni pctx) dSrc)
+                       (LitPrepend (LiftPctxN no pctx) dDst))
+    imgDict = unsafeCoerce (Dict :: Dict (() :: Constraint))
+
+-- | Predicate mirror for 'IslImageEqualD': check that the image of
+-- @dSrc@ under the map given by @mapCs@ is /equal/ to @dDst@ (both
+-- inclusions, not just one).  Returns a typed proof token on success.
+--
+-- Mirrors 'islImageSubsetCheck' line-for-line, with the single
+-- @S.isSubset@ swapped for an @S.isEqual@.  Same soundness story: the
+-- internal @'unsafeCoerce'@ produces a method-less 'IslImageEqualD'
+-- dictionary by relabelling 'Dict' '()'; the underlying fact (image =
+-- target) was just witnessed by ISL.
+islImageEqualCheck
+  :: forall ps ni no (mapCs :: [TConstraint ps (ni + no)]) dSrc dDst.
+     ( KnownDom ps ni dSrc
+     , KnownDom ps no dDst
+     , KnownNat ni
+     , KnownNat no
+     , KnownSymbols ps
+     , KnownNat (Length ps)
+     , KnownSymbol (IslMapToString ps ni no mapCs)
+     )
+  => Proxy dSrc
+  -> Proxy dDst
+  -> Maybe (Dict (IslImageEqualD ps ni no mapCs dSrc dDst))
+islImageEqualCheck _ _ =
+  let mapStr = symbolVal (Proxy @(IslMapToString ps ni no mapCs))
+      ok = unsafePerformIO $ runIslT $ Isl.do
+             src <- domToSet @ps @ni @dSrc
+             m   <- RawM.readFromStr mapStr
+             img <- RawS.apply src m
+             Ur b <- Isl.queryM_ img (\imgRef -> Isl.do
+               dst <- domToSet @ps @no @dDst
+               Ur r <- query_ dst (\dstRef -> RawS.isEqual imgRef dstRef)
+               Isl.pure (Ur r))
+             Isl.pure (Ur b)
+   in if ok then Just imgDict else Nothing
+  where
+    imgDict :: Dict (IslImageEqualD ps ni no mapCs dSrc dDst)
+    imgDict = unsafeCoerce (Dict :: Dict (() :: Constraint))
+
+-- | Like 'islImageEqualCheck' but returns a 'Dict' for the
+-- /pctx-fused/ obligation shape.  Mirrors 'islImageSubsetCheckSPctx'
+-- with the @S.isSubset@ swapped for @S.isEqual@.
+--
+-- Sound by the same unsafe-seal argument as 'islImageSubsetCheckSPctx':
+-- the obligation classes are method-less, their dictionaries are unit
+-- at runtime, and the ISL-level equivalence between fused and unfused
+-- image-equality is parametric.
+islImageEqualCheckSPctx
+  :: forall ps pctx ni no
+            (mapCs :: [TConstraint ps (ni + no)])
+            dSrc dDst.
+     ( KnownDom ps ni dSrc
+     , KnownDom ps no dDst
+     , KnownNat ni
+     , KnownNat no
+     , KnownSymbols ps
+     , KnownNat (Length ps)
+     )
+  => String            -- ^ map ISL text
+  -> Proxy pctx
+  -> Proxy dSrc
+  -> Proxy dDst
+  -> Maybe (Dict (IslImageEqualD ps ni no
+                    (Append (LiftPctxN (ni + no) pctx) mapCs)
+                    (LitPrepend (LiftPctxN ni pctx) dSrc)
+                    (LitPrepend (LiftPctxN no pctx) dDst)))
+islImageEqualCheckSPctx mapStr _ _ _ =
+  let ok = unsafePerformIO $ runIslT $ Isl.do
+             src <- domToSet @ps @ni @dSrc
+             m   <- RawM.readFromStr mapStr
+             img <- RawS.apply src m
+             Ur b <- Isl.queryM_ img (\imgRef -> Isl.do
+               dst <- domToSet @ps @no @dDst
+               Ur r <- query_ dst (\dstRef -> RawS.isEqual imgRef dstRef)
+               Isl.pure (Ur r))
+             Isl.pure (Ur b)
+   in if ok then Just imgDict else Nothing
+  where
+    imgDict :: Dict (IslImageEqualD ps ni no
                        (Append (LiftPctxN (ni + no) pctx) mapCs)
                        (LitPrepend (LiftPctxN ni pctx) dSrc)
                        (LitPrepend (LiftPctxN no pctx) dDst))

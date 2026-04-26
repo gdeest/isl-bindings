@@ -126,24 +126,39 @@ type CholeskyDecls =
 lowerTri :: DomExpr '["i", "j"] _
 lowerTri = range0 @"N" #i /\ between (lit @0) #i #j
 
--- | Diagonal branch: @{(i, j) | 0 ≤ i ≤ N - 1, j = i}@.
-diagN :: DomExpr '["i", "j"] _
-diagN = range0 @"N" #i /\ #j .==. #i
+-- | Diagonal at @i = 0@: the singleton @{(0, 0)}@.  Boundary case
+-- where the reduction is empty (@L[0,0] = sqrt(A[0,0])@).
+diag0N :: DomExpr '["i", "j"] _
+diag0N = #i .==. lit @0 /\ #j .==. lit @0
 
--- | Strict lower branch: @{(i, j) | 0 ≤ j ≤ i - 1, i ≤ N - 1}@.
-strictLowerN :: DomExpr '["i", "j"] _
-strictLowerN = range0 @"N" #i /\ between (lit @0) (#i -. lit @1) #j
+-- | Diagonal at @i >= 1@: @{(i, j) | 1 ≤ i ≤ N - 1, j = i}@.  Image
+-- of the @k@-projection equals this domain.
+diagPosN :: DomExpr '["i", "j"] _
+diagPosN = between (lit @1) (par @"N" -. lit @1) #i /\ #j .==. #i
 
--- | 3D diagonal reduction body:
--- @{(i, j, k) | 0 ≤ i ≤ N - 1, j = i, 0 ≤ k ≤ j - 1}@.
+-- | Strict lower at @j = 0@: @{(i, 0) | 1 ≤ i ≤ N - 1}@.  Boundary
+-- case (empty reduction, @L[i,0] = A[i,0] / L[0,0]@).
+sub0N :: DomExpr '["i", "j"] _
+sub0N = between (lit @1) (par @"N" -. lit @1) #i /\ #j .==. lit @0
+
+-- | Strict lower at @j >= 1@: @{(i, j) | 2 ≤ i ≤ N - 1, 1 ≤ j ≤ i - 1}@.
+subPosN :: DomExpr '["i", "j"] _
+subPosN =
+  between (lit @2) (par @"N" -. lit @1) #i /\ between (lit @1) (#i -. lit @1) #j
+
+-- | 3D diagonal reduction body for the @i >= 1@ branch:
+-- @{(i, j, k) | 1 ≤ i ≤ N - 1, j = i, 0 ≤ k ≤ j - 1}@.
 diagBodyN :: DomExpr '["i", "j", "k"] _
-diagBodyN = range0 @"N" #i /\ #j .==. #i /\ between (lit @0) (#j -. lit @1) #k
+diagBodyN =
+  between (lit @1) (par @"N" -. lit @1) #i /\ #j .==. #i
+  /\ between (lit @0) (#j -. lit @1) #k
 
--- | 3D strict-lower reduction body:
--- @{(i, j, k) | 0 ≤ j ≤ i - 1, i ≤ N - 1, 0 ≤ k ≤ j - 1}@.
+-- | 3D strict-lower reduction body for the @j >= 1@ branch:
+-- @{(i, j, k) | 2 ≤ i ≤ N - 1, 1 ≤ j ≤ i - 1, 0 ≤ k ≤ j - 1}@.
 strictLowerBodyN :: DomExpr '["i", "j", "k"] _
 strictLowerBodyN =
-  range0 @"N" #i /\ between (lit @0) (#i -. lit @1) #j /\ between (lit @0) (#j -. lit @1) #k
+  between (lit @2) (par @"N" -. lit @1) #i /\ between (lit @1) (#i -. lit @1) #j
+  /\ between (lit @0) (#j -. lit @1) #k
 
 
 -- ═══════════════════════════════════════════════════════════════════════
@@ -162,14 +177,20 @@ cholesky = system
   )
   ( def @"L" @'["i", "j"]
       (caseB $
-        when_ diagN
-          -- Diagonal: sqrt(A[i, i] - sum_k L[i, k]^2)
+        when_ diag0N
+          -- (0, 0) boundary: sqrt(A[0, 0]); empty reduction.
+          (mapB OpSqrt (at @"A" (ix2 #i #j)))
+      $ when_ diagPosN
+          -- Diagonal i >= 1: sqrt(A[i, i] - sum_k L[i, k]^2)
           (mapB OpSqrt $
             at @"A" (ix2 #i #j) .-.
             sumOver @"k" diagBodyN
               (at @"L" (ix2 #i #k) .*. at @"L" (ix2 #i #k)))
-      $ when_ strictLowerN
-          -- Strict lower: (A[i, j] - sum_k L[i, k] * L[j, k]) / L[j, j]
+      $ when_ sub0N
+          -- (i, 0) boundary: A[i, 0] / L[0, 0]; empty reduction.
+          (at @"A" (ix2 #i #j) ./. at @"L" (ix2 #j #j))
+      $ when_ subPosN
+          -- Strict lower j >= 1: (A[i, j] - sum_k L[i, k] * L[j, k]) / L[j, j]
           ((at @"A" (ix2 #i #j) .-.
             sumOver @"k" strictLowerBodyN
               (at @"L" (ix2 #i #k) .*. at @"L" (ix2 #j #k)))

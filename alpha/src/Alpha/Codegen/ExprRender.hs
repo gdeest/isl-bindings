@@ -149,6 +149,9 @@ renderExprToC ctx (Reduce _rop _projCs inner) =
 renderExprToC ctx (Case branches) =
   renderBranches ctx branches
 
+renderExprToC ctx (Restrict inner) =
+  renderExprToC ctx inner
+
 renderBranches
   :: forall ps pctx decls n (amb :: DomTag ps n) branchDoms a.
      RenderCtx -> Branches ps pctx decls n amb branchDoms a
@@ -231,6 +234,9 @@ renderCoreExprToC ctx (Core.Reduce _rop _namedP _namedBody _tok inner) =
 
 renderCoreExprToC ctx (Core.Case _partTok branches) =
   renderCoreBranches ctx branches
+
+renderCoreExprToC ctx (Core.Restrict _namedSrc _tok inner) =
+  renderCoreExprToC ctx inner
 
 renderCoreBranches
   :: forall sys d bs a.

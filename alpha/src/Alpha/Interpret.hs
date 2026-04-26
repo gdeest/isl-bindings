@@ -262,6 +262,9 @@ evalExpr desc env (Reduce reduceOp _namedP namedBody _tok body) point = do
 evalExpr desc env (Case _partTok branches) point =
   evalBranches desc env branches point
 
+evalExpr desc env (Restrict _namedSrc _tok inner) point =
+  evalExpr desc env inner point
+
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- §5. Branch evaluation

@@ -53,6 +53,7 @@ import Alpha.Codegen.COp  (BinOp(..), UnaryOp(..), ReduceOp(..))
 import Alpha.Core.Named   (Named)
 import Alpha.Core.Tokens
   ( DefinesAll
+  , ImageEqual
   , ImageSubset
   , InScope
   , IslMap
@@ -123,11 +124,15 @@ data Expr sys dom a where
          -> Expr sys dom a
 
   -- | Reduction along a projection map @p@.  Image of @body@ under
-  -- @p@ must lie in @dom@; the token is the elaborator's certificate.
+  -- @p@ /equals/ @dom@: the reduction defines exactly its declared
+  -- support, no slack.  Partial reductions (image strictly smaller
+  -- than the ambient) are rejected at elaboration; the user must
+  -- either tighten the declared ambient or wrap in 'Restrict'.  The
+  -- token is the elaborator's certificate.
   Reduce :: ReduceOp
          -> Named p    IslMap
          -> Named body IslSet
-         -> ImageSubset p body dom
+         -> ImageEqual p body dom
          -> Expr sys body a
          -> Expr sys dom a
 
@@ -136,6 +141,15 @@ data Expr sys dom a where
   Case   :: Partition dom bs
          -> CaseBranches sys dom bs a
          -> Expr sys dom a
+
+  -- | Explicit subsumption / narrowing: read @inner@ on the wider
+  -- @src@ skolem at the strictly-narrower @dom@ skolem.  The
+  -- @Subset dom src@ token witnesses @dom ⊆ src@; semantically
+  -- transparent for codegen and interpretation.
+  Restrict :: Named src IslSet
+           -> Subset dom src
+           -> Expr sys src a
+           -> Expr sys dom a
 
 -- | Snoc-list of case branches.  All branches share the ambient
 -- @dom@; per-branch skolem @b@ is existentially introduced by 'BCons'

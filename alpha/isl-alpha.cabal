@@ -43,7 +43,7 @@ library
                    , Alpha.Transform.NormalizeCases
                    , Alpha.Transform.Tile
                    , Alpha.Transform.Walk
-                   , Alpha.Transform.Weaken
+                   , Alpha.Transform.Restrict
                    , Alpha.Polyhedral.Dependence
                    , Alpha.Polyhedral.Reduce
                    , Alpha.Polyhedral.Schedule

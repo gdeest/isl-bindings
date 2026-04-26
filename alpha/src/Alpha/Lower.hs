@@ -257,6 +257,9 @@ extractReads ctx c (Core.Reduce _ namedP _namedBody _ body) =
 extractReads ctx c (Core.Case _ branches) =
   extractBranchReads ctx c branches
 
+extractReads ctx c (Core.Restrict _namedSrc _ inner) =
+  extractReads ctx c inner
+
 extractBranchReads
   :: ReadCtx -> Int
   -> Core.CaseBranches sys dom bs a
@@ -275,4 +278,5 @@ innerVarName :: Core.Expr sys dom a -> String
 innerVarName (Core.Var (_ :: Proxy v) _ _) = symbolVal (Proxy @v)
 innerVarName (Core.PMap _ e)               = innerVarName e
 innerVarName (Core.Dep _ _ _ inner)        = innerVarName inner
+innerVarName (Core.Restrict _ _ inner)     = innerVarName inner
 innerVarName _                             = "<unknown>"

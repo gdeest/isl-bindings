@@ -13,7 +13,8 @@
 --
 -- The plugin intercepts proof obligations expressed as class constraints
 -- from "Isl.TypeLevel.Constraint" ('IslSubset', 'IslNonEmpty', 'IslEqual',
--- 'IslMapSubset', 'IslMapEqual', 'IslRangeOf', 'IslImageSubset') and
+-- 'IslMapSubset', 'IslMapEqual', 'IslRangeOf', 'IslImageSubset',
+-- 'IslImageEqual') and
 -- solves them at compile time by building ISL objects programmatically
 -- and calling the ISL C library.
 module Isl.Plugin (plugin) where
@@ -190,6 +191,7 @@ data IslPluginEnv = IslPluginEnv
   , envMapEqualClass    :: !Class
   , envRangeOfClass     :: !Class
   , envImageSubsetClass :: !Class
+  , envImageEqualClass  :: !Class
     -- Promoted data constructors for walking type-level constraint trees
   , envTEq    :: !TyCon
   , envTGe    :: !TyCon
@@ -285,6 +287,7 @@ initPlugin = do
   -- Proof obligation classes
   [ envSubsetClass, envNonEmptyClass, envEqualClass
     , envMapSubsetClass, envMapEqualClass, envRangeOfClass, envImageSubsetClass
+    , envImageEqualClass
     , envCoversClass, envPartitionsClass
     , envMultiAffEqualClass
     , envSubsetUClass, envEqualUClass, envNonEmptyUClass
@@ -292,6 +295,7 @@ initPlugin = do
     ] <- lookupClasses constraintMod
           [ "IslSubset", "IslNonEmpty", "IslEqual"
           , "IslMapSubset", "IslMapEqual", "IslRangeOf", "IslImageSubset"
+          , "IslImageEqual"
           , "IslCovers", "IslPartitions"
           , "IslMultiAffEqual"
           , "IslSubsetU", "IslEqualU", "IslNonEmptyU"
@@ -410,6 +414,7 @@ data IslWanted
   | WantedMapEqual   !Ct !Type !Type !Type !Type !Type   -- ps, ni, no, cs1, cs2
   | WantedRangeOf    !Ct !Type !Type !Type !Type !Type   -- ps, ni, no, mapCs, rangeCs
   | WantedImageSubset !Ct !Type !Type !Type !Type !Type !Type -- ps, ni, no, mapCs, srcCs, dstCs
+  | WantedImageEqual  !Ct !Type !Type !Type !Type !Type !Type -- ps, ni, no, mapCs, srcCs, dstCs
   -- Coverage obligations
   | WantedCovers     !Ct !Type !Type !Type !Type             -- ps, n, fullDom, branches
   | WantedPartitions !Ct !Type !Type !Type !Type             -- ps, n, fullDom, branches
@@ -445,6 +450,10 @@ classifyWanted env@IslPluginEnv{..} ct =
       | cls == envImageSubsetClass -> case args of
           [ps, ni, no, mapCs, srcCs, dstCs] ->
             Just $ WantedImageSubset ct ps ni no mapCs srcCs dstCs
+          _ -> Nothing
+      | cls == envImageEqualClass -> case args of
+          [ps, ni, no, mapCs, srcCs, dstCs] ->
+            Just $ WantedImageEqual ct ps ni no mapCs srcCs dstCs
           _ -> Nothing
       -- Coverage obligations
       | cls == envCoversClass, [ps, n, fullDom, branches] <- args ->
@@ -727,6 +736,75 @@ solveOne env = \case
                 , "  Target:        " ++ dstStr
                 , "  Counterexample:" ++ diffStr
                 , "  (points in image but not in target)"
+                ]
+        _ -> traceReifyFail >> pure Deferred
+
+  -- Mirrors 'WantedImageSubset' but with two-direction counterexamples
+  -- on failure (image \ target and target \ image).  Used by 'Reduce'
+  -- to forbid the partial-function case where the projection's image
+  -- is a /proper/ subset of the declared ambient.
+  --
+  -- CSE-safety: the failure path needs three independent copies of the
+  -- image and three of the target — one for the @isEqual@ borrow, one
+  -- per direction of @S.subtract@.  We build each ONCE and dup via
+  -- 'duplicateN' (refcounted O(1) @isl_set_copy@) rather than rebuild
+  -- via 'buildSet', since GHC's CSE happily shares syntactically-equal
+  -- @buildSet@ thunks and would yield the same pointer to two consume
+  -- sites.  See the explainer at 'WantedPartitions'.
+  WantedImageEqual ct psTy niTy noTy mapCsTy srcCsTy dstCsTy ->
+    withReifiedMap env psTy niTy noTy $ \paramNames nIn nOut -> do
+      let nParams = length paramNames
+          mMapCs = reifyMapConstraintList env paramNames nIn (unfoldTypeList mapCsTy)
+          mSrcCs = reifyConstraintList env paramNames (unfoldTypeList srcCsTy)
+          mDstCs = reifyConstraintList env paramNames (unfoldTypeList dstCsTy)
+      case (mMapCs, mSrcCs, mDstCs) of
+        (Just mapCs, Just srcCs, Just dstCs) -> do
+          let ctx   = envCtxPtr env
+              -- Build image and dst ONCE; produce three independent
+              -- copies of each via 'duplicateN' for the consume sites
+              -- below (one for stringify, two for the diff subtracts).
+              imageOnce = runRawIsl1 ctx $
+                S.apply (buildSet ctx nParams nIn paramNames srcCs)
+                        (buildMap ctx nParams nIn nOut paramNames mapCs)
+              dstOnce   = buildSet ctx nParams nOut paramNames dstCs
+              !images = duplicateN 3 imageOnce
+              !dsts   = duplicateN 3 dstOnce
+              (image1, image2, image3) = case images of
+                [a, b, c] -> (a, b, c)
+                _         -> error "duplicateN 3 returned wrong arity"
+              (dst1, dst2, dst3) = case dsts of
+                [a, b, c] -> (a, b, c)
+                _         -> error "duplicateN 3 returned wrong arity"
+              result = S.isEqual (setRef image1) (setRef dst1)
+          if result
+            then traceProved "ImageEqual" >> (solvedWith ct)
+            else do
+              -- Force ISL-to-string conversions in IO to prevent
+              -- lazy thunks capturing freed ISL objects.
+              !mapStr <- mkStr $ islMapToStr (buildMap ctx nParams nIn nOut paramNames mapCs)
+              !srcStr <- mkStr $ islSetToStr (buildSet ctx nParams nIn paramNames srcCs)
+              !imgStr <- mkStr $ islSetToStr image1
+              !dstStr <- mkStr $ islSetToStr dst1
+              -- Two counterexamples; each S.subtract consumes its args.
+              !diff1Str <- mkStr $ islSetToStr $ runRawIsl1 ctx $
+                S.subtract image2 dst2
+              !diff2Str <- mkStr $ islSetToStr $ runRawIsl1 ctx $
+                S.subtract dst3   image3
+              traceFailed "ImageEqual" $
+                "\n  Map:    " ++ mapStr ++
+                "\n  Source: " ++ srcStr ++
+                "\n  Image:  " ++ imgStr ++
+                "\n  Target: " ++ dstStr ++
+                "\n  Image \\ Target: " ++ diff1Str ++
+                "\n  Target \\ Image: " ++ diff2Str
+              failedWith env ct
+                [ "IslImageEqual failed: image of projection does not equal target domain"
+                , "  Map:               " ++ mapStr
+                , "  Source:            " ++ srcStr
+                , "  Image:             " ++ imgStr
+                , "  Target:            " ++ dstStr
+                , "  In Image \\ Target: " ++ diff1Str
+                , "  In Target \\ Image: " ++ diff2Str
                 ]
         _ -> traceReifyFail >> pure Deferred
 
