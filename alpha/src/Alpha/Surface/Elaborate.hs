@@ -49,7 +49,7 @@ import System.IO.Unsafe      (unsafePerformIO)
 
 import qualified Alpha.Core            as Core
 import qualified Alpha.Surface.Core    as Surface
-import           Alpha.Core.Named       (Named, name, name2, the)
+import           Alpha.Core.Named       (Named, name, name2)
 import           Alpha.Core.Tokens
   ( ElabError(..)
   , ElabMode(..)
@@ -85,8 +85,11 @@ import           Isl.TypeLevel.Sing
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | A variable reference resolved during elaboration: the symbol name
--- at the type level, plus an 'InScope' token and the 'Named dom IslSet'
--- payload that was installed at declaration time.
+-- at the type level, the 'InScope' token, the 'Named dom IslSet'
+-- payload, and the 'Core.VarDecl' built at declaration time.  The
+-- 'VarDecl' field is the single source of truth for vdScalar and
+-- vdDims; 'walkEquations' threads it directly into 'SomeEquation'
+-- rather than reconstructing.
 data SomeVarRef sys where
   SomeVarRef
     :: forall sys v (dom :: Type).
@@ -94,6 +97,7 @@ data SomeVarRef sys where
     => Proxy v
     -> InScope sys v
     -> Named dom IslSet
+    -> Core.VarDecl sys v dom
     -> SomeVarRef sys
 
 -- | Symbol → reference lookup.
@@ -233,13 +237,13 @@ installDecls env ((Surface.MkDecl :: Surface.Decl ps d) Surface.:> rest) k =
   in name islSet $ \(namedDom :: Named dom IslSet) ->
        let pv    = Proxy @(Surface.DeclName d)
            tok   = tokenizeInScope @sys pv
-           vref  = SomeVarRef pv tok namedDom
            vdecl = Core.VarDecl
                      { Core.vdName   = nm
                      , Core.vdDims   = dims
                      , Core.vdScalar = scalar
                      , Core.vdDom    = namedDom
                      }
+           vref  = SomeVarRef pv tok namedDom vdecl
            entry = (nm, Core.SomeVarDecl pv vdecl)
        in installDecls @ps @pctx @sys ((nm, vref) : env) rest $ \env' entries ->
             k env' (entry : entries)
@@ -275,16 +279,10 @@ walkEquations mode env (Surface.Defines (Proxy :: Proxy nm) body Surface.:& rest
   let nmS = symbolVal (Proxy @nm)
   in case lookup nmS env of
        Nothing -> Left (MissingDef nmS)
-       Just (SomeVarRef (pv :: Proxy v) tok (namedDom :: Named dom IslSet)) -> do
+       Just (SomeVarRef (pv :: Proxy v) tok (namedDom :: Named dom IslSet)
+                        (vdecl :: Core.VarDecl sys v dom)) -> do
          bodyE <- walkExprAt @ps @pctx @sys @dom mode namedDom env (coerceBody body)
-         let vdecl :: Core.VarDecl sys v dom
-             vdecl = Core.VarDecl
-                       { Core.vdName   = nmS
-                       , Core.vdDims   = dimsOfNamed namedDom
-                       , Core.vdScalar = Scalar.scalarCNumType @a
-                       , Core.vdDom    = namedDom
-                       }
-             _ = tok
+         let _ = tok
              _ = pv
          eqs <- walkEquations @ps @pctx @sys @decls @_ @a mode env rest
          pure (Core.SomeEquation vdecl bodyE : eqs)
@@ -294,10 +292,6 @@ walkEquations mode env (Surface.Defines (Proxy :: Proxy nm) body Surface.:& rest
          Surface.Expr ps pctx decls n_ d_ b
       -> Surface.Expr ps pctx decls n_ d_ a
     coerceBody e = case axiomScalarEq @b @a of Refl -> e
-
--- | Extract the runtime dimension count from a 'Named dom IslSet'.
-dimsOfNamed :: Named dom IslSet -> Int
-dimsOfNamed = nsNDims . the
 
 -- | Recover the defined-var name from a 'Core.SomeEquation'.
 someEqName :: forall sys a. Core.SomeEquation sys a -> String
@@ -324,7 +318,7 @@ walkExprAt
 walkExprAt _mode namedDom env (Surface.Var (Proxy :: Proxy nm)) =
   case lookup (symbolVal (Proxy @nm)) env of
     Nothing -> Left (MissingDef (symbolVal (Proxy @nm)))
-    Just (SomeVarRef (pv :: Proxy v) tok (namedVarDom :: Named varDom IslSet)) ->
+    Just (SomeVarRef (pv :: Proxy v) tok (namedVarDom :: Named varDom IslSet) _vdecl) ->
       -- Surface 'Var' produces an expr on the variable's /declared/
       -- domain; Core 'Var' does the same.  The enclosing context has
       -- installed a fresh 'dom' skolem whose IslSet coincides with the
