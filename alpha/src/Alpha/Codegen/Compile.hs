@@ -73,7 +73,7 @@ foreign import ccall "dynamic" mkAlphaCall :: FunPtr AlphaCallFn -> AlphaCallFn
 
 -- | Structured failure modes of 'compileKernel'.  Thrown instead of
 -- 'error' so callers can 'try' on a typed exception rather than
--- pattern-matching on a stringly-typed 'ErrorCall' (Batch A Blocker #1).
+-- pattern-matching on a stringly-typed 'ErrorCall'.
 data CompileException
   = CompileBoundExtractionFailed !String !Int !String
     -- ^ @declListBoundsM@ failed for @(varName, dim, reason)@.

@@ -14,7 +14,7 @@
 
 -- | The smallest possible system: @y[i] = 0@ on a rank-1 line.
 --
--- This is the v6.2 minimum-viable shape for the polymorphic
+-- Minimum-viable fixture for the polymorphic
 -- 'Alpha.Transform.Tile.tile' transform.  No inputs, no Dep, no
 -- Reduce — just a single output equation with a 'Const' body.
 --

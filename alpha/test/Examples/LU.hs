@@ -17,8 +17,6 @@
 
 -- | LU decomposition (Doolittle form) as an Alpha system.
 --
--- v7 surface form (named binders via @Alpha.Surface@).
---
 -- Body equations:
 --
 -- @
@@ -162,7 +160,7 @@ uBody3D =
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- The LU decomposition system (v7 surface form)
+-- The LU decomposition system
 -- ═══════════════════════════════════════════════════════════════════════
 
 luDecomp :: System '["N"] '[] _ _ _

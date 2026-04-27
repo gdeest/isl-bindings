@@ -17,8 +17,6 @@
 
 -- | Cholesky factorisation as an Alpha system.
 --
--- v7 surface form (named binders via @Alpha.Surface@).
---
 -- Body equations (inside the declared domains):
 --
 -- @
@@ -162,7 +160,7 @@ strictLowerBodyN =
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- The Cholesky system (v7 surface form)
+-- The Cholesky system
 -- ═══════════════════════════════════════════════════════════════════════
 
 cholesky :: System '["N"] '[ 'TParam (P "N") >=. 'TConst ('Pos 1) ] _ _ _

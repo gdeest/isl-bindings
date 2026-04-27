@@ -10,14 +10,13 @@
 {-# OPTIONS_GHC -fplugin=Isl.Plugin #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 
--- | Positive regression test for the v5.2 effective-domain rewrite.
+-- | Positive regression test for the effective-domain rewrite.
 --
 -- @Alpha.Surface.Core.BCons@ types branch bodies at
 -- @EffectiveDomTag d amb = d ∩ amb@, so declaring a branch that
 -- extends outside the ambient is *semantically harmless* — the
 -- effective domain is exactly what a well-formed branch would have
--- produced.  The retired 'IslBranchFit' check (D22) used to reject
--- these; the effective-domain rewrite accepts them.
+-- produced.
 --
 -- This file exercises the positive path: a cholesky-shaped 'Case'
 -- whose diagonal branch has an off-by-one upper bound
@@ -35,9 +34,6 @@
 --     @(OverWideDiagN ∩ StrictLowerN) ∩ LowerTri@.
 --     The two branches have @j = i@ vs @j ≤ i - 1@ — unsatisfiable.
 --     Empty. ✓
---
--- If this module ever fails to compile, the effective-domain rewrite
--- has regressed and v5.2 needs revisiting.
 module Examples.OverWideCholesky
   ( OverWideDiagN
   , overWideCaseExpr
@@ -72,7 +68,7 @@ import Isl.TypeLevel.Reflection (DomTag(..))
 -- | Cholesky's diagonal with an off-by-one upper bound on @i@.
 -- The legitimate 'Examples.Cholesky.DiagN' has @i <= N - 1@; this
 -- has @i <= N@, which puts the point @(N, N)@ outside 'LowerTri' at
--- non-degenerate parameter values.  Under the v5.2 effective-domain
+-- non-degenerate parameter values.  Under the effective-domain
 -- rewrite, the branch body sees @OverWideDiagN ∩ LowerTri = DiagN@,
 -- so the extra point is invisible and the body is well-typed.
 type OverWideDiagN =

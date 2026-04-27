@@ -17,8 +17,6 @@
 
 -- | Floyd-Warshall all-pairs shortest-path as an Alpha system.
 --
--- v7 surface form (named binders via @Alpha.Surface@).
---
 -- @
 -- D[k,  i, j] = min(D[k-1, i, j], D[k-1, i, k] + D[k-1, k, j])   (k >= 1)
 -- D[0,  i, j] = A[i, j]                                            (k = 0)
@@ -139,7 +137,7 @@ fwKGe1 = between (lit @1) (par @"N" -. lit @1) #k /\ range0 @"N" #i /\ range0 @"
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- The Floyd-Warshall system (v7 surface form)
+-- The Floyd-Warshall system
 -- ═══════════════════════════════════════════════════════════════════════
 
 floyd :: System '["N"] NGeOne _ _ _

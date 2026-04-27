@@ -161,10 +161,9 @@ elaborate mode (Surface.System (Surface.Decls ins outs locs) eqs) k =
 --
 -- This is the SanityCheck hinge: re-checks downstream call
 -- 'buildBasicSet' on maps/domains that are all parameter-indexed by
--- this @pctx@.  Leaving it empty (as the prior 'emptyParamIslSet'
--- did) would silently let ISL re-verify obligations under a weaker
--- parameter context than the plugin used, defeating the regression
--- net.
+-- this @pctx@.  An empty parameter set would silently let ISL
+-- re-verify obligations under a weaker parameter context than the
+-- plugin used.
 paramIslSet
   :: forall ps pctx.
      (KnownConstraints ps 0 pctx)
@@ -405,8 +404,8 @@ walkDep mode namedDom env inner =
         }
       -- Map constraint list: Surface's @mapCs@ with dims 0..ni-1 as
       -- input (iteration / outer) and ni..ni+no-1 as output (array
-      -- / inner).  That matches the new Core.Dep polarity
-      -- (@m : dom → src@, so nIn=ni, nOut=no).
+      -- / inner).  Matches Core.Dep polarity (@m : dom → src@, so
+      -- nIn=ni, nOut=no).
       mapConjs = [foldPctxIntoMap (pctxMapCs @ps @pctx)
                     (Conjunction
                        (reifySTConstraintsMapSplit nIn

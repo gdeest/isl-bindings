@@ -15,12 +15,10 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE UndecidableInstances #-}
--- The 'VarDecl' constructor has only type-level forall'd binders and
--- no value-level fields (see deviation D6 in
--- doc/alpha-implementation.md).  GHC's unused-foralls warning fires on
--- the binders even though they are essential for the kind-application
--- form 'VarDecl \@ps \@name \@n \@d \@a' that downstream type families
--- pattern-match on.  Suppress.
+-- 'VarDecl' has only type-level forall'd binders; GHC's unused-foralls
+-- warning fires on them even though they are essential for the
+-- kind-application form 'VarDecl \@ps \@name \@n \@d \@a' that
+-- downstream type families pattern-match on.
 {-# OPTIONS_GHC -Wno-unused-foralls #-}
 
 -- | Positional core of the Alpha DSL.
@@ -31,9 +29,6 @@
 -- — it only discharges the type-level constraint obligations
 -- ('IslImageSubsetD', 'IslPartitionsD', …) that constructors in this
 -- module attach to their indices.
---
--- See @doc/alpha-design.md@ §2 for the full design and the
--- @doc/alpha-implementation.md@ tracking log for in-progress notes.
 --
 -- = Layering
 --
@@ -233,8 +228,6 @@ eqListNames (Defines (Proxy :: Proxy name) _ :& rest) =
 --        , 'dLocals'  = 'Nil'
 --        }
 -- @
---
--- See @doc/alpha-design.md@ §2.4 / §3.5 for the full discussion.
 type Decls
   :: forall (ps :: [Symbol])
   -> [VarDecl ps] -> [VarDecl ps] -> [VarDecl ps] -> Type
@@ -279,9 +272,6 @@ data Decl ps d where
 -- them) or fire as plugin obligations through the 'IslSubsetD' /
 -- 'IslImageSubsetD' / 'IslRangeOfD' / 'IslCoversD' classes from
 -- "Isl.TypeLevel.Reflection".
---
--- See @doc/alpha-design.md@ §2.1 for the rationale of each constructor
--- and @doc/alpha-implementation.md@ for any in-progress deviations.
 type Expr :: forall (ps :: [Symbol])
          -> [TConstraint ps 0]
          -> [VarDecl ps] -> forall (n :: Nat)
@@ -293,8 +283,6 @@ data Expr ps pctx decls n d a where
   -- usual surrounding 'Dep' node then reindexes that into a body
   -- domain (and bears the array-access bounds check via
   -- 'IslImageSubsetD').
-  --
-  -- See deviation D12 in doc/alpha-implementation.md.
   Var :: forall (name :: Symbol) (ps :: [Symbol])
                 (pctx :: [TConstraint ps 0])
                 (decls :: [VarDecl ps]) (decl :: VarDecl ps).
@@ -305,13 +293,13 @@ data Expr ps pctx decls n d a where
       -> Expr ps pctx decls (DeclDims decl) (DeclDomTag decl) (DeclType decl)
 
   -- | Domain-polymorphic literal.  GHC unifies @d@ with the checking
-  -- context — the HM-for-domains story from §1.3 of the design doc.
+  -- context.
   --
   -- The 'AlphaScalar' constraint captures the type's 'ConstBridge' (and
   -- rest of its scalar metadata) at construction time; pattern-matching
   -- 'Const' in a renderer brings the dictionary back into scope, so the
   -- C rendering does not need to consult a separate 'ScalarDesc' map
-  -- via a typed hatch — see issue #1 in @doc/codegen-fixes.md@.
+  -- via a typed hatch.
   Const :: AlphaScalar a => a -> Expr ps pctx decls n d a
 
   -- | Pointwise binary operation.  Both operands and the result share
@@ -341,10 +329,8 @@ data Expr ps pctx decls n d a where
   -- constraint list is prefixed with @LiftPctxN (ni+no) pctx@, and
   -- the two Literal-shaped DomTag phantoms are wrapped via 'LitPrepend'
   -- with the corresponding @LiftPctxN ni pctx@ / @LiftPctxN no pctx@.
-  -- This replaces the plugin's previous @HasParamCtx@-via-givens
-  -- machinery: the plugin sees pctx as part of the constraint list.
-  --
-  -- See deviations D9, D1 in doc/alpha-implementation.md.
+  -- The plugin then sees pctx as part of the map-space constraint
+  -- list rather than via a separate givens channel.
   Dep :: forall ps pctx decls (ni :: Nat) (no :: Nat)
               (mapCs :: [TConstraint ps (ni + no)])
               (dOuter :: DomTag ps ni) (dInner :: DomTag ps no) a.
@@ -375,8 +361,6 @@ data Expr ps pctx decls n d a where
   -- The 'ReduceOp' tag determines the accumulation operation:
   -- 'ReduceSum' → addition (identity 0), 'ReduceProd' → multiplication
   -- (identity 1), etc.  The interpreter and codegen use this directly.
-  --
-  -- See deviation D13 in doc/alpha-implementation.md.
   Reduce :: forall ps pctx decls (n :: Nat) (nBody :: Nat)
                   (projCs :: [TConstraint ps (nBody + n)])
                   (d :: DomTag ps n) (dBody :: DomTag ps nBody) a.
@@ -397,9 +381,7 @@ data Expr ps pctx decls n d a where
   -- pairwise disjoint within @d@.  Each point in the ambient is
   -- defined by exactly one branch — a branching recurrence denotes
   -- a function, and a function can't assign two different values
-  -- to the same point.  Enforced at compile time by 'IslPartitionsD'
-  -- (see deviation v5.2 / retired D22 in
-  -- @doc/alpha-implementation.md@).
+  -- to the same point.  Enforced at compile time by 'IslPartitionsD'.
   --
   -- === Lowering strategy (fan-out to polyhedral statements)
   --
@@ -407,8 +389,7 @@ data Expr ps pctx decls n d a where
   -- 'Alpha.Transform.NormalizeCases' + 'Alpha.Lower' into /N polyhedral
   -- statements/ — one per branch, each with domain @d_i ∩ amb@ — all
   -- writing to the same logical array.  ISL's scanner then emits
-  -- peeled/split loop nests automatically, rather than the previous
-  -- chain of per-iteration C ternaries.  The partition witness
+  -- peeled/split loop nests automatically.  The partition witness
   -- @'IslPartitionsD' ps n d branchDoms@ is what makes the fan-out
   -- sound: disjoint write-map ranges, covering union of domains.
   --
@@ -496,8 +477,7 @@ data Branches ps pctx decls n amb branchDoms a where
 -- live entirely at the kind level — the constructor has no value-level
 -- arguments.  This is necessary because the declared domain @d :: DomTag
 -- ps n@ has a kind that depends on @n@; mixing value-level and
--- type-level fields confuses GHC's kind inference.  See deviation D6
--- in @doc/alpha-implementation.md@.
+-- type-level fields confuses GHC's kind inference.
 --
 -- Inhabitants of @[VarDecl ps]@ at the kind level are written using
 -- explicit type applications:
@@ -597,17 +577,11 @@ type family RemoveNameStep
 -- list, and remove it.  When @defined@ is exhausted, @needed@ must be
 -- empty (no missing definitions).
 --
--- Implementation note (D15): this was originally a @Constraint@-returning
--- type family whose failing branches reduced to 'TypeError'.  That
--- encoding is fine at compile time, but under @-fdefer-type-errors@
--- the deferred trap lives in an erased coercion and is never demanded
--- at runtime.  Rewriting it as a class with a nullary method
--- 'definesAllExactlyOnceEv' and pushing the 'TypeError' into *instance
--- contexts* makes the runtime trap a proper dictionary field that
--- GHC's @addTcEvBind@ replaces with a 'typeError' binding.  Negative
--- tests invoke 'definesAllExactlyOnceEv' directly to demand the
--- dictionary — the same pattern @proofBadCholeskyCoverage@ uses for
--- 'islCoversEv'.
+-- Encoded as a class with a nullary method 'definesAllExactlyOnceEv'
+-- and 'TypeError' in instance contexts so that under
+-- @-fdefer-type-errors@ the trap fires at runtime when the dictionary
+-- field is demanded.  A @Constraint@-returning type family would lose
+-- the trap in an erased coercion.
 class DefinesAllExactlyOnce
         (needed :: [VarDecl ps]) (defined :: [Symbol]) where
   definesAllExactlyOnceEv :: ()

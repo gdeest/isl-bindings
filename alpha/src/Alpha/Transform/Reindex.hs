@@ -191,7 +191,7 @@ walkExprTarget = go
     go (PMap op a) = PMap op <$> go a
     go _ = Left (ImageOutOfBounds
       ("target body contains Var/Dep/Reduce/Case — "
-       ++ "reindex v1 handles Const/Pw/PMap only")
+       ++ "reindex handles Const/Pw/PMap only")
       targetName targetName)
 
 

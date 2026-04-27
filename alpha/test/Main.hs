@@ -6,38 +6,9 @@
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 {-# OPTIONS_GHC -fplugin=Isl.Plugin #-}
 
--- | Test harness for the Alpha milestones v1 + v2 (+ v3).
---
--- The implementation log at @doc/alpha-implementation.md@ records the
--- phases; this harness wires them all into a single Tasty test tree.
--- Four phases are covered:
---
---   * Phase A (matmul literal route): the v1 smoke test — matmul
---     compiles to positional 'Alpha.Core' GADTs, every
---     'IslImageSubsetD' / 'IslRangeOfD' obligation is discharged at
---     compile time by the plugin, and the reference interpreter
---     agrees on two known numerical cases.  Until codegen-to-C lands
---     in v6, the existence of the compiled matmul value is itself
---     the type-safety guarantee.
---
---   * Phase A negative type-safety tests: six deliberately wrong
---     programs (rank mismatch, undeclared var, missing def, double
---     def, rank-shaped out-of-bounds, polyhedral subset failure)
---     plus two cholesky-specific negatives (coverage gap, branch
---     out of bounds).  Each 'forceBad…' function forces GHC to
---     solve the bad obligation at runtime via the D15 force-method
---     pattern (the rank/kind-mismatch 'Expr'-level cases still
---     use bang + seq on the bad value).
---
---   * Phase C (cholesky + case path): v2 — first in-package use of
---     'Case' / 'Branches' / 'IslCoversD'.  Structural existence plus
---     two hand-verified numerical cases; the two cholesky negatives
---     above live in Phase A's negative group.
---
--- Deviations from the design are tracked in
--- @doc/alpha-implementation.md@; notably D14 (GHC cascading-error
--- warning suppression) and D15 (empty-class-dict elision of deferred
--- traps) govern how the negative tests fire at runtime.
+-- | Test harness wiring every Alpha test group into a single Tasty
+-- tree: the literal-route smoke tests, the negative type-safety
+-- tests, and the case/cholesky path.
 module Main where
 
 import Control.Exception (SomeException, evaluate, try)
@@ -130,16 +101,15 @@ import qualified ElaborateSpec
 --     term (for rank / kind / structural mismatches that GHC can
 --     reject as type-family @TypeError@s without involving the
 --     plugin).
---   * The D15 force-method pattern: a top-level proof binding with
---     the broken class context in its signature, whose body invokes
---     the class's nullary @()@ witness method (@islSubsetEv@,
---     @islCoversEv@, @islImageSubsetEv@, …) to demand the deferred
---     dictionary so GHC's @-fdefer-type-errors@ trap fires.
+--   * Force-method pattern: a top-level proof binding with the broken
+--     class context in its signature, whose body invokes the class's
+--     nullary @()@ witness method (@islSubsetEv@, @islCoversEv@,
+--     @islImageSubsetEv@, …) to demand the deferred dictionary so
+--     GHC's @-fdefer-type-errors@ trap fires.
 --
--- D14 (see the implementation log) is the reason the plugin's
--- compile-time warning can be *silently suppressed* when multiple
--- errors coexist in the same module; the runtime trap is always
--- still armed, which is why this harness can observe the failure
+-- The plugin's compile-time warning can be silently suppressed when
+-- multiple errors coexist in the same module; the runtime trap is
+-- always armed, which is why this harness can observe the failure
 -- even when no warning prints.
 shouldFailWithTypeError :: String -> (() -> IO ()) -> Assertion
 shouldFailWithTypeError label action = do
@@ -149,9 +119,7 @@ shouldFailWithTypeError label action = do
     Right () -> assertFailure $
       label ++ ": expected a deferred type error to fire, but the action ran cleanly"
 
--- Domain types for the 'regress #6 / #10' IslT bound-extraction tests
--- (see the @regress_*_bound*@ cases below).  Replacing the old ISL
--- string inputs to 'extractBoundsISLM' with 'KnownDom' type arguments.
+-- Domain types for the IslT bound-extraction tests below.
 type LineN_ =
   '[ 'TDim (D 0) >=. 'TConst ('Pos 0)
    , 'TDim (D 0) <=. ('TParam (P "N") -. 'TConst ('Pos 1))
@@ -184,7 +152,7 @@ main = defaultMain $ testGroup "alpha-test"
 
   , ElaborateSpec.tests
 
-  , testGroup "phase-A literal route"
+  , testGroup "matmul literal route"
       [ testCase "matmul value compiles and exists" $ do
           -- The act of evaluating Matmul.matmul forces the GADT to be
           -- constructed.  If any plugin obligation in the matmul body
@@ -213,7 +181,7 @@ main = defaultMain $ testGroup "alpha-test"
           assertEqual "A*I=A" a result
       ]
 
-  , testGroup "phase-A cholesky literal route"
+  , testGroup "cholesky literal route"
       [ testCase "cholesky value compiles and exists" $ do
           -- Same structural smoke test as matmul: if Case /
           -- BCons / IslCoversD discharge cleanly in the positive
@@ -240,7 +208,7 @@ main = defaultMain $ testGroup "alpha-test"
           assertEqual "L(3x3)" expected result
       ]
 
-  , testGroup "phase-D floyd-warshall literal route (v3)"
+  , testGroup "floyd-warshall literal route"
       [ testCase "floyd-warshall module type-checks" $ do
           -- Non-trivial pctx: the 'Result[i,j] = D[N-1,i,j]' slice
           -- only discharges its 'IslImageSubsetD' under @N >= 1@,
@@ -350,7 +318,7 @@ main = defaultMain $ testGroup "alpha-test"
           assertBool "interpret accepted valid params" True
       ]
 
-  , testGroup "phase-E lu decomposition literal route (v4)"
+  , testGroup "lu decomposition literal route"
       [ testCase "lu decomp value compiles and exists" $ do
           -- First in-package example with two outputs on distinct
           -- triangular domains and true cross-variable mutual
@@ -388,7 +356,7 @@ main = defaultMain $ testGroup "alpha-test"
           assertEqual "U(2x2)" expectedU u
       ]
 
-  , testGroup "phase-F heat3D stencil literal route (v5)"
+  , testGroup "heat3D stencil literal route"
       [ testCase "heat3D value compiles and exists" $ do
           -- First in-package 4-D example with two parameters
           -- (N and T) and an 8-branch Case split (t=0 initial
@@ -435,14 +403,12 @@ main = defaultMain $ testGroup "alpha-test"
           assertEqual "Heat3D(N=4,T=2,uniform 1)" expected result
       ]
 
-  , testGroup "phase-F.2 effective-domain rewrite (v5.2)"
-      [ -- Positive regression test for the v5.2 effective-domain
-        -- rewrite: a cholesky-shaped 'Case' whose diagonal branch
-        -- declares 'OverWideDiagN' (off-by-one on the upper bound,
-        -- @i <= N@ instead of @i <= N - 1@).  Under the old
-        -- 'IslBranchFit' check this was rejected; under the rewrite
-        -- the body type is clipped to @OverWideDiagN ∩ LowerTri =
-        -- DiagN@ and the branch is accepted.
+  , testGroup "effective-domain rewrite"
+      [ -- A cholesky-shaped 'Case' whose diagonal branch declares
+        -- 'OverWideDiagN' (off-by-one on the upper bound, @i <= N@
+        -- instead of @i <= N - 1@).  The body type is clipped to
+        -- @OverWideDiagN ∩ LowerTri = DiagN@ and the branch is
+        -- accepted.
         testCase "over-wide cholesky diagonal (i <= N) compiles" $ do
           let _ = OWC.overWideCaseExpr
           assertBool "over-wide Case constructed" True
@@ -470,7 +436,7 @@ main = defaultMain $ testGroup "alpha-test"
           assertBool "boundary string non-empty" (not $ null H3E.testElsewhereDom)
       ]
 
-  , testGroup "phase-H tile and reindex (constructive)"
+  , testGroup "tile and reindex"
       [ testCase "tile \"y\" [Just 4] zero1D" $
           TiledZero1D.runTileZero1D
 
@@ -496,7 +462,7 @@ main = defaultMain $ testGroup "alpha-test"
           DepReindex.runReindexDep
       ]
 
-  , testGroup "phase-I interpreter"
+  , testGroup "interpreter"
       [ testCase "interpret matmul N=3" $ do
           let n = 3
               a = V.fromList [1,2,3,4,5,6,7,8,9 :: Double]
@@ -589,7 +555,7 @@ main = defaultMain $ testGroup "alpha-test"
                        (abs (got - exp') < 1e-10)
       ]
 
-  , testGroup "phase-J schedule validation"
+  , testGroup "schedule validation"
       [ testCase "matmul identity schedule — valid (typed)" $ do
           let s = scheduling $ do
                 sched @"C" @Matmul.MatmulDecls $ \n -> identity n
@@ -639,10 +605,9 @@ main = defaultMain $ testGroup "alpha-test"
             Left err -> assertFailure $ "expected valid schedule, got: " ++ show err
 
       , testCase "regress_5_schedule_incomplete" $ do
-          -- Matmul declares output "C", but the schedule defines nothing.
-          -- Pre-fix: validateSchedule returns Right () because the
-          -- empty-map branch at Compile.hs:72 short-circuits.
-          -- Post-fix: returns Left (ScheduleIncomplete ["C"]).
+          -- Matmul declares output "C", but the schedule defines
+          -- nothing — must surface as Left (ScheduleIncomplete ["C"]),
+          -- not silently as Right ().
           let s = scheduling (pure ())
           result <- validateSchedule Matmul.matmul s
           case result of
@@ -653,8 +618,8 @@ main = defaultMain $ testGroup "alpha-test"
       , testCase "regress_5_schedule_overspecified" $ do
           -- Matmul's equation list is just {"C"}, but the schedule
           -- names a variable "Nonexistent" that isn't in the System.
-          -- Pre-fix: silently accepted (the name is simply ignored by
-          -- lowerScheduleMaps).  Post-fix: Left (ScheduleOverspecified ...).
+          -- Must surface as Left (ScheduleOverspecified ...) rather
+          -- than being silently ignored by lowerScheduleMaps.
           let s = scheduling $ do
                 sched @"C" @Matmul.MatmulDecls $ \n -> identity n
                 schedule "Nonexistent" 2 (identity 2)
@@ -665,25 +630,21 @@ main = defaultMain $ testGroup "alpha-test"
               "expected Left (ScheduleOverspecified [\"Nonexistent\"]), got: " ++ show other
       ]
 
-  , testGroup "regress #8 pure extractOneBound"
+  , testGroup "pure extractOneBound"
       [ testCase "regress_8_pure_bound_unknown" $ do
-          -- With the signature change to Maybe String, an empty
-          -- conjunction list yields Nothing (previously the literal
-          -- sentinel "/* unknown */").
+          -- An empty conjunction list yields Nothing (no bound
+          -- extractable) rather than a sentinel string.
           let result = extractOneBound [] [Conjunction []] 0
           assertEqual "no bound extractable" Nothing result
       ]
 
-  , testGroup "regress #6 / #10 IslT bound extraction"
+  , testGroup "IslT bound extraction"
       [ testCase "regress_6_islt_bound_extraction" $ do
-          -- Pre-fix: 'extractBoundsISL' escaped IslT via
-          -- unsafePerformIO-per-dimension.  Post-fix:
-          -- 'extractBoundsISLM' runs entirely inside the top-level
+          -- 'extractBoundsISLM' must run entirely inside the top-level
           -- runIslT, threading errors via 'Either' rather than
-          -- sentinel strings.  A standard affine bound should succeed.
-          --
-          -- Post-refactor: domain passed via 'KnownDom' dict instead of
-          -- an ISL string.  See 'LineN_' below.
+          -- escaping IslT via unsafePerformIO-per-dimension.  A
+          -- standard affine bound should succeed; the domain is
+          -- passed as a 'KnownDom' dict (see 'LineN_' below).
           result <- runIslT $
             extractBoundsISLM @'["N"] @1 @('Literal LineN_) 1
           case result of
@@ -692,14 +653,11 @@ main = defaultMain $ testGroup "alpha-test"
               "expected Right [<bound>], got: " ++ show other
 
       , testCase "regress_10_piecewise_bound_rejected" $ do
-          -- Pre-fix: piecewise detection used @elem ';' str@ — a string
-          -- heuristic that misclassifies comment-bearing single-piece
-          -- outputs and can miss genuinely piecewise affs when ISL's
-          -- print style changes.  Post-fix: we ask ISL directly via
+          -- Piecewise detection asks ISL directly via
           -- @isl_pw_aff_n_piece@; n /= 1 surfaces as a structured
-          -- 'BEPieceCount' error rather than a sentinel string.
-          -- Domain: i < N AND i < M — dim_max is @min(N-1, M-1)@,
-          -- which is piecewise (two pieces).
+          -- 'BEPieceCount' error.  Domain: i < N AND i < M —
+          -- dim_max is @min(N-1, M-1)@, which is piecewise (two
+          -- pieces).
           result <- runIslT $
             extractBoundsISLM @'["M", "N"] @1 @('Literal LineMN_) 1
           case result of
@@ -708,7 +666,7 @@ main = defaultMain $ testGroup "alpha-test"
               "expected Left (0, BEPieceCount n>=2), got: " ++ show other
       ]
 
-  , testGroup "phase-K codegen"
+  , testGroup "codegen"
       [ testCase "matmul codegen produces C" $ do
           let s = scheduling $ do
                 sched @"C" @Matmul.MatmulDecls $ \n -> identity n
@@ -765,11 +723,10 @@ main = defaultMain $ testGroup "alpha-test"
 
       , testCase "regress_12_conflicting_annotation" $ do
           -- Two FW equations ("D" and "Result") annotate the same
-          -- schedule dim (0) with different DimAnnotations.
-          -- mergeAnnotations folds via Map.unionsWith with an `error`
-          -- on mismatch.  Pre-fix: codegen throws an exception escaping
-          -- the IO.  Post-fix: codegen returns
-          -- Left (ConflictingAnnotation 0 Parallel Vectorize).
+          -- schedule dim (0) with different DimAnnotations.  Codegen
+          -- must return Left (ConflictingAnnotation 0 Parallel
+          -- Vectorize) rather than letting mergeAnnotations'
+          -- Map.unionsWith error escape the IO.
           let s = scheduling $ do
                 sched @"D"      @FW.FWDecls $ \n -> embedAt 0 (identity n)
                 sched @"Result" @FW.FWDecls $ \n -> embedAt 1 (identity n)
@@ -835,7 +792,7 @@ main = defaultMain $ testGroup "alpha-test"
             Left err -> assertFailure $ "codegen failed: " ++ show err
       ]
 
-  , testGroup "phase-L codegen end-to-end"
+  , testGroup "codegen end-to-end"
       [ testCase "matmul identity N=4 vs reference" $ do
           let n = 4
               aVec = V.fromList [ fromIntegral (i*n+j+1) :: Double
@@ -881,13 +838,11 @@ main = defaultMain $ testGroup "alpha-test"
               assertVecApprox "matmul transposed" 1e-10 expected cResult
       ]
 
-  , testGroup "Batch A regress (#1 + #2 + #16)"
+  , testGroup "regression: codegen error surfacing"
       [ testCase "regress_16_missing_scalar_desc" $ do
-          -- Pre-fix: @generateFromEqList@ called
-          -- @error "no ScalarDesc for " ++ eqName@ when @descs@ lacked a
-          -- matching entry.  Post-fix: returns
-          -- @Left (MissingScalarDesc "C")@ through the @Either@ flow
-          -- threaded by #16.
+          -- A missing ScalarDesc entry must surface as
+          -- @Left (MissingScalarDesc "C")@ through @generateFromEqList@,
+          -- not as a hard @error@ call.
           let s = scheduling $ do
                 sched @"C" @Matmul.MatmulDecls $ \n -> identity n
               a  = Allocation Map.empty
@@ -927,17 +882,14 @@ main = defaultMain $ testGroup "alpha-test"
                       (Right "3.14") rendered
 
       , testCase "regress_2_int_reducemax" $ do
-          -- Pre-fix: @reduceInit@ at Codegen.hs:415 emitted a hard-coded
-          -- float literal (@"(-1.0/0.0)"@ for 'ReduceMax') regardless of
-          -- the scalar type.  For an @Int32@ reduction that literal is
-          -- either rejected by gcc or produces garbage.  Post-fix: the
-          -- init loop consumes @sdReduceIdentity op@ — @INT32_MIN@ for
-          -- 'ReduceMax' over 'Int32'.
+          -- The reduce-init loop must consume @sdReduceIdentity op@ —
+          -- @INT32_MIN@ for 'ReduceMax' over 'Int32' — rather than
+          -- emitting a type-incorrect float literal like
+          -- @"(-1.0/0.0)"@.
           --
-          -- End-to-end check (per CLAUDE.md §4): compile the kernel,
-          -- run it on a known input, compare against a Haskell
-          -- reference.  A wrong identity would either fail to link
-          -- or yield a wrong max.
+          -- End-to-end check: compile the kernel, run it on a known
+          -- input, compare against a Haskell reference.  A wrong
+          -- identity would either fail to link or yield a wrong max.
           let n = 4
               aVec :: V.Vector Int32
               aVec = V.fromList
@@ -958,13 +910,12 @@ main = defaultMain $ testGroup "alpha-test"
               assertEqual "int row-max" expected yResult
       ]
 
-  , testGroup "Batch B regress (#7 + #14 + Blocker #1)"
+  , testGroup "regression: typed compile exceptions"
       [ testCase "regress_7_extractStmtArgs_preserves_inner_commas" $ do
-          -- The deleted regex parsed ISL calls by filtering spaces and
-          -- splitting on comma — it would mis-split @"S(min(N,c0), c1);"@
-          -- into @["min(N", "c0)", "c1"]@.  Post-#7, CUser carries
-          -- structured args extracted via isl_ast_expr_get_op_arg, so
-          -- extractStmtArgs just reads them verbatim.
+          -- CUser carries structured args extracted via
+          -- isl_ast_expr_get_op_arg, so extractStmtArgs just reads them
+          -- verbatim — preserving inner commas like @"min(N,c0)"@ that
+          -- a regex split on comma would corrupt.
           let tree = CFor "t0" "0" "t0 < N" "1"
                        (CBlock
                           [ CUser "S" ["min(N,c0)", "c1 + 2"]
@@ -977,11 +928,10 @@ main = defaultMain $ testGroup "alpha-test"
             (Just ["c0"]) (Map.lookup "T" stmtArgs)
 
       , testCase "regress_compile_blocker1_propagation" $ do
-          -- Pre-fix: compileKernel used @error $ "compileKernel: codegen
-          -- failed: " ++ show err@, producing an untyped ErrorCall that
-          -- callers could only catch by pattern-matching on Strings.
-          -- Post-fix: typed CompileException wraps the CodegenError so
-          -- callers can 'try' on a structured exception.
+          -- compileKernel must wrap codegen failures in a typed
+          -- CompileException (catchable via 'try') rather than an
+          -- untyped ErrorCall that callers can only pattern-match on
+          -- as a String.
           result <- try @CompileException $
             Untyped.compileKernel Matmul.matmul Map.empty
               (scheduling $
@@ -997,11 +947,11 @@ main = defaultMain $ testGroup "alpha-test"
               "expected CompileException, but compileKernel succeeded"
       ]
 
-  , testGroup "Batch C regress (#11 coefficient-based subscript extraction)"
+  , testGroup "regression: coefficient-based subscript extraction"
       [ testCase "regress_11_nonunit_output_coefficient" $ do
           -- @2 * OutDim 0 - InDim 0 = 0@ has no integer-linear direct
-          -- assignment for OutDim 0; must surface as RenderErr, not a
-          -- silent drop (pre-fix: three-pattern 'findOutDim' dropped it).
+          -- assignment for OutDim 0; must surface as RenderErr rather
+          -- than being silently dropped.
           let nonUnit :: [Constraint MapIx]
               nonUnit =
                 [ EqualityConstraint
@@ -1016,8 +966,8 @@ main = defaultMain $ testGroup "alpha-test"
               ++ show other
 
       , testCase "regress_11_multiterm_output_expr_isolation" $ do
-          -- Isolation test: @OutDim 0 - InDim 0 - InDim 1 = 0@ used
-          -- to fall through the three-pattern matcher.  End-to-end
+          -- Multi-term output expression: @OutDim 0 - InDim 0 -
+          -- InDim 1 = 0@ must reconstruct as @i + j@.  End-to-end
           -- coverage lives in regress_11_multiterm_end_to_end.
           let multiTerm :: [Constraint MapIx]
               multiTerm =
@@ -1041,10 +991,8 @@ main = defaultMain $ testGroup "alpha-test"
           -- End-to-end: @A[i,j] = B[i+j]@ on a triangle where
           -- @i+j < N@, so B is dimensioned @[0, N-1]@.  The Dep map
           -- carries the multi-term equality
-          -- @OutDim 0 - InDim 0 - InDim 1 = 0@; post-fix, the
-          -- coefficient-based extractor reconstructs @(c0 + c1)@ as
-          -- the B subscript (pre-fix: the three-pattern matcher
-          -- dropped this form and the kernel read garbage).
+          -- @OutDim 0 - InDim 0 - InDim 1 = 0@; the coefficient-based
+          -- extractor must reconstruct @(c0 + c1)@ as the B subscript.
           let n = 4
               bVec :: V.Vector Double
               bVec = V.generate n $ \k -> fromIntegral (k * k + 1)
@@ -1065,15 +1013,14 @@ main = defaultMain $ testGroup "alpha-test"
               assertVecApprox "A[i,j] = B[i+j]" 1e-10 expected aResult
       ]
 
-  , testGroup "Batch D regress (#13 post-contraction WAW lex check)"
+  , testGroup "regression: post-contraction WAW lex check"
       [ testCase "regress_13_contraction_waw_violation" $ do
-          -- y[i] = 0 on [0, N-1] with modularTime storage (y[i] → buf[i mod 2])
-          -- and a constant schedule [0] placing every iteration at the same
-          -- schedule point.  Pre-fix: returns Right () — validateSchedule's
-          -- empty-allocation path ignores storage aliasing, and even with a
-          -- populated Allocation there is no WAW check, so two iterations
-          -- writing the same buffer cell at the same schedule time go
-          -- undetected.
+          -- y[i] = 0 on [0, N-1] with modularTime storage
+          -- (y[i] → buf[i mod 2]) and a constant schedule [0] placing
+          -- every iteration at the same schedule point.  Two
+          -- iterations write the same buffer cell at the same schedule
+          -- time, so the compile must fail with
+          -- OutputDependenceViolated.
           let schedAllZero = scheduling $
                 schedule "y" 1 (ScheduleDef [Constant 0])
               allocMod2 = allocating $ allocate "y" (Contracted (modularTime 1 2))
@@ -1102,11 +1049,11 @@ main = defaultMain $ testGroup "alpha-test"
               "expected Right _, got Left: " ++ show err
 
       , testCase "regress_13_contraction_waw_full_storage_skips" $ do
-          -- Sanity: if every equation is FullStorage the WAW path must not
-          -- run (pre-contraction SARE is single-assignment by construction).
-          -- We pick a schedule that *would* be flagged by a naive "any
-          -- aliasing ⇒ fail" check (constant 0) to ensure the guard is
-          -- structural — FullStorage means no storageMap, so no WAW check.
+          -- Sanity: if every equation is FullStorage the WAW path must
+          -- not run (pre-contraction SARE is single-assignment by
+          -- construction).  Picking a schedule that *would* be flagged
+          -- by a naive "any aliasing ⇒ fail" check (constant 0)
+          -- exercises that the guard is structural.
           let schedAllZero = scheduling $
                 schedule "y" 1 (ScheduleDef [Constant 0])
               allocFull = allocating $ allocate "y" FullStorage
@@ -1139,13 +1086,11 @@ main = defaultMain $ testGroup "alpha-test"
                 ["N"] (compiledParams c)
       ]
 
-  , testGroup "regress #4 evalBoundStr juxtaposition"
+  , testGroup "evalBoundStr juxtaposition"
       [ testCase "regress_4_evalBoundStr_juxtaposition" $ do
           -- ISL's dim_max emits coefficient·param products with no
-          -- operator ("2N - 2", "-1 + 2N").  Pre-fix, parseAtom read
-          -- "2" as an atom and left "N" hanging (under-allocation on
-          -- the caller side).  Post-fix, a digit-atom followed by an
-          -- identifier is treated as implicit multiplication.
+          -- operator ("2N - 2", "-1 + 2N").  A digit-atom followed by
+          -- an identifier must be treated as implicit multiplication.
           let p = Map.singleton "N" 4
           assertEqual "\"2N - 1\" at N=4"     7 (evalBoundStr p "2N - 1")
           assertEqual "\"2*N - 1\" at N=4"    7 (evalBoundStr p "2*N - 1")
@@ -1159,10 +1104,9 @@ main = defaultMain $ testGroup "alpha-test"
 
       , testCase "regress_4_sumindex2d_square_end_to_end" $ do
           -- Square domain @[0,N-1] × [0,N-1]@ with @A[i,j] = B[i+j]@;
-          -- B is dimensioned @[0, 2N-2]@.  Pre-fix, the B bound string
-          -- "2N - 2" slipped past evalBoundStr (juxtaposition missed),
-          -- under-allocating B's buffer and causing an out-of-bounds
-          -- read for the maximal @i+j = 2N-2@ access.
+          -- B is dimensioned @[0, 2N-2]@.  If evalBoundStr misses the
+          -- juxtaposition in "2N - 2", B's buffer is under-allocated
+          -- and the maximal @i+j = 2N-2@ access reads out of bounds.
           let n = 4
               bLen = 2 * n - 1  -- 0..2N-2 inclusive
               bVec :: V.Vector Double
@@ -1182,7 +1126,7 @@ main = defaultMain $ testGroup "alpha-test"
               assertVecApprox "A[i,j] = B[i+j] on square" 1e-10 expected aResult
       ]
 
-  , testGroup "regress #5 Lower.exprDomInfo on Const body"
+  , testGroup "Lower.exprDomInfo on Const body"
       [ testCase "regress_5_const_body_recovers_rank" $ do
           -- @y[i] = 0@ on a 1-D line.  WAW under a contracting modular
           -- schedule must be rejected: rank/constraints flow from
@@ -1202,9 +1146,7 @@ main = defaultMain $ testGroup "alpha-test"
       , testCase "regress_5_const_body_identity_schedule_clean" $ do
           -- Same Const body, same aliasing allocation, but the identity
           -- schedule [i] gives each iteration a distinct schedule time
-          -- — no race.  Pre-fix this silently passed (for the wrong
-          -- reason: 0-D domain).  Post-fix it passes for the right
-          -- reason: 1-D domain with distinct schedule coordinates.
+          -- — no race.  Compile must succeed.
           let schedIdentity = scheduling $
                 schedule "y" 1 (ScheduleDef [Ix (InDim 0)])
               allocMod2 = allocating $ allocate "y" (Contracted (modularTime 1 2))
@@ -1218,9 +1160,9 @@ main = defaultMain $ testGroup "alpha-test"
   , testGroup "Case-split fan-out"
       [ testCase "heat3D codegen emits N distinct per-branch macros" $ do
           -- Heat3D's RHS is a top-level 8-branch Case.  After fan-out,
-          -- codegen should emit 8 distinct #define u__brI macros
-          -- (one per branch), each with its own statement domain.
-          -- Pre-fan-out (v1): one macro u(...) with an if-chain body.
+          -- codegen emits 8 distinct #define u__brI macros (one per
+          -- branch), each with its own statement domain — rather than
+          -- one u(...) macro with an if-chain body.
           let s = scheduling $ sched @"u" @H3.H3Decls $ \n -> identity n
               a = Allocation Map.empty
               fm = defaultMapping "heat3d_split" H3.heat3D
@@ -1269,20 +1211,20 @@ main = defaultMain $ testGroup "alpha-test"
               assertVecApprox "heat3D fan-out vs reference" 1e-10 expected result
 
       , testCase "cholesky Case-split: fan-out produces per-branch statements" $ do
-          -- Cholesky's RHS is a 2-branch Case where each branch contains
-          -- a Reduce with a *different* projCs (diagBodyN vs
-          -- strictLowerBodyN).  Pre-per-statement-ReduceInfo: rejected
-          -- as "non-uniform Reduce across branches"; post-fix each
-          -- fanned-out branch carries its own ReduceInfo.
+          -- Cholesky's RHS is a 2-branch Case where each branch
+          -- contains a Reduce with a *different* projCs (diagBodyN vs
+          -- strictLowerBodyN).  Each fanned-out branch must carry its
+          -- own ReduceInfo rather than rejecting the system as
+          -- "non-uniform Reduce across branches".
           --
-          -- The structural signal is that @validateSchedule@ now
-          -- accepts the identity schedule on cholesky — the
-          -- dependence lookup must find entries for both L__br0 and
-          -- L__br1 (each with its own ReduceInfo), otherwise schedule
-          -- validation rejects with "lowering produced no schedule
-          -- maps".  End-to-end C execution is still blocked by a
-          -- pre-existing subscript extractor limitation on the
-          -- diagonal branch's i=j constraint — orthogonal.
+          -- The structural signal is that @validateSchedule@ accepts
+          -- the identity schedule on cholesky — the dependence lookup
+          -- must find entries for both L__br0 and L__br1 (each with
+          -- its own ReduceInfo), otherwise schedule validation
+          -- rejects with "lowering produced no schedule maps".  End-
+          -- to-end C execution is still blocked by a subscript
+          -- extractor limitation on the diagonal branch's i=j
+          -- constraint — orthogonal.
           let s = scheduling $
                 sched @"L" @Cholesky.CholeskyDecls $ \r -> identity r
           result <- validateSchedule Cholesky.cholesky s

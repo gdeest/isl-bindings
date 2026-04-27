@@ -7,7 +7,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE NoStarIsType #-}
 
--- | Phase A of the Case-to-polyhedral-statement fan-out: hoist 'Case'
+-- | Case-to-polyhedral-statement fan-out, hoist phase: lift 'Case'
 -- nodes toward the top of each equation's RHS so that 'Alpha.Lower'
 -- can emit one polyhedral statement per branch.
 --

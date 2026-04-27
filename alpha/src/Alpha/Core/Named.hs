@@ -7,10 +7,9 @@
 -- via rank-N CPS so callers cannot name it; distinct invocations
 -- therefore bind distinct, incomparable skolems.
 --
--- Used by the Alpha Core rewrite (see the vectorized-crafting-widget
--- plan) as the identity layer: two nodes referring to the same ISL
--- object share a skolem, and the type system enforces that equality
--- transitively.
+-- Alpha Core uses 'Named' as its identity layer: two nodes referring
+-- to the same ISL object share a skolem, and the type system enforces
+-- that equality transitively.
 module Alpha.Core.Named
   ( Named
   , the

@@ -14,7 +14,7 @@
 {-# OPTIONS_GHC -fplugin=Isl.Plugin #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds -Wno-partial-type-signatures #-}
 
--- | Matrix multiplication as an Alpha system (v7 surface form).
+-- | Matrix multiplication as an Alpha system.
 --
 -- @
 -- C[i, j] = ∑_k A[i, k] * B[k, j]    for 0 ≤ i, j < N

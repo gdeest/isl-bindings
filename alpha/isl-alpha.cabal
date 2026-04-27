@@ -10,9 +10,7 @@ maintainer:          gael.deest@tweag.io
 category:            Math
 
 -- The Alpha DSL: a typed Haskell embedding of the Alpha equational
--- language for polyhedral programs.  See doc/alpha-design.md for the
--- design and doc/alpha-implementation.md for the running implementation
--- log.
+-- language for polyhedral programs.
 
 library
   exposed-modules:   Alpha.Codegen

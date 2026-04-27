@@ -22,7 +22,6 @@
 -- | Named-binder surface layer for the Alpha DSL.
 --
 -- This module is what users write; it elaborates to @Alpha.Core@.
--- See @doc/alpha-design.md@ §3 for the design.
 --
 -- = Overview
 --
@@ -425,8 +424,7 @@ at _ = Body $ Dep (Proxy :: Proxy
 -- reduction variable).
 --
 -- @bodyDomE@ is the body's domain, spelled out as a 'DomExpr' in the
--- extended scope.  v7 keeps this explicit; v8 may auto-compute it from
--- the outer domain and the reduction variable's range.
+-- extended scope.
 reduceOver
   :: forall (k :: Symbol) {outerScope :: [Symbol]} {bodyDomE :: DomE}
             {ps} {pctx} {decls} {dOuter} {a}.

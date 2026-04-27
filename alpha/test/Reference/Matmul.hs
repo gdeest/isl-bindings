@@ -1,9 +1,5 @@
 -- | Hand-written reference matmul, used by the test harness as the
 -- ground truth for comparison against the Alpha-elaborated kernel.
--- Until codegen-to-C lands in v6, the test harness only inspects the
--- elaborated core's structure (the matmul example just has to compile
--- and pattern-match), but this reference is here so the test file is
--- ready when the codegen path comes online.
 module Reference.Matmul (referenceMatmul) where
 
 import qualified Data.Vector.Unboxed as V

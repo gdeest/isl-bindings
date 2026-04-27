@@ -1,8 +1,7 @@
 -- | Typed operation descriptors for the Expr GADT.
 --
--- These replace the opaque Haskell functions previously stored in
--- 'Pw' and 'PMap', making the expression tree renderable to C.
--- Polymorphic evaluation lives in "Alpha.Scalar".
+-- 'Pw' and 'PMap' carry these tags so the expression tree is
+-- renderable to C.  Polymorphic evaluation lives in "Alpha.Scalar".
 module Alpha.Codegen.COp
   ( -- * Binary operations
     BinOp(..)

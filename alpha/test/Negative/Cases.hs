@@ -11,13 +11,14 @@
 {-# LANGUAGE NoStarIsType #-}
 {-# OPTIONS_GHC -fplugin=Isl.Plugin #-}
 {-# OPTIONS_GHC -fdefer-type-errors #-}
--- D14 investigation: -Wno-deferred-type-errors removed so deferred
--- warnings appear in the build log.
+-- -Wno-deferred-type-errors deliberately *not* set: deferred warnings
+-- must appear in the build log so we can audit which obligations are
+-- being deferred.
 {-# OPTIONS_GHC -Wno-unused-imports #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds #-}
 {-# OPTIONS_GHC -Wno-orphans #-}
 
--- | Negative type-safety tests for the Alpha v1 milestone.
+-- | Negative type-safety tests.
 --
 -- Each top-level binding in this module is a deliberately *incorrect*
 -- Alpha program.  The test harness in @Main.hs@ forces each binding
@@ -25,10 +26,6 @@
 -- exception is raised.  If the binding compiles to a value (rather
 -- than to a deferred type error), the negative test fails — the type
 -- system did not catch the bug.
---
--- v1 needs all five negative tests to fire correctly for the type
--- safety story to be real (see milestone definition in
--- @doc/alpha-implementation.md@).
 module Negative.Cases
   ( forceBadOutOfBoundsK
   , forceBadRankMismatch
@@ -117,13 +114,11 @@ import Isl.TypeLevel.Reflection (DomTag(..))
 -- The plugin's IslImageSubset obligation should reject this at type
 -- checking time.
 
--- The "out-of-bounds" test originally tried to use the plugin's
--- IslImageSubset obligation via Dep, but D14 (the cascading
--- error-recovery interaction) suppresses plugin obligations when
--- other type errors are present in the same module.  v1 substitutes
--- a 1D-vs-2D rank mismatch which fires structurally.  The real
--- IslSubset-based out-of-bounds test lives in Negative/Minimal.hs
--- in its own module so it isn't subject to D14's suppression.
+-- The "out-of-bounds" test substitutes a 1D-vs-2D rank mismatch which
+-- fires as a structural kind error.  GHC's cascading-error recovery
+-- can suppress plugin-discharged obligations when other type errors
+-- are present in the same module, so the real IslSubset-based
+-- out-of-bounds test lives in @Negative/Minimal.hs@ in its own module.
 type Bad1DAccess =
   '[ 'TDim (D 0)
    ] :: [TExpr '["N"] 3]
@@ -136,12 +131,10 @@ forceBadOutOfBoundsK () =
                 :: Expr '["N"] MatmulDecls 3 ('Literal CubeN) Double
    in badExpr `seq` return ()
 
--- ── D14 INVESTIGATION: in-place IslSubset proof ─────────────────
--- Re-added inside Cases.hs (alongside the other 4 negative bindings)
--- to reproduce the original symptom: when this binding is in the
--- same module as the type-family TypeError bindings, no compile
--- error is reported for it.  The same proof in Minimal.hs and
--- Examples/Matmul.hs DOES error.
+-- In-place IslSubset proof: when this binding sits alongside
+-- type-family TypeError bindings in the same module, GHC suppresses
+-- the compile-time warning.  The deferred typeError trap is still
+-- inserted so the runtime evaluation below still fires.
 
 type CausalMaskInv =
   '[ 'TDim (D 0)     >=. 'TConst ('Pos 0)
@@ -163,8 +156,8 @@ type BrokenCausalMaskInv =
 proofBrokenInCausalInv
   :: IslSubset '["S","W"] 2 BrokenCausalMaskInv CausalMaskInv => ()
 proofBrokenInCausalInv =
-  -- D15: force the class dictionary by calling one of its methods, so
-  -- the deferred typeError binding GHC armed for this obligation is
+  -- Force the class dictionary by calling one of its methods so the
+  -- deferred typeError binding GHC armed for this obligation is
   -- actually demanded at runtime.  Without this, the optimizer drops
   -- the dict argument and the runtime trap never fires.
   islSubsetEv @'["S","W"] @2 @BrokenCausalMaskInv @CausalMaskInv
@@ -172,13 +165,6 @@ proofBrokenInCausalInv =
 _useBrokenInCausalInv :: ()
 _useBrokenInCausalInv = proofBrokenInCausalInv
 
--- D14 (resolved): even though the compile-time warning for this
--- IslSubset obligation is suppressed by GHC's cascading-error
--- heuristic (cec_suppress=True when other errors exist in the same
--- module), the deferred typeError binding IS still inserted by
--- addTcEvBind.  Evaluating _useBrokenInCausalInv at runtime therefore
--- fires the trap, letting us keep the negative test inline with the
--- other four rather than in a separate module.
 forceBadBrokenCausalInCases :: () -> IO ()
 forceBadBrokenCausalInCases () = do
   _ <- evaluate _useBrokenInCausalInv
@@ -192,8 +178,7 @@ forceBadBrokenCausalInCases () = do
 forceBadRankMismatch :: () -> IO ()
 forceBadRankMismatch () =
   -- Same construction as #1 above; both produce a kind/dim mismatch
-  -- error.  In the v1 milestone we count them as one substantive
-  -- failure mode.
+  -- error.
   let !badExpr = Dep
                    (Proxy :: Proxy (IslMultiAffToMap '["N"] 3 1 Bad1DAccess))
                    (Var (Proxy @"A"))
@@ -248,7 +233,7 @@ trivialBody = Const 0
 --
 -- Encoded as a direct 'IslCovers' proof rather than building a full
 -- malformed 'System' value, since that's the smallest surface that
--- exercises the obligation.  Uses the D15 force-method pattern so the
+-- exercises the obligation.  Uses the force-method pattern so the
 -- deferred runtime trap fires under '-fdefer-type-errors'.
 
 proofBadCholeskyCoverage
@@ -275,7 +260,7 @@ forceBadCholeskyCoverageGap () = do
 -- this: the upper triangle of 'SquareN' is not contained in 'LowerTri'.
 --
 -- Encoded as a direct 'IslSubset' proof between the underlying constraint
--- lists.  Uses the D15 force-method pattern.
+-- lists.  Uses the force-method pattern.
 
 proofBadCholeskyBranchBound
   :: IslSubset '["N"] 2 SquareN LowerTri => ()
@@ -339,11 +324,11 @@ forceBadContradictoryPctx () = do
 -- @b ≤ a - 1@ requires @i ≤ i - 1@, which is false.  The plugin
 -- rejects the obligation.
 --
--- Uses the D15 force-method pattern: a proof binding whose only
--- job is to invoke 'islImageSubsetEv' at the failing
--- instantiation, and a top-level '_useBadLUDiagonalRead' that
--- forces the proof to demand the class dictionary, firing the
--- deferred typeError trap the plugin armed.
+-- Uses the force-method pattern: a proof binding whose only job is
+-- to invoke 'islImageSubsetEv' at the failing instantiation, and a
+-- top-level '_useBadLUDiagonalRead' that forces the proof to demand
+-- the class dictionary, firing the deferred typeError trap the
+-- plugin armed.
 
 -- Access map that reads @L@ at the diagonal from a 3D body:
 -- @(i, j, k) → (i, i)@.  Same shape as 'Examples.LU.AccessLIK'
@@ -388,8 +373,7 @@ forceBadLUDiagonalRead () = do
 -- is not in @TimeBox = {0 <= i <= N-1}@.  The plugin's parametric
 -- subset check rejects.
 --
--- Uses the D15 force-method pattern on a direct 'IslImageSubset'
--- proof.
+-- Uses the force-method pattern on a direct 'IslImageSubset' proof.
 
 type BadNeighborIm2 =
   '[ 'TDim (D 0) -. 'TConst ('Pos 1)
@@ -424,9 +408,9 @@ forceBadHeat3DOutOfBoundsNeighbor () = do
 -- Negative #11: 'IslPartitions' rejects a coverage gap
 -- ═══════════════════════════════════════════════════════════════════════
 --
--- v5.2 introduced 'IslPartitions' on 'Alpha.Surface.Core.Case': the branch
--- domains must cover the ambient AND be pairwise disjoint within it.
--- This test exercises the coverage half with the same domains as
+-- 'IslPartitions' on 'Alpha.Surface.Core.Case' requires branch domains
+-- to cover the ambient AND be pairwise disjoint within it.  This test
+-- exercises the coverage half with the same domains as
 -- 'forceBadCholeskyCoverageGap' — ambient 'LowerTri', branches just
 -- '[StrictLowerN]' missing the diagonal.  Pins that 'IslPartitions'
 -- catches pure coverage gaps (not only disjointness violations).
@@ -475,33 +459,22 @@ forceBadCasePartitionsNonDisjoint () = do
 -- Negative #13: reduction with strictly partial image
 -- ═══════════════════════════════════════════════════════════════════════
 --
--- The post-tightening 'Alpha.Surface.Core.Reduce' carries an
--- 'IslImageEqualD' obligation: the reduction's projection image must
--- equal its declared ambient.  A reduction whose image is a /strict/
--- subset of the ambient is the genuine partiality bug — a function
--- that masquerades as total but has undefined values on part of its
--- domain.  This proof exercises the rejection.
+-- 'Alpha.Surface.Core.Reduce' carries an 'IslImageEqualD' obligation:
+-- the reduction's projection image must equal its declared ambient.
+-- A reduction whose image is a /strict/ subset of the ambient is the
+-- genuine partiality bug — a function that masquerades as total but
+-- has undefined values on part of its domain.  This proof exercises
+-- the rejection.
 --
 -- Body @PartialBody = {(i, j) : 1 <= i <= N, 0 <= j <= N}@ excludes
 -- @i = 0@.  Projection @(i, j) -> (i)@ has image @{i : 1 <= i <= N}@.
 -- Target @FullTarget = {i : 0 <= i <= N}@ /includes/ @i = 0@, so the
 -- image is a strict subset of the target and 'IslImageEqual' must fail.
 --
--- Uses the D15 force-method pattern via 'islImageEqualEv', mirroring
--- 'forceBadLUDiagonalRead' above.  Like the other twelve negatives, the
--- proof is currently parked: 'Negative.Cases' is excluded from the
--- alpha-test suite (see Main.hs:451-454) because the GHC 9.10 plugin
--- error path emits hard errors that '-fdefer-type-errors' can't
--- intercept.  Verified out-of-band against an isolated probe module: the
--- 'IslImageEqualD' plugin reports the precise diagnostic
---
---   IslImageEqual failed: image of projection does not equal target
---   Image:             [N] -> { [i0] : 0 < i0 <= N }
---   Target:            [N] -> { [i0] : 0 <= i0 <= N }
---   In Target \ Image: [N] -> { [0] : N >= 0 }
---
--- but does so as a hard error.  The proof binding parks here until the
--- plugin's error reporting is reworked to emit deferrable warnings.
+-- Uses the force-method pattern via 'islImageEqualEv'.  This binding
+-- is parked (the whole 'Negative.Cases' module is excluded from the
+-- alpha-test suite) because the plugin error path emits hard errors
+-- that '-fdefer-type-errors' can't intercept on GHC 9.10.
 
 type PartialBody =
   '[ 'TDim (D 0)     >=. 'TConst ('Pos 1)

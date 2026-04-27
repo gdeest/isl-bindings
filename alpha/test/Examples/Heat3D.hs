@@ -18,8 +18,6 @@
 
 -- | 3-D heat equation (six-neighbour averaging) as an Alpha system.
 --
--- v7 surface form (named binders via @Alpha.Surface@).
---
 -- Stencil formula:
 --
 -- @
@@ -259,7 +257,7 @@ interiorDom =
 
 
 -- ═══════════════════════════════════════════════════════════════════════
--- The Heat3D system (v7 surface form)
+-- The Heat3D system
 -- ═══════════════════════════════════════════════════════════════════════
 
 type Heat3DPctx =

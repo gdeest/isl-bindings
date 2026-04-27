@@ -101,8 +101,7 @@ reduceOpToC ReduceMax  desc lhs  bc =
 -- ═══════════════════════════════════════════════════════════════════════
 
 -- | Render an 'Expr' to a C expression string.  Returns 'Left' when
--- rendering surfaces a structured error (currently only
--- 'RENonStandardMapConstraint' from 'extractSubscripts').
+-- rendering surfaces a structured 'RenderErr'.
 renderExprToC
   :: forall ps pctx decls n (d :: DomTag ps n) a.
      RenderCtx -> Alpha.Surface.Core.Expr ps pctx decls n d a -> Either RenderErr String
@@ -113,7 +112,7 @@ renderExprToC ctx (Var (Proxy :: Proxy name)) =
 
 renderExprToC _ctx (Const v) =
   -- The 'AlphaScalar' dict carried by 'Const' gives us the bridge
-  -- directly — no 'rcDesc'-keyed lookup, no type-unsafe cast (#1).
+  -- directly — no 'rcDesc'-keyed lookup, no type-unsafe cast.
   Right (showLiteral scalarConstBridge v)
 
 renderExprToC ctx (Pw op e1 e2) = do

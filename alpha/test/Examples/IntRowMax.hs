@@ -14,12 +14,12 @@
 {-# OPTIONS_GHC -fplugin=Isl.Plugin #-}
 {-# OPTIONS_GHC -Wno-unused-top-binds -Wno-partial-type-signatures #-}
 
--- | Minimal Int32 'ReduceMax' kernel for regression test #2:
+-- | Minimal Int32 'ReduceMax' kernel:
 -- @y[i] = max_k A[i, k]@ on @[0, N-1]^2@.
 --
--- The integer reduction exercises the @sdReduceIdentity@ path — the
--- emitted init loop must use @INT32_MIN@ as the identity, not a float
--- literal (the pre-fix bug #2).
+-- The integer reduction exercises the @sdReduceIdentity@ path: the
+-- emitted init loop must use @INT32_MIN@ as the identity, not a
+-- float literal.
 module Examples.IntRowMax
   ( intRowMax
   , IntRowMaxInputs

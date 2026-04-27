@@ -13,15 +13,13 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
 
--- | Per-relation opaque proof tokens for the Alpha Core rewrite.
+-- | Per-relation opaque proof tokens for Alpha Core.
 --
 -- Each token type is uninhabited: the data constructor is never
 -- exported, so the only way to obtain a value of @Subset a b@,
 -- @ImageSubset m src tgt@, etc. is through a checker that has
 -- consulted ISL.  A token is therefore a certificate that the
 -- named relation holds.
---
--- See the vectorized-crafting-widget plan for the surrounding design.
 module Alpha.Core.Tokens
   ( -- * Token types
     Subset
@@ -481,9 +479,7 @@ checkAgainst i j0 x (y : ys) = Isl.do
 
 -- | Mutual-subset coverage check.  Rematerializes each object per
 -- ISL call: the predicates consume owned sets, so we need fresh
--- objects for the second direction.  Inefficient in the common case
--- (two ISL builds of the same union) but correct; a future
--- elaborator-level intern cache would batch these.
+-- objects for the second direction.
 coverageCheck :: NamedSet -> [NamedSet] -> IslT IO (Ur Bool)
 coverageCheck _     [] = Isl.pure (Ur True)
 coverageCheck ambNS bs = Isl.do
@@ -535,8 +531,7 @@ checkDefinesAll dcs eqs =
 -- fact already proved; no new unsafeCoerce is introduced here — all
 -- token fabrication goes through the existing 'mkToken' seal.
 --
--- TRUST BOUNDARY.  The caller (currently only
--- "Alpha.Surface.Elaborate") must have /materialised/ its 'Named'
+-- TRUST BOUNDARY.  The caller must have /materialised/ its 'Named'
 -- payloads so that they correspond to the same ISL content the
 -- plugin's dict is witnessing about.  The 'SanityCheck' variants
 -- below verify this correspondence at runtime for CI.
@@ -697,9 +692,7 @@ axiomDomEq _ _ = mkToken
 --
 -- TRUST: caller ('Alpha.Surface.Elaborate.elaborate') takes @a@ as an
 -- explicit type argument; any equation whose body's 'DeclType' is not
--- @a@ violates the contract.  A future revision could replace this
--- with per-equation scalar existentials in 'SomeEquation', eliminating
--- the axiom.
+-- @a@ violates the contract.
 axiomScalarEq :: forall a b. a :~: b
 axiomScalarEq = mkToken
 {-# INLINE axiomScalarEq #-}

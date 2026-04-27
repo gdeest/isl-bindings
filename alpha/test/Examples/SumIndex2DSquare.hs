@@ -16,9 +16,8 @@
 
 -- | @A[i,j] = B[i+j]@ on the square @[0,N-1] × [0,N-1]@.
 -- B is 1D over @[0, 2N-2]@.  Exercises evalBoundStr's
--- juxtaposition handling (#4): ISL's dim_max emits @"2N - 2"@
--- (or @"-2 + 2N"@) for B's upper bound, which the pre-fix parser
--- under-allocated.
+-- juxtaposition handling: ISL's dim_max emits @"2N - 2"@
+-- (or @"-2 + 2N"@) for B's upper bound.
 module Examples.SumIndex2DSquare (sumIndex2DSquare) where
 
 import Data.Proxy (Proxy(..))

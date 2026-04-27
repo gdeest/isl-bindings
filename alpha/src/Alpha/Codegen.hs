@@ -65,11 +65,11 @@ data CodegenError
   | MissingScalarDesc !String
     -- ^ @codegen@ was called without a 'ScalarDesc' entry in @descs@
     -- for the named equation.  Surfaced from 'generateFromEqList'
-    -- instead of an @error@ call (#16).
+    -- instead of an @error@ call.
   | MissingReduceIdentity !ReduceOp !String
     -- ^ The 'ScalarDesc' for the named reduction accumulator does
     -- not define an identity for the given 'ReduceOp'
-    -- (@sdReduceIdentity@ is 'Nothing' or returns 'Nothing') — #2.
+    -- (@sdReduceIdentity@ is 'Nothing' or returns 'Nothing').
     -- The second argument is the C type name (for debugging).
   | NonStandardMapConstraint !String !Int
     -- ^ A @Dep@ map equality has a non-±1 coefficient on @OutDim k@
@@ -475,7 +475,7 @@ assembleCSource params fmap' alloc macros skeleton descs domBounds reduceMap = d
         "  for (int64_t _ri = 0; _ri < " ++ sizeExpr n ++ "; _ri++) "
         ++ n ++ "_buf[_ri] = " ++ val ++ ";"
 
-  -- Reduction init: always emit a per-op identity init loop (#2).  The
+  -- Reduction init: always emit a per-op identity init loop.  The
   -- buffer is always calloc'd for local storage, but relying on bitwise
   -- zero being the additive identity is a type-silent coupling; the
   -- explicit init loop makes the type→identity mapping the single source

@@ -14,8 +14,8 @@
 
 -- | Rank-3 Const-only system: @w[i, j, k] = 1.0@ on the N-cube.
 --
--- Used as a v6.2 test fixture for the polymorphic 'tile' transform
--- at rank 3.  Drives both full-rank and partial-rank tile tests:
+-- Test fixture for the polymorphic 'tile' transform at rank 3.
+-- Drives both full-rank and partial-rank tile tests:
 --
 --   * Full: @tileAll @"w" [2, 2, 2]@ — every dim tiled.
 --   * Partial: @tile @"w" [Just 2, Nothing, Just 2]@ — middle dim
